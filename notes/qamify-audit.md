@@ -24,3 +24,9 @@ Selecting a shop item opens a rich product detail message with an image, title, 
 ## Nebula Nook live comparison checkpoint
 
 The live Nebula Nook conversation currently exposes the expected six primary controls: `Freebies`, `Shop`, `Wallet`, `Orders`, `Profile`, and `Support`. The database verification confirms the existing Telegram users each have a $10.00 balance and a single `testing-wallet-credit-v1` ledger entry, while the six original starter products are active and stocked. The implementation is intentionally an original Nebula Nook catalog rather than a verbatim reproduction of Qamify’s names, descriptions, or branding.
+
+## Group purchase announcement and inline product behavior
+
+Telegram Web inspection of Qamify Chat showed the latest announcement in the compact format: `Qamify: User N***** just bought 1× [product emoji] LEONARDO AI VIDEO GEN!`. The announcement has an inline product button labeled `LEONARDO AI VIDEO GEN`; opening it navigates to the Qamify product detail flow, which shows product metadata and `Buy Now`, quantity choices, `Custom Quantity`, `Set Price Alert`, and `« Back to Shop` controls. This confirms the desired pattern: masked buyer + quantity + product emoji/name in the group announcement, with a product button leading back into the bot product/purchase flow.
+
+Observed source: logged-in Telegram Web, Qamify Chat, 2026-08-12.

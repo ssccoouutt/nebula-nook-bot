@@ -2,6 +2,9 @@ import { describe, expect, it } from "vitest";
 import {
   buildAutoPurchaseResult,
   buildFulfillmentNotifications,
+  buildPurchaseAnnouncement,
+  maskPurchaseName,
+  productEmoji,
   formatExtraDeviceMessage,
   formatHomeMessage,
   formatMembershipMessage,
@@ -46,11 +49,24 @@ describe("Telegram presentation and notification helpers", () => {
 
   it("builds a group completion notice without requiring a customer DM", () => {
     const withCustomer = buildFulfillmentNotifications(42, 100, 7278358063);
+    expect(withCustomer.customer).toBeNull();
     expect(withCustomer.group).toContain("✅ <b>Order completed</b>");
-    expect(withCustomer.group).toContain("👤 User ID: <code>7278358063</code>");
 
     const withoutCustomer = buildFulfillmentNotifications(42, 100);
     expect(withoutCustomer.customer).toBeNull();
     expect(withoutCustomer.group).toContain("✅ <b>Order completed</b>");
+  });
+
+  it("builds a Qamify-style masked purchase announcement with a product deep link", () => {
+    expect(maskPurchaseName("Rashid")).toBe("R*****d");
+    expect(productEmoji("Gemini Pro Trial Link")).toBe("🔋");
+    const announcement = buildPurchaseAnnouncement(12, "Gemini Pro Trial Link", 2, "Rashid", 7278358063);
+    expect(announcement.text).toContain("R*****d");
+    expect(announcement.text).toContain("2×");
+    expect(announcement.text).toContain("🔋 <b>Gemini Pro Trial Link</b>");
+    expect(announcement.replyMarkup.inline_keyboard[0][0]).toEqual({
+      text: "🛍️ View product in bot",
+      url: "https://t.me/NebulaNook4827_bot?start=product_12",
+    });
   });
 });

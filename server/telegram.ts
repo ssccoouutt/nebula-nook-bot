@@ -94,9 +94,33 @@ export function formatOrderStatus(orderId: string | number, kind: string, status
   return `${icon} #${orderId} · ${kind} · ${status} · $${(amountCents / 100).toFixed(2)}`;
 }
 
+export function maskPurchaseName(name: string | undefined, telegramUserId?: number) {
+  const raw = (name ?? "User").replace(/[<>]/g, "").trim() || "User";
+  if (raw.length <= 2) return `${raw[0] ?? "U"}***`;
+  return `${raw[0]}*****${raw.slice(-1)}`;
+}
+
+export function productEmoji(productName: string) {
+  const value = productName.toLowerCase();
+  if (value.includes("chatgpt") || value.includes("gemini") || value.includes("ai")) return "🔋";
+  if (value.includes("surfshark") || value.includes("vpn")) return "🛡️";
+  if (value.includes("canva") || value.includes("capcut")) return "🎨";
+  if (value.includes("notion")) return "📝";
+  return "🎁";
+}
+
+export function buildPurchaseAnnouncement(productId: string | number, productName: string, quantity: number, buyerName?: string, telegramUserId?: number) {
+  const maskedName = maskPurchaseName(buyerName, telegramUserId);
+  const botUrl = `https://t.me/NebulaNook4827_bot?start=product_${productId}`;
+  return {
+    text: `🛍️ <b>Nebula Nook</b>\n\n👤 <b>${maskedName}</b> just bought <b>${quantity}×</b> ${productEmoji(productName)} <b>${productName.replace(/[<>]/g, "")}</b>!`,
+    replyMarkup: { inline_keyboard: [[{ text: "🛍️ View product in bot", url: botUrl }]] },
+  };
+}
+
 export function buildFulfillmentNotifications(orderId: string | number, amountCents: number, customerTelegramUserId?: number) {
   return {
-    customer: customerTelegramUserId ? `✅ <b>Order fulfilled</b>\n\n📦 Order: <b>#${orderId}</b>\n\nYour order has been completed. Thank you for choosing Nebula Nook!` : null,
+    customer: null,
     group: `✅ <b>Order completed</b>\n\n📦 Order: <b>#${orderId}</b>${customerTelegramUserId ? `\n👤 User ID: <code>${customerTelegramUserId}</code>` : ""}\n💵 Amount: <b>$${(amountCents / 100).toFixed(2)}</b>`,
   };
 }
@@ -105,7 +129,7 @@ export function formatExtraDeviceMessage() {
   return "📱 <b>Extra device request</b>\n\nPlease contact support with your request:\n<code>/support extra device request</code>";
 }
 
-export async function notifyAdmin(eventType: string, referenceId: string, text: string) {
+export async function notifyAdmin(eventType: string, referenceId: string, text: string, replyMarkup?: unknown) {
   const db = await getDb();
   if (!db) return;
   const gate = await runtimeGate();
@@ -114,7 +138,7 @@ export async function notifyAdmin(eventType: string, referenceId: string, text: 
   if (targetChatId === null) return;
   await db.insert(notificationDeliveries).values({ adminChatId: targetChatId, eventType, referenceId, status: "queued" }).onDuplicateKeyUpdate({ set: { status: "queued" } });
   try {
-    await sendMessage(targetChatId, text);
+    await sendMessage(targetChatId, text, replyMarkup);
     await db.update(notificationDeliveries).set({ status: "sent", sentAt: new Date() }).where(and(eq(notificationDeliveries.eventType, eventType), eq(notificationDeliveries.referenceId, referenceId)));
   } catch (error) {
     await db.update(notificationDeliveries).set({ status: "failed", error: error instanceof Error ? error.message : "notification failed" }).where(and(eq(notificationDeliveries.eventType, eventType), eq(notificationDeliveries.referenceId, referenceId)));
@@ -291,8 +315,9 @@ async function createPurchase(chatId: number, userId: number, productId: number)
   await db.update(products).set({ stock: product.stock - 1 }).where(eq(products.id, product.id));
   await db.insert(walletLedger).values({ botUserId: user.id, amountCents: -product.priceCents, kind: "purchase", referenceId: orderId, note: `Automatic purchase: ${product.name}` });
   const notifications = buildFulfillmentNotifications(orderId, product.priceCents, user.telegramUserId);
+  const announcement = buildPurchaseAnnouncement(product.id, product.name, 1, user.firstName ?? user.username ?? "User", user.telegramUserId);
   await sendMessage(chatId, formatPurchaseConfirmation(orderId, product.name, product.priceCents));
-  await notifyAdmin("order_fulfilled", orderId, notifications.group);
+  await notifyAdmin("order_fulfilled", orderId, announcement.text, announcement.replyMarkup);
 }
 
 async function handleCallback(query: TelegramCallbackQuery) {
@@ -320,8 +345,15 @@ async function handleMessage(message: TelegramMessage) {
   if (!user || !message.text) return;
   const [command, ...rest] = message.text.trim().split(/\s+/);
   const referral = rest.find((part) => part.startsWith("ref_"))?.slice(4);
+  const productDeepLink = rest.find((part) => part.startsWith("product_"))?.slice(8);
   await ensureBotUser(user, referral);
-  if (command === "/start") return showHome(message.chat.id, user.id);
+  if (command === "/start") {
+    if (productDeepLink && /^\d+$/.test(productDeepLink)) {
+      if (!(await requireAccess(message.chat.id, user.id))) return;
+      return showProduct(message.chat.id, Number(productDeepLink));
+    }
+    return showHome(message.chat.id, user.id);
+  }
   if (!(await requireAccess(message.chat.id, user.id))) return;
   if (command === "/shop") return showShop(message.chat.id);
   if (command === "/wallet") return showWallet(message.chat.id, user.id);

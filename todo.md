@@ -65,3 +65,10 @@
 - [x] Remove personal customer/admin completion DMs so fulfillment completion is group-only, and add direct regression coverage.
 - [ ] Verify a wallet-funded purchase auto-completes without dashboard fulfillment in a clean live smoke test; automated regression coverage passes.
 - [x] Record concrete passing-test evidence for compact Shop, automatic completion, and group-only notifications before the next checkpoint; live order creation remains pending.
+
+- [x] Audit the Qamify group purchase announcement format, including masked buyer name, quantity, product emoji/name, and inline bot/product link behavior; verified the product button opens Qamify’s product detail flow.
+- [x] Implement an original Nebula Nook group purchase announcement with privacy-safe buyer masking and an inline button linking to the product flow.
+- [x] Add regression tests for announcement formatting, quantity, product emoji, masked identity, and callback URL.
+- [ ] Verify the new announcement in the configured operations group and publish a checkpoint.
+- [x] Verify and document the live Qamify group announcement inline button label and destination.
+- [ ] Verify the deployed Nebula Nook purchase announcement in the operations group, including its inline product button target.
