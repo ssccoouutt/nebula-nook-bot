@@ -86,3 +86,9 @@
 - [x] Add regression assertions for representative primary and success-styled controls beyond the purchase-announcement URL button; the focused presentation suite now has 7 tests and the full suite has 23 passing tests.
 - [x] Verify a success-styled action and a primary-styled Shop/product action live in Telegram Web; the published Shop and Buy now controls rendered with Telegram Web’s styled button class and white-on-green client presentation.
 - [x] Capture an explicit live Telegram Web DOM sample mapping a Shop/product or Next button text to its rendered class/computed style, and note whether Telegram normalizes primary and success styles visually; live `Shop` and `Buy now` samples used Telegram Web’s `Button ... primary` class with white-on-green rendering.
+
+- [ ] Re-audit every visible Qamify command and button flow available in the logged-in Telegram session, recording message count, labels, destinations, and interaction outcomes.
+- [x] Replace Nebula Nook’s multi-message Freebies response with one compact message and an inline claim/catalog keyboard.
+- [x] Revise Nebula Nook `/start` copy and menu structure against the audited Qamify interaction pattern without copying proprietary branding or text.
+- [x] Add regression coverage for single-message Freebies and the revised start/menu keyboard; type checking and all 24 Vitest tests pass.
+- [ ] Live-test the revised commands and buttons, then publish a verified checkpoint.

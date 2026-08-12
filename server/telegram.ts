@@ -70,7 +70,7 @@ export function formatHomeMessage(details?: { firstName?: string | null; usernam
   const balance = `$${((details?.balanceCents ?? 0) / 100).toFixed(2)}`;
   const referrals = details?.referrals ?? 0;
   const access = details?.access === false ? "🔒 Membership required" : "✅ Membership active";
-  return `✨ <b>Welcome back, ${name}!</b>\n\n👤 <b>Your account</b>\n├ Username: <code>${handle}</code>\n├ Tier: <b>${tier}</b>\n├ Wallet: <b>${balance}</b>\n└ Referrals: <b>${referrals}</b>\n\n${access}\nExplore freebies, browse digital products, and manage your account below:`;
+  return `👋 <b>Welcome to Nebula Nook, ${name}!</b>\n\n👤 <b>Your account</b>\n├ Username: <code>${handle}</code>\n├ Tier: <b>${tier}</b>\n├ Wallet: <b>${balance}</b>\n└ Referrals: <b>${referrals}</b>\n\n${access}\nChoose an option below to claim freebies, shop digital products, or manage your account:`;
 }
 
 export function formatMembershipMessage() {
@@ -93,6 +93,20 @@ export const SHOP_PAGE_SIZE = 6;
 
 export function formatShopSummary(page: number, pageCount: number) {
   return `🛍️ <b>Nebula Nook Shop</b>\n\nChoose a product to view its details and buy instantly.\n\n📄 Page ${page + 1} of ${pageCount}`;
+}
+
+export function formatFreebiesMessage(items: Array<{ name: string; stock: number }>) {
+  const lines = items.map((item) => `🎁 <b>${item.name.replace(/[<&>]/g, "")}</b> · 📦 ${item.stock}`);
+  return `🎁 <b>Nebula Nook Freebies</b>\n\nClaim one available item during its active window.\n\n${lines.join("\n")}`;
+}
+
+export function buildFreebiesKeyboard(items: Array<{ id: number; name: string }>) {
+  const rows: TelegramButton[][] = [];
+  for (let index = 0; index < items.length; index += 2) {
+    rows.push(items.slice(index, index + 2).map((item) => ({ text: `🎁 ${item.name}`.slice(0, 64), callback_data: `claim:${item.id}`, style: "success" as const })));
+  }
+  rows.push([{ text: "↩️ Back to menu", callback_data: "home", style: "primary" }]);
+  return keyboard(rows);
 }
 
 export function formatOrderStatus(orderId: string | number, kind: string, status: string, amountCents: number) {
@@ -272,11 +286,8 @@ async function showFreebies(chatId: number) {
   const db = await getDb();
   if (!db) throw new Error("Database is unavailable");
   const items = await db.select().from(products).where(and(eq(products.active, 1), eq(products.freeEligible, 1))).limit(20);
-  if (!items.length) return sendMessage(chatId, "🎁 <b>Freebies</b>\n\nThere are no free items available right now. Check back soon!");
-  await sendMessage(chatId, "🎁 <b>Freebies</b>\n\nClaim available items during their active window. One claim per window applies.");
-  for (const item of items) {
-    await sendMessage(chatId, `🎁 <b>${item.name}</b>\n${item.description}\n\n📦 Stock: ${item.stock}`, keyboard([[{ text: "🎁 Claim free", callback_data: `claim:${item.id}`, style: "success" }]]));
-  }
+  if (!items.length) return sendMessage(chatId, "🎁 <b>Nebula Nook Freebies</b>\n\nThere are no free items available right now. Check back soon!", buildFreebiesKeyboard([]));
+  return sendMessage(chatId, formatFreebiesMessage(items), buildFreebiesKeyboard(items));
 }
 
 async function showShop(chatId: number, page = 0) {

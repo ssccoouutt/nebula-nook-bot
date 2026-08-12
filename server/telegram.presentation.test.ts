@@ -19,6 +19,8 @@ import {
   buildMembershipKeyboard,
   buildShopKeyboard,
   buildProductKeyboard,
+  formatFreebiesMessage,
+  buildFreebiesKeyboard,
 } from "./telegram";
 
 describe("Telegram presentation and notification helpers", () => {
@@ -31,7 +33,7 @@ describe("Telegram presentation and notification helpers", () => {
 
   it("keeps core messages emoji-led and HTML formatted", () => {
     const home = formatHomeMessage({ firstName: "Rashid", username: "rashid", tier: "Silver", balanceCents: 1000, referrals: 3, access: true });
-    expect(home).toContain("✨ <b>Welcome back, Rashid!</b>");
+    expect(home).toContain("👋 <b>Welcome to Nebula Nook, Rashid!</b>");
     expect(home).toContain("<code>@rashid</code>");
     expect(home).toContain("<b>Silver</b>");
     expect(home).toContain("<b>$10.00</b>");
@@ -49,6 +51,26 @@ describe("Telegram presentation and notification helpers", () => {
     expect(SHOP_PAGE_SIZE).toBe(6);
     expect(formatShopSummary(0, 2)).toContain("📄 Page 1 of 2");
     expect(formatShopSummary(1, 2)).toContain("🛍️ <b>Nebula Nook Shop</b>");
+  });
+
+  it("renders Freebies as one compact message with grouped claim controls", () => {
+    const message = formatFreebiesMessage([
+      { name: "Gemini Pro Trial Link", stock: 40 },
+      { name: "Notion Plus Coupon", stock: 10 },
+    ]);
+    expect(message).toContain("🎁 <b>Nebula Nook Freebies</b>");
+    expect(message).toContain("Gemini Pro Trial Link");
+    expect(message).toContain("Notion Plus Coupon");
+    expect(message.split("Nebula Nook Freebies")).toHaveLength(2);
+
+    const rows = buildFreebiesKeyboard([
+      { id: 2, name: "Gemini Pro Trial Link" },
+      { id: 6, name: "Notion Plus Coupon" },
+    ]).inline_keyboard;
+    expect(rows[0]).toHaveLength(2);
+    expect(rows[0][0]).toMatchObject({ callback_data: "claim:2", style: "success" });
+    expect(rows[0][1]).toMatchObject({ callback_data: "claim:6", style: "success" });
+    expect(rows[1][0]).toMatchObject({ callback_data: "home", style: "primary" });
   });
 
   it("assigns Telegram primary and success styles to representative keyboards", () => {
