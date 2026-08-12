@@ -28,3 +28,7 @@
 - [x] Patch webhook registration handling and add visible diagnostics.
 - [ ] Verify the published webhook registration and restore Telegram bot responsiveness end to end.
 - [x] Remove the dashboard sign-in gate and make the admin UI publicly accessible, with the security tradeoff documented.
+- [ ] Replace the invalid webhook secret with a Telegram-allowed alphanumeric/hyphen/underscore value and verify registration.
+- [ ] Replace the invalid webhook secret with a Telegram-allowed value and validate its character set before registration.
+- [ ] Perform live webhook registration and verify Telegram webhook metadata before delivery.
+- [ ] Send and verify an end-to-end bot update after webhook registration.
