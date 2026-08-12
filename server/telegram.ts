@@ -13,8 +13,8 @@ type TelegramUpdate = { update_id: number; message?: TelegramMessage; callback_q
 const TELEGRAM_API = "https://api.telegram.org/bot";
 const DEFAULT_CHANNEL_ID = process.env.TELEGRAM_MEMBERSHIP_CHANNEL_ID ?? "-1004462190741";
 const DEFAULT_GROUP_ID = process.env.TELEGRAM_MEMBERSHIP_GROUP_ID ?? "-5036785892";
-const DEFAULT_CHANNEL_URL = process.env.TELEGRAM_CHANNEL_JOIN_URL ?? "https://t.me/NebulaNookUpdates";
-const DEFAULT_GROUP_URL = process.env.TELEGRAM_GROUP_JOIN_URL ?? "https://t.me/NebulaNookCommunity";
+const DEFAULT_CHANNEL_URL = process.env.TELEGRAM_CHANNEL_JOIN_URL ?? "https://t.me/+hwT_8FtgDU85Mzlk";
+const DEFAULT_GROUP_URL = process.env.TELEGRAM_GROUP_JOIN_URL ?? "https://t.me/+4I-HIdE73NIyMzI8";
 const recentRequests = new Map<number, number>();
 
 async function telegramCall<T>(method: string, body: Record<string, unknown>): Promise<T> {
@@ -38,14 +38,42 @@ export async function sendTelegramMessage(chatId: number, text: string) {
   return sendMessage(chatId, text);
 }
 
-async function notifyAdmin(eventType: string, referenceId: string, text: string) {
-  const adminChatId = process.env.TELEGRAM_ADMIN_CHAT_ID;
-  if (!adminChatId) return;
+export function resolveNotificationChatId(configuredTarget: string | undefined, runtimeTarget: string | undefined, fallback: string) {
+  const value = configuredTarget ?? runtimeTarget ?? fallback;
+  const chatId = Number(value);
+  return Number.isSafeInteger(chatId) && chatId !== 0 ? chatId : null;
+}
+
+export function formatHomeMessage() {
+  return "✨ <b>Welcome to Nebula Nook</b>\n\nYour hub for digital deals, freebies, referrals, and fast support. Choose an option below:";
+}
+
+export function formatMembershipMessage() {
+  return "🔐 <b>Membership required</b>\n\nJoin both Nebula Nook spaces below, then tap <b>✅ I have joined</b> to unlock the bot.";
+}
+
+export function formatSupportPrompt() {
+  return "🆘 <b>Support</b>\n\nSend your request like this:\n<code>/support your message</code>";
+}
+
+export function formatSupportSubmitted(ticketId: string) {
+  return `✅ <b>Support request received</b>\n\nTicket: <b>#${ticketId}</b>\nOur team will review it shortly.`;
+}
+
+export function formatExtraDeviceMessage() {
+  return "📱 <b>Extra device request</b>\n\nPlease contact support with your request:\n<code>/support extra device request</code>";
+}
+
+export async function notifyAdmin(eventType: string, referenceId: string, text: string) {
   const db = await getDb();
   if (!db) return;
-  await db.insert(notificationDeliveries).values({ adminChatId: Number(adminChatId), eventType, referenceId, status: "queued" }).onDuplicateKeyUpdate({ set: { status: "queued" } });
+  const gate = await runtimeGate();
+  const configuredTarget = process.env.TELEGRAM_ORDER_NOTIFICATION_CHAT_ID ?? process.env.TELEGRAM_ADMIN_CHAT_ID;
+  const targetChatId = resolveNotificationChatId(configuredTarget, gate.notificationChatId, gate.groupId);
+  if (targetChatId === null) return;
+  await db.insert(notificationDeliveries).values({ adminChatId: targetChatId, eventType, referenceId, status: "queued" }).onDuplicateKeyUpdate({ set: { status: "queued" } });
   try {
-    await sendMessage(Number(adminChatId), text);
+    await sendMessage(targetChatId, text);
     await db.update(notificationDeliveries).set({ status: "sent", sentAt: new Date() }).where(and(eq(notificationDeliveries.eventType, eventType), eq(notificationDeliveries.referenceId, referenceId)));
   } catch (error) {
     await db.update(notificationDeliveries).set({ status: "failed", error: error instanceof Error ? error.message : "notification failed" }).where(and(eq(notificationDeliveries.eventType, eventType), eq(notificationDeliveries.referenceId, referenceId)));
@@ -63,13 +91,14 @@ function keyboard(rows: Array<Array<{ text: string; callback_data?: string; url?
 async function runtimeGate() {
   const db = await getDb();
   if (!db) return { channelId: DEFAULT_CHANNEL_ID, groupId: DEFAULT_GROUP_ID, channelUrl: DEFAULT_CHANNEL_URL, groupUrl: DEFAULT_GROUP_URL };
-  const rows = await db.select().from(botSettings).where(sql`\`key\` in ('membership_channel_id', 'membership_group_id', 'membership_channel_url', 'membership_group_url')`);
+  const rows = await db.select().from(botSettings).where(sql`\`key\` in ('membership_channel_id', 'membership_group_id', 'membership_channel_url', 'membership_group_url', 'notification_chat_id')`);
   const values = Object.fromEntries(rows.map((row) => [row.key, row.value]));
   return {
     channelId: values.membership_channel_id || DEFAULT_CHANNEL_ID,
     groupId: values.membership_group_id || DEFAULT_GROUP_ID,
     channelUrl: values.membership_channel_url || DEFAULT_CHANNEL_URL,
     groupUrl: values.membership_group_url || DEFAULT_GROUP_URL,
+    notificationChatId: values.notification_chat_id || DEFAULT_GROUP_ID,
   };
 }
 
@@ -111,20 +140,20 @@ async function requireAccess(chatId: number, userId: number) {
   const status = await membershipStatus(userId);
   if (status.access) return true;
   const gate = await runtimeGate();
-  await sendMessage(chatId, "Please join both membership spaces, then tap <b>I have joined</b>.", keyboard([
-    [{ text: "Join Channel", url: gate.channelUrl }],
-    [{ text: "Join Group", url: gate.groupUrl }],
-    [{ text: "I have joined", callback_data: "verify_membership" }],
+  await sendMessage(chatId, formatMembershipMessage(), keyboard([
+    [{ text: "📣 Join Updates Channel", url: gate.channelUrl }],
+    [{ text: "👥 Join Community Group", url: gate.groupUrl }],
+    [{ text: "✅ I have joined", callback_data: "verify_membership" }],
   ]));
   return false;
 }
 
 async function showHome(chatId: number, userId: number) {
   if (!(await requireAccess(chatId, userId))) return;
-  await sendMessage(chatId, "<b>Nebula Nook</b>\nChoose an option below.", keyboard([
-    [{ text: "Freebies", callback_data: "freebies" }, { text: "Shop", callback_data: "shop" }],
-    [{ text: "Wallet", callback_data: "wallet" }, { text: "Orders", callback_data: "orders" }],
-    [{ text: "Profile", callback_data: "profile" }, { text: "Support", callback_data: "support" }],
+  await sendMessage(chatId, formatHomeMessage(), keyboard([
+    [{ text: "🎁 Freebies", callback_data: "freebies" }, { text: "🛍️ Shop", callback_data: "shop" }],
+    [{ text: "💳 Wallet", callback_data: "wallet" }, { text: "📦 Orders", callback_data: "orders" }],
+    [{ text: "👤 Profile", callback_data: "profile" }, { text: "🆘 Support", callback_data: "support" }],
   ]));
 }
 
@@ -132,10 +161,10 @@ async function showFreebies(chatId: number) {
   const db = await getDb();
   if (!db) throw new Error("Database is unavailable");
   const items = await db.select().from(products).where(and(eq(products.active, 1), eq(products.freeEligible, 1))).limit(20);
-  if (!items.length) return sendMessage(chatId, "No freebies are configured yet.");
-  await sendMessage(chatId, "<b>Freebies</b>\nEach item is claimable once per configured free window.");
+  if (!items.length) return sendMessage(chatId, "🎁 <b>Freebies</b>\n\nThere are no free items available right now. Check back soon!");
+  await sendMessage(chatId, "🎁 <b>Freebies</b>\n\nClaim available items during their active window. One claim per window applies.");
   for (const item of items) {
-    await sendMessage(chatId, `<b>${item.name}</b>\n${item.description}\nStock: ${item.stock}`, keyboard([[{ text: "Claim free", callback_data: `claim:${item.id}` }]]));
+    await sendMessage(chatId, `🎁 <b>${item.name}</b>\n${item.description}\n\n📦 Stock: ${item.stock}`, keyboard([[{ text: "🎁 Claim free", callback_data: `claim:${item.id}` }]]));
   }
 }
 
@@ -143,9 +172,9 @@ async function showShop(chatId: number) {
   const db = await getDb();
   if (!db) throw new Error("Database is unavailable");
   const items = await db.select().from(products).where(eq(products.active, 1)).limit(30);
-  if (!items.length) return sendMessage(chatId, "The shop is empty. Admins can add products from the dashboard.");
-  await sendMessage(chatId, "<b>Shop</b>");
-  for (const item of items) await sendMessage(chatId, `<b>${item.name}</b>\n${item.description}\nPrice: $${(item.priceCents / 100).toFixed(2)}\nStock: ${item.stock}`, keyboard([[{ text: "Buy", callback_data: `buy:${item.id}` }]]));
+  if (!items.length) return sendMessage(chatId, "🛍️ <b>Shop</b>\n\nThe catalog is empty right now. Please check back soon.");
+  await sendMessage(chatId, "🛍️ <b>Shop</b>\n\nBrowse the latest digital products and choose an item to continue.");
+  for (const item of items) await sendMessage(chatId, `✨ <b>${item.name}</b>\n${item.description}\n\n💵 Price: $${(item.priceCents / 100).toFixed(2)}\n📦 Stock: ${item.stock}`, keyboard([[{ text: "🛒 Buy now", callback_data: `buy:${item.id}` }]]));
 }
 
 async function showWallet(chatId: number, userId: number) {
@@ -154,7 +183,7 @@ async function showWallet(chatId: number, userId: number) {
   const user = (await db.select().from(botUsers).where(eq(botUsers.telegramUserId, userId)).limit(1))[0];
   const ledger = await db.select().from(walletLedger).where(eq(walletLedger.botUserId, user?.id ?? -1)).orderBy(desc(walletLedger.createdAt)).limit(1000);
   const history = ledger.length ? ledger.map((entry) => `${entry.amountCents >= 0 ? "+" : ""}$${(entry.amountCents / 100).toFixed(2)} — ${entry.kind}`).join("\n") : "No ledger activity yet.";
-  await sendMessage(chatId, `<b>Wallet</b>\nBalance: $${((user?.balanceCents ?? 0) / 100).toFixed(2)}\n\n${history}`);
+  await sendMessage(chatId, `💳 <b>Wallet</b>\n\n💰 Balance: $${((user?.balanceCents ?? 0) / 100).toFixed(2)}\n\n📒 <b>Recent activity</b>\n${history}`);
 }
 
 async function showOrders(chatId: number, userId: number) {
@@ -162,7 +191,7 @@ async function showOrders(chatId: number, userId: number) {
   if (!db) throw new Error("Database is unavailable");
   const user = (await db.select().from(botUsers).where(eq(botUsers.telegramUserId, userId)).limit(1))[0];
   const rows = await db.select().from(orders).where(eq(orders.botUserId, user?.id ?? -1)).orderBy(desc(orders.createdAt)).limit(1000);
-  await sendMessage(chatId, rows.length ? `<b>Orders</b>\n${rows.map((o) => `#${o.id} ${o.kind} — ${o.status} — $${(o.amountCents / 100).toFixed(2)}`).join("\n")}` : "No orders yet.");
+  await sendMessage(chatId, rows.length ? `📦 <b>Orders</b>\n\n${rows.map((o) => `${o.status === "fulfilled" ? "✅" : o.status === "cancelled" ? "❌" : "⏳"} #${o.id} · ${o.kind} · ${o.status} · $${(o.amountCents / 100).toFixed(2)}`).join("\n")}` : "📦 <b>Orders</b>\n\nYou do not have any orders yet.");
 }
 
 async function showProfile(chatId: number, userId: number) {
@@ -170,7 +199,7 @@ async function showProfile(chatId: number, userId: number) {
   if (!db) throw new Error("Database is unavailable");
   const user = (await db.select().from(botUsers).where(eq(botUsers.telegramUserId, userId)).limit(1))[0];
   const referralsCount = await db.select({ count: sql<number>`count(*)` }).from(referrals).where(eq(referrals.referrerId, user?.id ?? -1));
-  await sendMessage(chatId, `<b>Profile</b>\nName: ${user?.firstName ?? "User"}\nTier: ${user?.tier ?? "Bronze"}\nReferrals: ${Number(referralsCount[0]?.count ?? 0)}\nReferral link: https://t.me/NebulaNook4827_bot?start=ref_${user?.referralCode ?? ""}`);
+  await sendMessage(chatId, `👤 <b>Profile</b>\n\n🪪 Name: ${user?.firstName ?? "User"}\n🏅 Tier: ${user?.tier ?? "Bronze"}\n🤝 Referrals: ${Number(referralsCount[0]?.count ?? 0)}\n\n🔗 Your referral link:\nhttps://t.me/NebulaNook4827_bot?start=ref_${user?.referralCode ?? ""}`);
 }
 
 async function claimFree(chatId: number, userId: number, productId: number) {
@@ -178,15 +207,15 @@ async function claimFree(chatId: number, userId: number, productId: number) {
   if (!db) throw new Error("Database is unavailable");
   const user = (await db.select().from(botUsers).where(eq(botUsers.telegramUserId, userId)).limit(1))[0];
   const product = (await db.select().from(products).where(eq(products.id, productId)).limit(1))[0];
-  if (!user || !product || !product.freeEligible || !product.freeWindowMs || product.stock <= 0) return sendMessage(chatId, "This free item is unavailable.");
+  if (!user || !product || !product.freeEligible || !product.freeWindowMs || product.stock <= 0) return sendMessage(chatId, "⚠️ This free item is currently unavailable.");
   const now = Date.now();
   const windowStart = freeWindowStart(now, product.freeWindowMs);
   const last = await db.select().from(freeClaims).where(and(eq(freeClaims.botUserId, user.id), eq(freeClaims.productId, product.id))).orderBy(desc(freeClaims.createdAt)).limit(1);
-  if (!canClaimFreeItem(last[0] ? Number(last[0].windowStartMs) : null, now, product.freeWindowMs)) return sendMessage(chatId, "You have already claimed this item during the current free window.");
+  if (!canClaimFreeItem(last[0] ? Number(last[0].windowStartMs) : null, now, product.freeWindowMs)) return sendMessage(chatId, "⏳ You have already claimed this item during the current free window.");
   await db.insert(freeClaims).values({ botUserId: user.id, productId: product.id, windowStartMs: windowStart, status: "claimed" });
   await db.update(products).set({ stock: product.stock - 1 }).where(eq(products.id, product.id));
   const order = await db.insert(orders).values({ botUserId: user.id, productId: product.id, kind: "free", amountCents: 0, status: "fulfilled" });
-  await sendMessage(chatId, `Free claim recorded for <b>${product.name}</b>.`);
+  await sendMessage(chatId, `✅ <b>Free claim recorded</b>\n\n🎁 ${product.name}\n\nYour claim has been added to your order history.`);
   await notifyAdmin("free_claim", `${user.id}:${product.id}:${windowStart}`, `<b>Free claim</b>\nUser: ${user.telegramUserId}\nProduct: ${product.name}`);
 }
 
@@ -195,10 +224,10 @@ async function createPurchase(chatId: number, userId: number, productId: number)
   if (!db) throw new Error("Database is unavailable");
   const user = (await db.select().from(botUsers).where(eq(botUsers.telegramUserId, userId)).limit(1))[0];
   const product = (await db.select().from(products).where(eq(products.id, productId)).limit(1))[0];
-  if (!user || !product || product.stock <= 0 || !product.active) return sendMessage(chatId, "This product is unavailable.");
+  if (!user || !product || product.stock <= 0 || !product.active) return sendMessage(chatId, "⚠️ This product is currently unavailable.");
   const result = await db.insert(orders).values({ botUserId: user.id, productId: product.id, kind: "purchase", amountCents: product.priceCents, status: "pending" });
   const orderId = String(result[0]?.insertId ?? `${user.id}:${product.id}:${Date.now()}`);
-  await sendMessage(chatId, `Order <b>#${orderId}</b> created for <b>${product.name}</b>. An admin will confirm fulfillment.`);
+  await sendMessage(chatId, `🧾 <b>Order received</b>\n\nOrder: <b>#${orderId}</b>\nProduct: <b>${product.name}</b>\nAmount: <b>$${(product.priceCents / 100).toFixed(2)}</b>\n\n⏳ An admin will review and fulfill your order shortly.`);
   await notifyAdmin("purchase", orderId, `<b>New purchase order #${orderId}</b>\nUser: ${user.telegramUserId}\nProduct: ${product.name}\nAmount: $${(product.priceCents / 100).toFixed(2)}`);
 }
 
@@ -215,7 +244,7 @@ async function handleCallback(query: TelegramCallbackQuery) {
   if (data === "wallet") return showWallet(chatId, userId);
   if (data === "orders") return showOrders(chatId, userId);
   if (data === "profile") return showProfile(chatId, userId);
-  if (data === "support") return sendMessage(chatId, "Send your support request as: /support your message");
+  if (data === "support") return sendMessage(chatId, formatSupportPrompt());
   if (data.startsWith("claim:")) return claimFree(chatId, userId, Number(data.slice(6)));
   if (data.startsWith("buy:")) return createPurchase(chatId, userId, Number(data.slice(4)));
 }
@@ -234,21 +263,25 @@ async function handleMessage(message: TelegramMessage) {
   if (command === "/profile") return showProfile(message.chat.id, user.id);
   if (command === "/support") {
     const body = rest.filter((part) => !part.startsWith("ref_")).join(" ").trim();
-    if (!body) return sendMessage(message.chat.id, "Send your support request as: /support your message");
+    if (!body) return sendMessage(message.chat.id, formatSupportPrompt());
     const db = await getDb();
     if (!db) throw new Error("Database is unavailable");
     const botUser = (await db.select().from(botUsers).where(eq(botUsers.telegramUserId, user.id)).limit(1))[0];
     const ticketResult = await db.insert(supportTickets).values({ botUserId: botUser.id, message: body, status: "open" });
     const ticketId = String(ticketResult[0]?.insertId ?? `${user.id}:${Date.now()}`);
     await notifyAdmin("support", ticketId, `<b>New support ticket #${ticketId}</b>\nFrom: ${user.first_name ?? "User"} (${user.id})\n\n${body}`);
-    return sendMessage(message.chat.id, `Your support request <b>#${ticketId}</b> has been submitted.`);
+    return sendMessage(message.chat.id, formatSupportSubmitted(ticketId));
   }
-  if (command === "/extra_device") return sendMessage(message.chat.id, "Extra-device requests are handled by support: /support extra device request");
+  if (command === "/extra_device") return sendMessage(message.chat.id, formatExtraDeviceMessage());
   return showHome(message.chat.id, user.id);
 }
 
 export function validTelegramWebhookSecret(value: string | undefined) {
   return value && /^[A-Za-z0-9_-]{1,256}$/.test(value) ? value : undefined;
+}
+
+export function validTelegramJoinUrl(value: string) {
+  return /^https:\/\/t\.me\/(?:\+[A-Za-z0-9_-]+|[A-Za-z0-9_]{5,})$/.test(value.trim());
 }
 
 export async function configureTelegramWebhook(webhookUrl: string) {

@@ -7,7 +7,7 @@ import { publicProcedure, router } from "./_core/trpc";
 import { getDb } from "./db";
 import { botSettings, botUsers, broadcasts, orders, products, supportTickets, walletLedger } from "../drizzle/schema";
 import { TRPCError } from "@trpc/server";
-import { configureTelegramWebhook, sendTelegramMessage } from "./telegram";
+import { configureTelegramWebhook, notifyAdmin, sendTelegramMessage, validTelegramJoinUrl } from "./telegram";
 
 // Public dashboard mode is intentionally enabled at the user’s request.
 // Keep secrets server-side, but note that all dashboard mutations are publicly callable.
@@ -58,8 +58,17 @@ export const appRouter = router({
     }),
     settings: adminProcedure.query(async () => (await database()).select().from(botSettings).orderBy(botSettings.key)),
     setSetting: adminProcedure.input(z.object({ key: z.string().min(1).max(128), value: z.string().max(10000) })).mutation(async ({ input }) => {
+      const allowedKeys = new Set(["membership_channel_id", "membership_group_id", "membership_channel_url", "membership_group_url", "notification_chat_id"]);
+      if (!allowedKeys.has(input.key)) throw new TRPCError({ code: "BAD_REQUEST", message: "Unsupported setting key" });
+      if (input.key.endsWith("_url")) {
+        const url = input.value.trim();
+        if (!validTelegramJoinUrl(url)) throw new TRPCError({ code: "BAD_REQUEST", message: "Use a valid Telegram public link or invite link such as https://t.me/+..." });
+      }
+      if (input.key.endsWith("_id")) {
+        if (!/^-?\d+$/.test(input.value.trim())) throw new TRPCError({ code: "BAD_REQUEST", message: "Chat IDs must be numeric, for example -1001234567890" });
+      }
       const db = await database();
-      await db.insert(botSettings).values(input).onDuplicateKeyUpdate({ set: { value: input.value } });
+      await db.insert(botSettings).values({ key: input.key, value: input.value.trim() }).onDuplicateKeyUpdate({ set: { value: input.value.trim() } });
       return { success: true };
     }),
     users: adminProcedure.query(async () => (await database()).select().from(botUsers).orderBy(desc(botUsers.createdAt)).limit(200)),
@@ -72,7 +81,17 @@ export const appRouter = router({
       await db.update(orders).set({ status: input.status }).where(eq(orders.id, input.id));
       if (input.status === "fulfilled") {
         const users = await db.select().from(botUsers).where(eq(botUsers.id, order.botUserId)).limit(1);
-        if (users[0]) await sendTelegramMessage(users[0].telegramUserId, `Order <b>#${order.id}</b> has been marked fulfilled.`);
+        const customer = users[0];
+        if (customer) {
+          try {
+            await sendTelegramMessage(customer.telegramUserId, `✅ <b>Order fulfilled</b>\n\n📦 Order: <b>#${order.id}</b>\n\nYour order has been completed. Thank you for choosing Nebula Nook!`);
+          } catch (error) {
+            console.error("[Telegram] customer fulfillment notification failed", error);
+          }
+          await notifyAdmin("order_fulfilled", String(order.id), `✅ <b>Order completed</b>\n\n📦 Order: <b>#${order.id}</b>\n👤 User ID: <code>${customer.telegramUserId}</code>\n💵 Amount: <b>$${(order.amountCents / 100).toFixed(2)}`);
+        } else {
+          await notifyAdmin("order_fulfilled", String(order.id), `✅ <b>Order completed</b>\n\n📦 Order: <b>#${order.id}</b>\n💵 Amount: <b>$${(order.amountCents / 100).toFixed(2)}`);
+        }
       }
       return { success: true };
     }),

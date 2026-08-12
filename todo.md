@@ -37,3 +37,12 @@
 - [x] Verify a real `/start` update receives a successful bot response and complete the end-to-end delivery item.
 
 **Progress note:** Live `/start` verification succeeded after quoting the reserved SQL column `key` in the membership-settings query. Telegram Web shows the Nebula Nook reply menu with Freebies, Shop, Wallet, Orders, Profile, and Support buttons.
+
+- [x] Audit and fix completed-order notifications so fulfillment events are delivered to the configured admin/group chat.
+- [x] Repair membership channel/group join links and validation so users do not see `username not found` for configured spaces.
+- [x] Upgrade Telegram bot copy, emojis, keyboards, and status messages into a polished, consistent commerce experience inspired by the requested interaction quality without copying proprietary text or branding.
+- [x] Add regression coverage for group notifications, membership-link validation, and formatted command responses.
+- [ ] Verify the revised flows in Telegram and save a new production checkpoint.
+- [ ] Add Vitest coverage for fulfilled-order notification delivery, including configured notification group targeting and customer-DM failure isolation.
+- [ ] Add regression tests for formatted home, membership, purchase, support, and status responses.
+- [ ] Polish the remaining plain-text support and extra-device responses with the same emoji and formatting language.
