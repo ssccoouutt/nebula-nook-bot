@@ -60,6 +60,22 @@ export function formatSupportSubmitted(ticketId: string) {
   return `✅ <b>Support request received</b>\n\nTicket: <b>#${ticketId}</b>\nOur team will review it shortly.`;
 }
 
+export function formatPurchaseConfirmation(orderId: string | number, productName: string, amountCents: number) {
+  return `🧾 <b>Order received</b>\n\nOrder: <b>#${orderId}</b>\nProduct: <b>${productName}</b>\nAmount: <b>$${(amountCents / 100).toFixed(2)}</b>\n\n⏳ An admin will review and fulfill your order shortly.`;
+}
+
+export function formatOrderStatus(orderId: string | number, kind: string, status: string, amountCents: number) {
+  const icon = status === "fulfilled" ? "✅" : status === "cancelled" ? "❌" : "⏳";
+  return `${icon} #${orderId} · ${kind} · ${status} · $${(amountCents / 100).toFixed(2)}`;
+}
+
+export function buildFulfillmentNotifications(orderId: string | number, amountCents: number, customerTelegramUserId?: number) {
+  return {
+    customer: customerTelegramUserId ? `✅ <b>Order fulfilled</b>\n\n📦 Order: <b>#${orderId}</b>\n\nYour order has been completed. Thank you for choosing Nebula Nook!` : null,
+    group: `✅ <b>Order completed</b>\n\n📦 Order: <b>#${orderId}</b>${customerTelegramUserId ? `\n👤 User ID: <code>${customerTelegramUserId}</code>` : ""}\n💵 Amount: <b>$${(amountCents / 100).toFixed(2)}</b>`,
+  };
+}
+
 export function formatExtraDeviceMessage() {
   return "📱 <b>Extra device request</b>\n\nPlease contact support with your request:\n<code>/support extra device request</code>";
 }
@@ -191,7 +207,7 @@ async function showOrders(chatId: number, userId: number) {
   if (!db) throw new Error("Database is unavailable");
   const user = (await db.select().from(botUsers).where(eq(botUsers.telegramUserId, userId)).limit(1))[0];
   const rows = await db.select().from(orders).where(eq(orders.botUserId, user?.id ?? -1)).orderBy(desc(orders.createdAt)).limit(1000);
-  await sendMessage(chatId, rows.length ? `📦 <b>Orders</b>\n\n${rows.map((o) => `${o.status === "fulfilled" ? "✅" : o.status === "cancelled" ? "❌" : "⏳"} #${o.id} · ${o.kind} · ${o.status} · $${(o.amountCents / 100).toFixed(2)}`).join("\n")}` : "📦 <b>Orders</b>\n\nYou do not have any orders yet.");
+  await sendMessage(chatId, rows.length ? `📦 <b>Orders</b>\n\n${rows.map((o) => formatOrderStatus(o.id, o.kind, o.status, o.amountCents)).join("\n")}` : "📦 <b>Orders</b>\n\nYou do not have any orders yet.");
 }
 
 async function showProfile(chatId: number, userId: number) {
@@ -227,7 +243,7 @@ async function createPurchase(chatId: number, userId: number, productId: number)
   if (!user || !product || product.stock <= 0 || !product.active) return sendMessage(chatId, "⚠️ This product is currently unavailable.");
   const result = await db.insert(orders).values({ botUserId: user.id, productId: product.id, kind: "purchase", amountCents: product.priceCents, status: "pending" });
   const orderId = String(result[0]?.insertId ?? `${user.id}:${product.id}:${Date.now()}`);
-  await sendMessage(chatId, `🧾 <b>Order received</b>\n\nOrder: <b>#${orderId}</b>\nProduct: <b>${product.name}</b>\nAmount: <b>$${(product.priceCents / 100).toFixed(2)}</b>\n\n⏳ An admin will review and fulfill your order shortly.`);
+  await sendMessage(chatId, formatPurchaseConfirmation(orderId, product.name, product.priceCents));
   await notifyAdmin("purchase", orderId, `<b>New purchase order #${orderId}</b>\nUser: ${user.telegramUserId}\nProduct: ${product.name}\nAmount: $${(product.priceCents / 100).toFixed(2)}`);
 }
 

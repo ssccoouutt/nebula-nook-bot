@@ -1,8 +1,11 @@
 import { describe, expect, it } from "vitest";
 import {
+  buildFulfillmentNotifications,
   formatExtraDeviceMessage,
   formatHomeMessage,
   formatMembershipMessage,
+  formatOrderStatus,
+  formatPurchaseConfirmation,
   formatSupportPrompt,
   formatSupportSubmitted,
   resolveNotificationChatId,
@@ -22,5 +25,17 @@ describe("Telegram presentation and notification helpers", () => {
     expect(formatSupportPrompt()).toContain("🆘 <b>Support</b>");
     expect(formatSupportSubmitted("42")).toContain("✅ <b>Support request received</b>");
     expect(formatExtraDeviceMessage()).toContain("📱 <b>Extra device request</b>");
+    expect(formatPurchaseConfirmation(42, "Premium", 100)).toContain("🧾 <b>Order received</b>");
+    expect(formatOrderStatus(42, "purchase", "fulfilled", 100)).toContain("✅ #42 · purchase · fulfilled");
+  });
+
+  it("builds both fulfillment notifications so a failed customer DM cannot remove the group message", () => {
+    const withCustomer = buildFulfillmentNotifications(42, 100, 7278358063);
+    expect(withCustomer.customer).toContain("✅ <b>Order fulfilled</b>");
+    expect(withCustomer.group).toContain("👤 User ID: <code>7278358063</code>");
+
+    const withoutCustomer = buildFulfillmentNotifications(42, 100);
+    expect(withoutCustomer.customer).toBeNull();
+    expect(withoutCustomer.group).toContain("✅ <b>Order completed</b>");
   });
 });

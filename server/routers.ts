@@ -7,7 +7,7 @@ import { publicProcedure, router } from "./_core/trpc";
 import { getDb } from "./db";
 import { botSettings, botUsers, broadcasts, orders, products, supportTickets, walletLedger } from "../drizzle/schema";
 import { TRPCError } from "@trpc/server";
-import { configureTelegramWebhook, notifyAdmin, sendTelegramMessage, validTelegramJoinUrl } from "./telegram";
+import { buildFulfillmentNotifications, configureTelegramWebhook, notifyAdmin, sendTelegramMessage, validTelegramJoinUrl } from "./telegram";
 
 // Public dashboard mode is intentionally enabled at the user’s request.
 // Keep secrets server-side, but note that all dashboard mutations are publicly callable.
@@ -82,16 +82,15 @@ export const appRouter = router({
       if (input.status === "fulfilled") {
         const users = await db.select().from(botUsers).where(eq(botUsers.id, order.botUserId)).limit(1);
         const customer = users[0];
-        if (customer) {
+        const notifications = buildFulfillmentNotifications(String(order.id), order.amountCents, customer?.telegramUserId);
+        if (customer && notifications.customer) {
           try {
-            await sendTelegramMessage(customer.telegramUserId, `✅ <b>Order fulfilled</b>\n\n📦 Order: <b>#${order.id}</b>\n\nYour order has been completed. Thank you for choosing Nebula Nook!`);
+            await sendTelegramMessage(customer.telegramUserId, notifications.customer);
           } catch (error) {
             console.error("[Telegram] customer fulfillment notification failed", error);
           }
-          await notifyAdmin("order_fulfilled", String(order.id), `✅ <b>Order completed</b>\n\n📦 Order: <b>#${order.id}</b>\n👤 User ID: <code>${customer.telegramUserId}</code>\n💵 Amount: <b>$${(order.amountCents / 100).toFixed(2)}`);
-        } else {
-          await notifyAdmin("order_fulfilled", String(order.id), `✅ <b>Order completed</b>\n\n📦 Order: <b>#${order.id}</b>\n💵 Amount: <b>$${(order.amountCents / 100).toFixed(2)}`);
         }
+        await notifyAdmin("order_fulfilled", String(order.id), notifications.group);
       }
       return { success: true };
     }),
