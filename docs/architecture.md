@@ -27,3 +27,9 @@ Configure `membership_channel_id`, `membership_group_id`, `membership_channel_ur
 The project is prepared for the default free Autoscale hosting mode. The webhook endpoint remains available at `/api/telegram/webhook`, and an incoming Telegram update can wake the application to process that request. Autoscale is request-scoped, however, so it does not guarantee a continuously running 24/7 process. Background workers, scheduled broadcasts, and in-memory state may pause while the service is idle. Reserved Hosting is the appropriate upgrade when uninterrupted process execution is required, but this project intentionally remains on Autoscale to avoid paid hosting.
 
 After publishing, use the authenticated admin dashboard’s **Settings → Register webhook** control to register the published HTTPS URL with Telegram. The bot token, admin chat ID, and webhook secret remain server-side environment variables and are never placed in client code.
+
+## Public dashboard mode
+
+The dashboard is intentionally available without sign-in at the user’s request. Consequently, dashboard queries and mutations—including product changes, settings changes, webhook registration, order fulfillment, and broadcast queueing—are publicly callable. This mode is suitable only for temporary or tightly restricted testing. Before production use, place the dashboard behind authentication, an access-controlled domain, or an equivalent network boundary. The Telegram bot token and webhook secret remain server-side and are never rendered in the dashboard.
+
+Webhook registration uses the forwarded public host and returns Telegram’s webhook metadata. The dashboard displays either a verified registration result or the actual error message instead of silently appearing inactive.

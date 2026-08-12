@@ -6,7 +6,7 @@ import { createExpressMiddleware } from "@trpc/server/adapters/express";
 import { registerOAuthRoutes } from "./oauth";
 import { registerStorageProxy } from "./storageProxy";
 import { appRouter } from "../routers";
-import { telegramWebhookHandler } from "../telegram";
+import { telegramWebhookHandler, telegramWebhookHealth } from "../telegram";
 import { createContext } from "./context";
 import { serveStatic, setupVite } from "./vite";
 
@@ -37,6 +37,7 @@ async function startServer() {
   app.use(express.urlencoded({ limit: "50mb", extended: true }));
   registerStorageProxy(app);
   registerOAuthRoutes(app);
+  app.get("/api/telegram/webhook/health", telegramWebhookHealth);
   app.post("/api/telegram/webhook", telegramWebhookHandler);
   // tRPC API
   app.use(

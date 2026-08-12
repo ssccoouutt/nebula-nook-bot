@@ -3,16 +3,15 @@ import { desc, eq, sql } from "drizzle-orm";
 import { COOKIE_NAME } from "@shared/const";
 import { getSessionCookieOptions } from "./_core/cookies";
 import { systemRouter } from "./_core/systemRouter";
-import { publicProcedure, protectedProcedure, router } from "./_core/trpc";
+import { publicProcedure, router } from "./_core/trpc";
 import { getDb } from "./db";
 import { botSettings, botUsers, broadcasts, orders, products, supportTickets, walletLedger } from "../drizzle/schema";
 import { TRPCError } from "@trpc/server";
 import { configureTelegramWebhook, sendTelegramMessage } from "./telegram";
 
-const adminProcedure = protectedProcedure.use(({ ctx, next }) => {
-  if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN", message: "Admin access required" });
-  return next();
-});
+// Public dashboard mode is intentionally enabled at the user’s request.
+// Keep secrets server-side, but note that all dashboard mutations are publicly callable.
+const adminProcedure = publicProcedure;
 
 async function database() {
   const db = await getDb();
@@ -79,11 +78,12 @@ export const appRouter = router({
     }),
     tickets: adminProcedure.query(async () => (await database()).select().from(supportTickets).orderBy(desc(supportTickets.createdAt)).limit(200)),
     configureWebhook: adminProcedure.mutation(async ({ ctx }) => {
-      const protocol = String(ctx.req.headers["x-forwarded-proto"] ?? ctx.req.protocol ?? "https").split(",")[0];
-      const host = ctx.req.headers.host;
+      const protocol = String(ctx.req.headers["x-forwarded-proto"] ?? ctx.req.protocol ?? "https").split(",")[0].trim();
+      const host = String(ctx.req.headers["x-forwarded-host"] ?? ctx.req.headers.host ?? "").split(",")[0].trim();
       if (!host) throw new TRPCError({ code: "BAD_REQUEST", message: "Public host is unavailable" });
-      await configureTelegramWebhook(`${protocol}://${host}/api/telegram/webhook`);
-      return { success: true, webhookUrl: `${protocol}://${host}/api/telegram/webhook` };
+      const webhookUrl = `${protocol}://${host}/api/telegram/webhook`;
+      const webhook = await configureTelegramWebhook(webhookUrl);
+      return { success: true, webhookUrl, webhook };
     }),
     queueBroadcast: adminProcedure.input(z.object({ message: z.string().min(1).max(4000) })).mutation(async ({ input }) => {
       const db = await database();

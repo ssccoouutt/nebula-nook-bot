@@ -248,8 +248,19 @@ async function handleMessage(message: TelegramMessage) {
 }
 
 export async function configureTelegramWebhook(webhookUrl: string) {
+  if (!/^https:\/\//i.test(webhookUrl)) throw new Error("Webhook URL must use HTTPS");
   const secret = process.env.TELEGRAM_WEBHOOK_SECRET;
-  return telegramCall("setWebhook", { url: webhookUrl, ...(secret ? { secret_token: secret } : {}) });
+  await telegramCall("setWebhook", { url: webhookUrl, ...(secret ? { secret_token: secret } : {}) });
+  return telegramCall<{ url: string; has_custom_certificate: boolean; pending_update_count: number; last_error_message?: string }>("getWebhookInfo", {});
+}
+
+export async function telegramWebhookHealth(_req: Request, res: Response) {
+  try {
+    const info = await telegramCall<{ url: string; pending_update_count: number; last_error_message?: string }>("getWebhookInfo", {});
+    return res.json({ ok: true, webhook: info });
+  } catch (error) {
+    return res.status(503).json({ ok: false, error: error instanceof Error ? error.message : "Telegram unavailable" });
+  }
 }
 
 export async function telegramWebhookHandler(req: Request, res: Response) {

@@ -20,6 +20,11 @@
 - [x] Write Vitest coverage for membership checks, claims, referrals, wallet/order views, support forwarding, and admin authorization.
 - [x] Run type checks, tests, and browser verification of the dashboard.
 - [x] Document deployment and webhook setup for the chosen free Autoscale fallback.
-- [ ] Save a final checkpoint after all completed items are marked [x].
+- [ ] Save a checkpoint for the public-dashboard and webhook-diagnostics fix.
+- [ ] Save a final checkpoint after live webhook verification is complete.
 - [x] Document free Autoscale deployment as a webhook-capable fallback without guaranteed 24/7 process persistence.
-- [ ] Publish the project on free Autoscale and register the Telegram webhook from the dashboard after publish.
+- [x] Publish the project on free Autoscale.
+- [ ] Register the Telegram webhook from the dashboard after publish and confirm Telegram webhook metadata.
+- [x] Patch webhook registration handling and add visible diagnostics.
+- [ ] Verify the published webhook registration and restore Telegram bot responsiveness end to end.
+- [x] Remove the dashboard sign-in gate and make the admin UI publicly accessible, with the security tradeoff documented.
