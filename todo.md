@@ -46,3 +46,10 @@
 - [x] Add Vitest coverage for fulfilled-order notification delivery, including configured notification group targeting and customer-DM failure isolation.
 - [x] Add regression tests for formatted home, membership, purchase, support, and status responses.
 - [x] Polish the remaining plain-text support and extra-device responses with the same emoji and formatting language.
+
+- [x] Audit Qamify bot menus, button actions, user-facing copy patterns, and group notifications through the logged-in Telegram session.
+- [x] Document an original Nebula Nook behavior map based on the public audit without copying proprietary branding or text verbatim.
+- [x] Add testing-mode wallet credit of $10 for each existing user and exactly-once $10 initialization for newly created users.
+- [x] Add a default starter product catalog based on observed public product categories, with clear original names, descriptions, prices, stock, and active states.
+- [x] Verify wallet credits, default products, bot buttons, order flows, and group notifications with tests and live Telegram checks.
+- [x] Save and publish a checkpoint for the audited and implemented testing-mode release.

@@ -17,6 +17,19 @@ const DEFAULT_CHANNEL_URL = process.env.TELEGRAM_CHANNEL_JOIN_URL ?? "https://t.
 const DEFAULT_GROUP_URL = process.env.TELEGRAM_GROUP_JOIN_URL ?? "https://t.me/+4I-HIdE73NIyMzI8";
 const recentRequests = new Map<number, number>();
 
+/** Testing-mode bootstrap credit; remove or disable before real-money launch. */
+export const TESTING_WALLET_CREDIT_CENTS = 1000;
+export const TESTING_WALLET_CREDIT_REFERENCE = "testing-wallet-credit-v1";
+
+export const DEFAULT_TESTING_PRODUCTS = [
+  { name: "ChatGPT Starter Access", description: "Testing catalog item for guided account access delivery.", priceCents: 299, stock: 25, active: 1, freeEligible: 0, freeWindowMs: null },
+  { name: "Gemini Pro Trial Link", description: "Limited testing coupon/link item with automatic delivery.", priceCents: 99, stock: 40, active: 1, freeEligible: 1, freeWindowMs: 86400000 },
+  { name: "Surfshark Trial Coupon", description: "Testing coupon/link item. Delivery details are provided after fulfillment.", priceCents: 100, stock: 20, active: 1, freeEligible: 0, freeWindowMs: null },
+  { name: "Canva Creator Access", description: "Testing digital-service item for the Nebula Nook catalog.", priceCents: 250, stock: 15, active: 1, freeEligible: 0, freeWindowMs: null },
+  { name: "CapCut Premium Trial", description: "Testing digital-service item with limited stock.", priceCents: 220, stock: 12, active: 1, freeEligible: 0, freeWindowMs: null },
+  { name: "Notion Plus Coupon", description: "Testing productivity-service coupon with automatic delivery.", priceCents: 200, stock: 10, active: 1, freeEligible: 0, freeWindowMs: null },
+] as const;
+
 async function telegramCall<T>(method: string, body: Record<string, unknown>): Promise<T> {
   const token = process.env.TELEGRAM_BOT_TOKEN;
   if (!token) throw new Error("TELEGRAM_BOT_TOKEN is not configured");
@@ -141,9 +154,10 @@ async function ensureBotUser(user: TelegramUser, referralCode?: string) {
     referredById = referrer[0]?.id ?? null;
   }
   const referralCodeForUser = referralCodeForTelegramId(user.id);
-  await db.insert(botUsers).values({ telegramUserId: user.id, username: user.username ?? null, firstName: user.first_name ?? null, lastName: user.last_name ?? null, referralCode: referralCodeForUser, referredById });
+  await db.insert(botUsers).values({ telegramUserId: user.id, username: user.username ?? null, firstName: user.first_name ?? null, lastName: user.last_name ?? null, referralCode: referralCodeForUser, referredById, balanceCents: TESTING_WALLET_CREDIT_CENTS });
   const created = (await db.select().from(botUsers).where(eq(botUsers.telegramUserId, user.id)).limit(1))[0];
   if (!created) throw new Error("Failed to create Telegram user");
+  await db.insert(walletLedger).values({ botUserId: created.id, amountCents: TESTING_WALLET_CREDIT_CENTS, kind: "adjustment", referenceId: TESTING_WALLET_CREDIT_REFERENCE, note: "Testing-mode bootstrap wallet credit" });
   if (referredById) {
     await db.insert(referrals).values({ referrerId: referredById, referredUserId: created.id, bonusCents: 0 }).onDuplicateKeyUpdate({ set: { referredUserId: created.id } });
     const referralCount = await db.select({ count: sql<number>`count(*)` }).from(referrals).where(eq(referrals.referrerId, referredById));

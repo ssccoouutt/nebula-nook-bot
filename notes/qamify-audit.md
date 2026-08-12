@@ -1,0 +1,26 @@
+# Qamify public behavior audit
+
+## Observed current bot surface
+
+The Qamify chat exposes a membership gate with `Join Channel`, `Join Group`, and `I have joined`. After the gate, the visible menu includes two freebies buttons—`ChatGPT Go 3 Months Coupen | FREE` and `SurfShark VPN Premium | FREE`—plus `Open Shop`. The shop view exposes multiple `Buy Now` buttons and a `« Back` control.
+
+## Observed notification style in related chats
+
+The Qamify Chat feed shows compact purchase notifications such as `User V***** just bought 5× Gemini AI Pro 18 Month!`. Qamify broadcast posts use strong visual separators, emoji-led urgency, stock counts, product title, and price, for example an `ALMOST GONE` post for an ElevenLabs Creator 3M coupon with `Only 1 item left in stock` and `Price $10.00`. Other commerce-group messages use short success notices indicating a user successfully activated a product.
+
+## Initial interaction map
+
+| Area | Observed behavior | Nebula Nook equivalent to implement |
+|---|---|---|
+| Access gate | Join channel, join group, then verify membership | Keep the same three-step sequence with verified invite URLs and a clear retry path |
+| Freebies | Product-specific free claim buttons | Present each active free product with stock/window status and one-tap claim |
+| Shop | Dedicated shop entry, product-specific Buy Now buttons, Back navigation | Add a structured shop catalog with product cards, price, stock, and back navigation |
+| Group notifications | Short purchase/success messages plus urgency stock broadcasts | Use concise emoji-led operational notifications with product, quantity, user label, price, and status |
+
+## Shop detail audit
+
+Selecting a shop item opens a rich product detail message with an image, title, price, stock, warranty, product type, delivery type, and a description section, followed by a `Buy Now` action. The observed Surfshark item showed `Price: $1.00`, `Stock: 99`, `Warranty: No Warranty`, `Product Type: Coupon / Link`, and `Delivery Type: Automatic`. The shop list also exposes `Refresh` and `Back to Home` controls. The catalog includes a broad set of digital services and coupons with explicit prices and stock counts, including Surfshark, ElevenLabs, Gemini AI Pro, Canva, Leonardo, Veo, CapCut, NordVPN, Notion, Headspace, and email products.
+
+## Nebula Nook live comparison checkpoint
+
+The live Nebula Nook conversation currently exposes the expected six primary controls: `Freebies`, `Shop`, `Wallet`, `Orders`, `Profile`, and `Support`. The database verification confirms the existing Telegram users each have a $10.00 balance and a single `testing-wallet-credit-v1` ledger entry, while the six original starter products are active and stocked. The implementation is intentionally an original Nebula Nook catalog rather than a verbatim reproduction of Qamify’s names, descriptions, or branding.
