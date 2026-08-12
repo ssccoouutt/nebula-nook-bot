@@ -63,8 +63,14 @@ export function buildAutoPurchaseResult(balanceCents: number, priceCents: number
   return { ok: true as const, status: "fulfilled" as const, nextBalanceCents: balanceCents - priceCents, nextStock: stock - 1 };
 }
 
-export function formatHomeMessage() {
-  return "✨ <b>Welcome to Nebula Nook</b>\n\nYour hub for digital deals, freebies, referrals, and fast support. Choose an option below:";
+export function formatHomeMessage(details?: { firstName?: string | null; username?: string | null; tier?: string | null; balanceCents?: number; referrals?: number; access?: boolean }) {
+  const name = (details?.firstName ?? "there").replace(/[<&>]/g, "");
+  const handle = details?.username ? `@${details.username.replace(/[<&>]/g, "")}` : "No username";
+  const tier = details?.tier ?? "Bronze";
+  const balance = `$${((details?.balanceCents ?? 0) / 100).toFixed(2)}`;
+  const referrals = details?.referrals ?? 0;
+  const access = details?.access === false ? "🔒 Membership required" : "✅ Membership active";
+  return `✨ <b>Welcome back, ${name}!</b>\n\n👤 <b>Your account</b>\n├ Username: <code>${handle}</code>\n├ Tier: <b>${tier}</b>\n├ Wallet: <b>${balance}</b>\n└ Referrals: <b>${referrals}</b>\n\n${access}\nExplore freebies, browse digital products, and manage your account below:`;
 }
 
 export function formatMembershipMessage() {
@@ -216,10 +222,23 @@ async function requireAccess(chatId: number, userId: number) {
 
 async function showHome(chatId: number, userId: number) {
   if (!(await requireAccess(chatId, userId))) return;
-  await sendMessage(chatId, formatHomeMessage(), keyboard([
+  const db = await getDb();
+  if (!db) throw new Error("Database is unavailable");
+  const user = (await db.select().from(botUsers).where(eq(botUsers.telegramUserId, userId)).limit(1))[0];
+  const referralRows = await db.select({ count: sql<number>`count(*)` }).from(referrals).where(eq(referrals.referrerId, user?.id ?? -1));
+  const status = await membershipStatus(userId);
+  await sendMessage(chatId, formatHomeMessage({
+    firstName: user?.firstName,
+    username: user?.username,
+    tier: user?.tier,
+    balanceCents: user?.balanceCents,
+    referrals: Number(referralRows[0]?.count ?? 0),
+    access: status.access,
+  }), keyboard([
     [{ text: "🎁 Freebies", callback_data: "freebies" }, { text: "🛍️ Shop", callback_data: "shop" }],
     [{ text: "💳 Wallet", callback_data: "wallet" }, { text: "📦 Orders", callback_data: "orders" }],
-    [{ text: "👤 Profile", callback_data: "profile" }, { text: "🆘 Support", callback_data: "support" }],
+    [{ text: "👤 Profile", callback_data: "profile" }, { text: "🤝 Referrals", callback_data: "profile" }],
+    [{ text: "🆘 Support", callback_data: "support" }],
   ]));
 }
 

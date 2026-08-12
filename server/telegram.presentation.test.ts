@@ -26,7 +26,13 @@ describe("Telegram presentation and notification helpers", () => {
   });
 
   it("keeps core messages emoji-led and HTML formatted", () => {
-    expect(formatHomeMessage()).toContain("✨ <b>Welcome to Nebula Nook</b>");
+    const home = formatHomeMessage({ firstName: "Rashid", username: "rashid", tier: "Silver", balanceCents: 1000, referrals: 3, access: true });
+    expect(home).toContain("✨ <b>Welcome back, Rashid!</b>");
+    expect(home).toContain("<code>@rashid</code>");
+    expect(home).toContain("<b>Silver</b>");
+    expect(home).toContain("<b>$10.00</b>");
+    expect(home).toContain("<b>3</b>");
+    expect(home).toContain("✅ Membership active");
     expect(formatMembershipMessage()).toContain("🔐 <b>Membership required</b>");
     expect(formatSupportPrompt()).toContain("🆘 <b>Support</b>");
     expect(formatSupportSubmitted("42")).toContain("✅ <b>Support request received</b>");

@@ -72,3 +72,7 @@
 - [x] Verify the new announcement in the configured operations group and publish a checkpoint.
 - [x] Verify and document the live Qamify group announcement inline button label and destination.
 - [x] Verify the deployed Nebula Nook purchase announcement in the operations group, including its inline product button target; post-verification checkpoint still pending.
+
+- [x] Capture the logged-in Telegram comparison views for Qamify and Nebula Nook, including Qamify’s emoji-rich announcement/menu presentation and Nebula Nook’s current menu surface.
+- [x] Improve Nebula Nook `/start` with richer user details, clearer membership status, and polished grouped buttons where Telegram Bot API permits.
+- [x] Add regression coverage for the revised `/start` formatting; `pnpm check` and all 22 Vitest tests pass.
