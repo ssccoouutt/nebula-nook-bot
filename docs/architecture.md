@@ -24,4 +24,6 @@ Configure `membership_channel_id`, `membership_group_id`, `membership_channel_ur
 
 ## Hosting
 
-The webhook handler is designed for a single persistent WebDev process. The default Autoscale mode is not the correct production mode for an always-on bot process; publish using Reserved Hosting after the secrets are configured. Reserved Hosting is usage-based, with a full-utilization compute ceiling of approximately $37.50 per month before the included $10 monthly usage credit, plus metered egress.
+The project is prepared for the default free Autoscale hosting mode. The webhook endpoint remains available at `/api/telegram/webhook`, and an incoming Telegram update can wake the application to process that request. Autoscale is request-scoped, however, so it does not guarantee a continuously running 24/7 process. Background workers, scheduled broadcasts, and in-memory state may pause while the service is idle. Reserved Hosting is the appropriate upgrade when uninterrupted process execution is required, but this project intentionally remains on Autoscale to avoid paid hosting.
+
+After publishing, use the authenticated admin dashboard’s **Settings → Register webhook** control to register the published HTTPS URL with Telegram. The bot token, admin chat ID, and webhook secret remain server-side environment variables and are never placed in client code.

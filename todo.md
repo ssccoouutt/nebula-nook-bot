@@ -2,7 +2,7 @@
 
 - [x] Define the original Nebula Nook Bot architecture and document the non-impersonation boundary.
 - [x] Add configurable Telegram bot, membership-gate, admin, catalog, wallet, referral, order, support, notification, and schedule data models.
-- [ ] Add secure environment configuration for the Telegram bot token and webhook settings.
+- [x] Add secure environment configuration for the Telegram bot token and webhook settings.
 - [x] Implement the persistent Telegram webhook endpoint for @NebulaNook4827_bot.
 - [x] Implement /start with referral parsing and configurable channel/group membership verification.
 - [x] Implement inline membership buttons: Join Channel, Join Group, and I have joined.
@@ -19,5 +19,7 @@
 - [x] Add webhook idempotency, input validation, authorization, rate limiting, and safe error handling.
 - [x] Write Vitest coverage for membership checks, claims, referrals, wallet/order views, support forwarding, and admin authorization.
 - [x] Run type checks, tests, and browser verification of the dashboard.
-- [ ] Configure persistent hosting requirements and document deployment/webhook setup.
+- [x] Document deployment and webhook setup for the chosen free Autoscale fallback.
 - [ ] Save a final checkpoint after all completed items are marked [x].
+- [x] Document free Autoscale deployment as a webhook-capable fallback without guaranteed 24/7 process persistence.
+- [ ] Publish the project on free Autoscale and register the Telegram webhook from the dashboard after publish.
