@@ -20,7 +20,7 @@
 - [x] Write Vitest coverage for membership checks, claims, referrals, wallet/order views, support forwarding, and admin authorization.
 - [x] Run type checks, tests, and browser verification of the dashboard.
 - [x] Document deployment and webhook setup for the chosen free Autoscale fallback.
-- [ ] Save a checkpoint for the public-dashboard and webhook-diagnostics fix.
+- [x] Save a checkpoint for the public-dashboard and webhook-diagnostics fix.
 - [ ] Save a final checkpoint after live webhook verification is complete.
 - [x] Document free Autoscale deployment as a webhook-capable fallback without guaranteed 24/7 process persistence.
 - [x] Publish the project on free Autoscale.
@@ -31,9 +31,9 @@
 - [x] Replace the invalid webhook secret with a Telegram-allowed alphanumeric/hyphen/underscore value and add regression coverage.
 - [x] Replace the invalid webhook secret with a Telegram-allowed value and validate its character set before registration.
 - [x] Perform live webhook registration and verify Telegram webhook metadata before delivery.
-- [ ] Send and verify an end-to-end bot update after webhook registration.
-- [ ] Diagnose the reported live `/start` non-response after webhook registration by tracing Telegram webhook status, server logs, and handler delivery.
-- [ ] Fix the live webhook or bot-response path if the trace identifies a code or deployment issue.
-- [ ] Verify a real `/start` update receives a successful bot response and complete the end-to-end delivery item.
+- [x] Send and verify an end-to-end bot update after webhook registration.
+- [x] Diagnose the reported live `/start` non-response after webhook registration by tracing Telegram webhook status, server logs, and handler delivery.
+- [x] Fix the live webhook or bot-response path if the trace identifies a code or deployment issue.
+- [x] Verify a real `/start` update receives a successful bot response and complete the end-to-end delivery item.
 
-**Progress note:** The dashboard previously showed successful webhook registration and 4 pending Telegram updates, but the user now reports that sending `/start` still produces no reply.
+**Progress note:** Live `/start` verification succeeded after quoting the reserved SQL column `key` in the membership-settings query. Telegram Web shows the Nebula Nook reply menu with Freebies, Shop, Wallet, Orders, Profile, and Support buttons.
