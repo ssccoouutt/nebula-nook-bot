@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  buildAutoPurchaseResult,
   buildFulfillmentNotifications,
   formatExtraDeviceMessage,
   formatHomeMessage,
@@ -37,9 +38,15 @@ describe("Telegram presentation and notification helpers", () => {
     expect(formatShopSummary(1, 2)).toContain("🛍️ <b>Nebula Nook Shop</b>");
   });
 
-  it("builds both fulfillment notifications so a failed customer DM cannot remove the group message", () => {
+  it("computes an automatically fulfilled wallet purchase without dashboard intervention", () => {
+    expect(buildAutoPurchaseResult(1000, 299, 25)).toEqual({ ok: true, status: "fulfilled", nextBalanceCents: 701, nextStock: 24 });
+    expect(buildAutoPurchaseResult(100, 299, 25).status).toBe("insufficient_balance");
+    expect(buildAutoPurchaseResult(1000, 299, 0).status).toBe("out_of_stock");
+  });
+
+  it("builds a group completion notice without requiring a customer DM", () => {
     const withCustomer = buildFulfillmentNotifications(42, 100, 7278358063);
-    expect(withCustomer.customer).toContain("✅ <b>Order fulfilled</b>");
+    expect(withCustomer.group).toContain("✅ <b>Order completed</b>");
     expect(withCustomer.group).toContain("👤 User ID: <code>7278358063</code>");
 
     const withoutCustomer = buildFulfillmentNotifications(42, 100);

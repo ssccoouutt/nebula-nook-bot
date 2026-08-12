@@ -54,9 +54,14 @@
 - [x] Verify wallet credits, default products, bot buttons, order flows, and group notifications with tests and live Telegram checks.
 - [x] Save and publish a checkpoint for the audited and implemented testing-mode release.
 
-- [ ] Audit Qamify Shop presentation to confirm whether products are shown as separate messages or paginated/compact navigation, and inspect completion-notification destinations.
-- [ ] Replace Nebula Nook’s multi-message Shop output with compact catalog navigation and product-detail actions.
-- [ ] Change order completion notifications to the configured operations group only, with no personal admin DM.
-- [ ] Automatically complete wallet-paid orders when balance is sufficient, without requiring manual dashboard fulfillment.
-- [ ] Add regression tests and live Telegram verification for compact Shop, automatic completion, and group-only notifications.
-- [ ] Save and publish a checkpoint for the revised order flow.
+- [x] Audit Qamify Shop presentation to confirm whether products are shown as separate messages or paginated/compact navigation, and inspect completion-notification destinations.
+- [x] Replace Nebula Nook’s multi-message Shop output with compact catalog navigation and product-detail actions.
+- [x] Change order completion notifications to the configured operations group only, with no personal admin DM.
+- [x] Automatically complete wallet-paid orders when balance is sufficient, without requiring manual dashboard fulfillment.
+- [x] Add regression tests for compact Shop, automatic completion, and group-only notifications; live purchase smoke test remains pending.
+- [x] Save and publish a checkpoint for the revised order flow.
+
+- [x] Verify a compact Shop item tap opens the expected product-detail view and capture test evidence.
+- [x] Remove personal customer/admin completion DMs so fulfillment completion is group-only, and add direct regression coverage.
+- [ ] Verify a wallet-funded purchase auto-completes without dashboard fulfillment in a clean live smoke test; automated regression coverage passes.
+- [x] Record concrete passing-test evidence for compact Shop, automatic completion, and group-only notifications before the next checkpoint; live order creation remains pending.

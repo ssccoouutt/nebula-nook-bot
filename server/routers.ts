@@ -83,13 +83,6 @@ export const appRouter = router({
         const users = await db.select().from(botUsers).where(eq(botUsers.id, order.botUserId)).limit(1);
         const customer = users[0];
         const notifications = buildFulfillmentNotifications(String(order.id), order.amountCents, customer?.telegramUserId);
-        if (customer && notifications.customer) {
-          try {
-            await sendTelegramMessage(customer.telegramUserId, notifications.customer);
-          } catch (error) {
-            console.error("[Telegram] customer fulfillment notification failed", error);
-          }
-        }
         await notifyAdmin("order_fulfilled", String(order.id), notifications.group);
       }
       return { success: true };

@@ -57,6 +57,12 @@ export function resolveNotificationChatId(configuredTarget: string | undefined, 
   return Number.isSafeInteger(chatId) && chatId !== 0 ? chatId : null;
 }
 
+export function buildAutoPurchaseResult(balanceCents: number, priceCents: number, stock: number) {
+  if (balanceCents < priceCents) return { ok: false as const, status: "insufficient_balance" as const };
+  if (stock <= 0) return { ok: false as const, status: "out_of_stock" as const };
+  return { ok: true as const, status: "fulfilled" as const, nextBalanceCents: balanceCents - priceCents, nextStock: stock - 1 };
+}
+
 export function formatHomeMessage() {
   return "✨ <b>Welcome to Nebula Nook</b>\n\nYour hub for digital deals, freebies, referrals, and fast support. Choose an option below:";
 }
@@ -103,7 +109,7 @@ export async function notifyAdmin(eventType: string, referenceId: string, text: 
   const db = await getDb();
   if (!db) return;
   const gate = await runtimeGate();
-  const configuredTarget = process.env.TELEGRAM_ORDER_NOTIFICATION_CHAT_ID ?? process.env.TELEGRAM_ADMIN_CHAT_ID;
+  const configuredTarget = process.env.TELEGRAM_ORDER_NOTIFICATION_CHAT_ID;
   const targetChatId = resolveNotificationChatId(configuredTarget, gate.notificationChatId, gate.groupId);
   if (targetChatId === null) return;
   await db.insert(notificationDeliveries).values({ adminChatId: targetChatId, eventType, referenceId, status: "queued" }).onDuplicateKeyUpdate({ set: { status: "queued" } });
@@ -275,8 +281,10 @@ async function createPurchase(chatId: number, userId: number, productId: number)
   if (!db) throw new Error("Database is unavailable");
   const user = (await db.select().from(botUsers).where(eq(botUsers.telegramUserId, userId)).limit(1))[0];
   const product = (await db.select().from(products).where(eq(products.id, productId)).limit(1))[0];
-  if (!user || !product || product.stock <= 0 || !product.active) return sendMessage(chatId, "⚠️ This product is currently unavailable.");
-  if (user.balanceCents < product.priceCents) return sendMessage(chatId, `💳 <b>Insufficient balance</b>\n\nYour balance is <b>$${(user.balanceCents / 100).toFixed(2)}</b>. This product costs <b>$${(product.priceCents / 100).toFixed(2)}</b>.`);
+  if (!user || !product || !product.active) return sendMessage(chatId, "⚠️ This product is currently unavailable.");
+  const purchase = buildAutoPurchaseResult(user.balanceCents, product.priceCents, product.stock);
+  if (purchase.status === "insufficient_balance") return sendMessage(chatId, `💳 <b>Insufficient balance</b>\n\nYour balance is <b>$${(user.balanceCents / 100).toFixed(2)}</b>. This product costs <b>$${(product.priceCents / 100).toFixed(2)}</b>.`);
+  if (purchase.status === "out_of_stock") return sendMessage(chatId, "⚠️ This product is currently unavailable.");
   const result = await db.insert(orders).values({ botUserId: user.id, productId: product.id, kind: "purchase", amountCents: product.priceCents, status: "fulfilled" });
   const orderId = String(result[0]?.insertId ?? `${user.id}:${product.id}:${Date.now()}`);
   await db.update(botUsers).set({ balanceCents: user.balanceCents - product.priceCents }).where(eq(botUsers.id, user.id));
@@ -284,9 +292,6 @@ async function createPurchase(chatId: number, userId: number, productId: number)
   await db.insert(walletLedger).values({ botUserId: user.id, amountCents: -product.priceCents, kind: "purchase", referenceId: orderId, note: `Automatic purchase: ${product.name}` });
   const notifications = buildFulfillmentNotifications(orderId, product.priceCents, user.telegramUserId);
   await sendMessage(chatId, formatPurchaseConfirmation(orderId, product.name, product.priceCents));
-  if (notifications.customer) {
-    try { await sendTelegramMessage(user.telegramUserId, notifications.customer); } catch (error) { console.error("[Telegram] customer completion notification failed", error); }
-  }
   await notifyAdmin("order_fulfilled", orderId, notifications.group);
 }
 
