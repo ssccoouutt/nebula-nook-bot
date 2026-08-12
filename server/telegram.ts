@@ -74,7 +74,13 @@ export function formatSupportSubmitted(ticketId: string) {
 }
 
 export function formatPurchaseConfirmation(orderId: string | number, productName: string, amountCents: number) {
-  return `🧾 <b>Order received</b>\n\nOrder: <b>#${orderId}</b>\nProduct: <b>${productName}</b>\nAmount: <b>$${(amountCents / 100).toFixed(2)}</b>\n\n⏳ An admin will review and fulfill your order shortly.`;
+  return `✅ <b>Order completed</b>\n\n📦 Order: <b>#${orderId}</b>\n🛍️ Product: <b>${productName}</b>\n💵 Amount: <b>$${(amountCents / 100).toFixed(2)}</b>\n\n⚡ Payment received and your order is complete.`;
+}
+
+export const SHOP_PAGE_SIZE = 6;
+
+export function formatShopSummary(page: number, pageCount: number) {
+  return `🛍️ <b>Nebula Nook Shop</b>\n\nChoose a product to view its details and buy instantly.\n\n📄 Page ${page + 1} of ${pageCount}`;
 }
 
 export function formatOrderStatus(orderId: string | number, kind: string, status: string, amountCents: number) {
@@ -198,13 +204,28 @@ async function showFreebies(chatId: number) {
   }
 }
 
-async function showShop(chatId: number) {
+async function showShop(chatId: number, page = 0) {
   const db = await getDb();
   if (!db) throw new Error("Database is unavailable");
-  const items = await db.select().from(products).where(eq(products.active, 1)).limit(30);
+  const items = await db.select().from(products).where(eq(products.active, 1)).limit(60);
   if (!items.length) return sendMessage(chatId, "🛍️ <b>Shop</b>\n\nThe catalog is empty right now. Please check back soon.");
-  await sendMessage(chatId, "🛍️ <b>Shop</b>\n\nBrowse the latest digital products and choose an item to continue.");
-  for (const item of items) await sendMessage(chatId, `✨ <b>${item.name}</b>\n${item.description}\n\n💵 Price: $${(item.priceCents / 100).toFixed(2)}\n📦 Stock: ${item.stock}`, keyboard([[{ text: "🛒 Buy now", callback_data: `buy:${item.id}` }]]));
+  const pageCount = Math.max(1, Math.ceil(items.length / SHOP_PAGE_SIZE));
+  const safePage = Math.min(Math.max(page, 0), pageCount - 1);
+  const pageItems = items.slice(safePage * SHOP_PAGE_SIZE, (safePage + 1) * SHOP_PAGE_SIZE);
+  const rows = pageItems.map((item) => [{ text: `✨ ${item.name} · $${(item.priceCents / 100).toFixed(2)}`, callback_data: `product:${item.id}` }]);
+  const nav: Array<{ text: string; callback_data: string }> = [];
+  if (safePage > 0) nav.push({ text: "◀️ Previous", callback_data: `shop:${safePage - 1}` });
+  if (safePage < pageCount - 1) nav.push({ text: "Next ▶️", callback_data: `shop:${safePage + 1}` });
+  if (nav.length) rows.push(nav);
+  await sendMessage(chatId, formatShopSummary(safePage, pageCount), keyboard(rows));
+}
+
+async function showProduct(chatId: number, productId: number) {
+  const db = await getDb();
+  if (!db) throw new Error("Database is unavailable");
+  const item = (await db.select().from(products).where(eq(products.id, productId)).limit(1))[0];
+  if (!item || !item.active || item.stock <= 0) return sendMessage(chatId, "⚠️ This product is currently unavailable.");
+  await sendMessage(chatId, `✨ <b>${item.name}</b>\n\n${item.description}\n\n💵 Price: <b>$${(item.priceCents / 100).toFixed(2)}</b>\n📦 Stock: <b>${item.stock}</b>\n🚚 Delivery: <b>Automatic</b>`, keyboard([[{ text: "🛒 Buy now", callback_data: `buy:${item.id}` }], [{ text: "↩️ Back to shop", callback_data: "shop" }]]));
 }
 
 async function showWallet(chatId: number, userId: number) {
@@ -255,10 +276,18 @@ async function createPurchase(chatId: number, userId: number, productId: number)
   const user = (await db.select().from(botUsers).where(eq(botUsers.telegramUserId, userId)).limit(1))[0];
   const product = (await db.select().from(products).where(eq(products.id, productId)).limit(1))[0];
   if (!user || !product || product.stock <= 0 || !product.active) return sendMessage(chatId, "⚠️ This product is currently unavailable.");
-  const result = await db.insert(orders).values({ botUserId: user.id, productId: product.id, kind: "purchase", amountCents: product.priceCents, status: "pending" });
+  if (user.balanceCents < product.priceCents) return sendMessage(chatId, `💳 <b>Insufficient balance</b>\n\nYour balance is <b>$${(user.balanceCents / 100).toFixed(2)}</b>. This product costs <b>$${(product.priceCents / 100).toFixed(2)}</b>.`);
+  const result = await db.insert(orders).values({ botUserId: user.id, productId: product.id, kind: "purchase", amountCents: product.priceCents, status: "fulfilled" });
   const orderId = String(result[0]?.insertId ?? `${user.id}:${product.id}:${Date.now()}`);
+  await db.update(botUsers).set({ balanceCents: user.balanceCents - product.priceCents }).where(eq(botUsers.id, user.id));
+  await db.update(products).set({ stock: product.stock - 1 }).where(eq(products.id, product.id));
+  await db.insert(walletLedger).values({ botUserId: user.id, amountCents: -product.priceCents, kind: "purchase", referenceId: orderId, note: `Automatic purchase: ${product.name}` });
+  const notifications = buildFulfillmentNotifications(orderId, product.priceCents, user.telegramUserId);
   await sendMessage(chatId, formatPurchaseConfirmation(orderId, product.name, product.priceCents));
-  await notifyAdmin("purchase", orderId, `<b>New purchase order #${orderId}</b>\nUser: ${user.telegramUserId}\nProduct: ${product.name}\nAmount: $${(product.priceCents / 100).toFixed(2)}`);
+  if (notifications.customer) {
+    try { await sendTelegramMessage(user.telegramUserId, notifications.customer); } catch (error) { console.error("[Telegram] customer completion notification failed", error); }
+  }
+  await notifyAdmin("order_fulfilled", orderId, notifications.group);
 }
 
 async function handleCallback(query: TelegramCallbackQuery) {
@@ -271,6 +300,8 @@ async function handleCallback(query: TelegramCallbackQuery) {
   if (!(await requireAccess(chatId, userId))) return;
   if (data === "freebies") return showFreebies(chatId);
   if (data === "shop") return showShop(chatId);
+  if (data.startsWith("shop:")) return showShop(chatId, Number(data.slice(5)));
+  if (data.startsWith("product:")) return showProduct(chatId, Number(data.slice(8)));
   if (data === "wallet") return showWallet(chatId, userId);
   if (data === "orders") return showOrders(chatId, userId);
   if (data === "profile") return showProfile(chatId, userId);

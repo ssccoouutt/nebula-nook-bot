@@ -53,3 +53,10 @@
 - [x] Add a default starter product catalog based on observed public product categories, with clear original names, descriptions, prices, stock, and active states.
 - [x] Verify wallet credits, default products, bot buttons, order flows, and group notifications with tests and live Telegram checks.
 - [x] Save and publish a checkpoint for the audited and implemented testing-mode release.
+
+- [ ] Audit Qamify Shop presentation to confirm whether products are shown as separate messages or paginated/compact navigation, and inspect completion-notification destinations.
+- [ ] Replace Nebula Nook’s multi-message Shop output with compact catalog navigation and product-detail actions.
+- [ ] Change order completion notifications to the configured operations group only, with no personal admin DM.
+- [ ] Automatically complete wallet-paid orders when balance is sufficient, without requiring manual dashboard fulfillment.
+- [ ] Add regression tests and live Telegram verification for compact Shop, automatic completion, and group-only notifications.
+- [ ] Save and publish a checkpoint for the revised order flow.

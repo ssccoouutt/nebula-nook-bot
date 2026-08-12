@@ -6,6 +6,8 @@ import {
   formatMembershipMessage,
   formatOrderStatus,
   formatPurchaseConfirmation,
+  formatShopSummary,
+  SHOP_PAGE_SIZE,
   formatSupportPrompt,
   formatSupportSubmitted,
   resolveNotificationChatId,
@@ -25,8 +27,14 @@ describe("Telegram presentation and notification helpers", () => {
     expect(formatSupportPrompt()).toContain("🆘 <b>Support</b>");
     expect(formatSupportSubmitted("42")).toContain("✅ <b>Support request received</b>");
     expect(formatExtraDeviceMessage()).toContain("📱 <b>Extra device request</b>");
-    expect(formatPurchaseConfirmation(42, "Premium", 100)).toContain("🧾 <b>Order received</b>");
+    expect(formatPurchaseConfirmation(42, "Premium", 100)).toContain("✅ <b>Order completed</b>");
     expect(formatOrderStatus(42, "purchase", "fulfilled", 100)).toContain("✅ #42 · purchase · fulfilled");
+  });
+
+  it("formats a compact paginated Shop instead of a message per product", () => {
+    expect(SHOP_PAGE_SIZE).toBe(6);
+    expect(formatShopSummary(0, 2)).toContain("📄 Page 1 of 2");
+    expect(formatShopSummary(1, 2)).toContain("🛍️ <b>Nebula Nook Shop</b>");
   });
 
   it("builds both fulfillment notifications so a failed customer DM cannot remove the group message", () => {
