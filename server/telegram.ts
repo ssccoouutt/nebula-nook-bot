@@ -120,7 +120,7 @@ export function buildPurchaseAnnouncement(productId: string | number, productNam
   const botUrl = `https://t.me/NebulaNook4827_bot?start=product_${productId}`;
   return {
     text: `🛍️ <b>Nebula Nook</b>\n\n👤 <b>${maskedName}</b> just bought <b>${quantity}×</b> ${productEmoji(productName)} <b>${productName.replace(/[<>]/g, "")}</b>!`,
-    replyMarkup: { inline_keyboard: [[{ text: "🛍️ View product in bot", url: botUrl }]] },
+    replyMarkup: { inline_keyboard: [[{ text: "🛍️ View product in bot", url: botUrl, style: "primary" }]] },
   };
 }
 
@@ -155,7 +155,9 @@ async function answerCallback(id: string, text?: string) {
   await telegramCall("answerCallbackQuery", { callback_query_id: id, text, show_alert: false });
 }
 
-function keyboard(rows: Array<Array<{ text: string; callback_data?: string; url?: string }>>) {
+type TelegramButton = { text: string; callback_data?: string; url?: string; style?: "danger" | "success" | "primary" };
+
+function keyboard(rows: Array<Array<TelegramButton>>) {
   return { inline_keyboard: rows };
 }
 
@@ -213,9 +215,9 @@ async function requireAccess(chatId: number, userId: number) {
   if (status.access) return true;
   const gate = await runtimeGate();
   await sendMessage(chatId, formatMembershipMessage(), keyboard([
-    [{ text: "📣 Join Updates Channel", url: gate.channelUrl }],
-    [{ text: "👥 Join Community Group", url: gate.groupUrl }],
-    [{ text: "✅ I have joined", callback_data: "verify_membership" }],
+    [{ text: "📣 Join Updates Channel", url: gate.channelUrl, style: "success" }],
+    [{ text: "👥 Join Community Group", url: gate.groupUrl, style: "success" }],
+    [{ text: "✅ I have joined", callback_data: "verify_membership", style: "primary" }],
   ]));
   return false;
 }
@@ -235,10 +237,10 @@ async function showHome(chatId: number, userId: number) {
     referrals: Number(referralRows[0]?.count ?? 0),
     access: status.access,
   }), keyboard([
-    [{ text: "🎁 Freebies", callback_data: "freebies" }, { text: "🛍️ Shop", callback_data: "shop" }],
-    [{ text: "💳 Wallet", callback_data: "wallet" }, { text: "📦 Orders", callback_data: "orders" }],
-    [{ text: "👤 Profile", callback_data: "profile" }, { text: "🤝 Referrals", callback_data: "profile" }],
-    [{ text: "🆘 Support", callback_data: "support" }],
+    [{ text: "🎁 Freebies", callback_data: "freebies", style: "success" }, { text: "🛍️ Shop", callback_data: "shop", style: "primary" }],
+    [{ text: "💳 Wallet", callback_data: "wallet", style: "primary" }, { text: "📦 Orders", callback_data: "orders", style: "primary" }],
+    [{ text: "👤 Profile", callback_data: "profile", style: "primary" }, { text: "🤝 Referrals", callback_data: "profile", style: "primary" }],
+    [{ text: "🆘 Support", callback_data: "support", style: "primary" }],
   ]));
 }
 
@@ -249,7 +251,7 @@ async function showFreebies(chatId: number) {
   if (!items.length) return sendMessage(chatId, "🎁 <b>Freebies</b>\n\nThere are no free items available right now. Check back soon!");
   await sendMessage(chatId, "🎁 <b>Freebies</b>\n\nClaim available items during their active window. One claim per window applies.");
   for (const item of items) {
-    await sendMessage(chatId, `🎁 <b>${item.name}</b>\n${item.description}\n\n📦 Stock: ${item.stock}`, keyboard([[{ text: "🎁 Claim free", callback_data: `claim:${item.id}` }]]));
+    await sendMessage(chatId, `🎁 <b>${item.name}</b>\n${item.description}\n\n📦 Stock: ${item.stock}`, keyboard([[{ text: "🎁 Claim free", callback_data: `claim:${item.id}`, style: "success" }]]));
   }
 }
 
@@ -261,10 +263,10 @@ async function showShop(chatId: number, page = 0) {
   const pageCount = Math.max(1, Math.ceil(items.length / SHOP_PAGE_SIZE));
   const safePage = Math.min(Math.max(page, 0), pageCount - 1);
   const pageItems = items.slice(safePage * SHOP_PAGE_SIZE, (safePage + 1) * SHOP_PAGE_SIZE);
-  const rows = pageItems.map((item) => [{ text: `✨ ${item.name} · $${(item.priceCents / 100).toFixed(2)}`, callback_data: `product:${item.id}` }]);
-  const nav: Array<{ text: string; callback_data: string }> = [];
-  if (safePage > 0) nav.push({ text: "◀️ Previous", callback_data: `shop:${safePage - 1}` });
-  if (safePage < pageCount - 1) nav.push({ text: "Next ▶️", callback_data: `shop:${safePage + 1}` });
+  const rows: TelegramButton[][] = pageItems.map((item) => [{ text: `✨ ${item.name} · $${(item.priceCents / 100).toFixed(2)}`, callback_data: `product:${item.id}`, style: "primary" }]);
+  const nav: TelegramButton[] = [];
+  if (safePage > 0) nav.push({ text: "◀️ Previous", callback_data: `shop:${safePage - 1}`, style: "primary" });
+  if (safePage < pageCount - 1) nav.push({ text: "Next ▶️", callback_data: `shop:${safePage + 1}`, style: "primary" });
   if (nav.length) rows.push(nav);
   await sendMessage(chatId, formatShopSummary(safePage, pageCount), keyboard(rows));
 }
@@ -274,7 +276,7 @@ async function showProduct(chatId: number, productId: number) {
   if (!db) throw new Error("Database is unavailable");
   const item = (await db.select().from(products).where(eq(products.id, productId)).limit(1))[0];
   if (!item || !item.active || item.stock <= 0) return sendMessage(chatId, "⚠️ This product is currently unavailable.");
-  await sendMessage(chatId, `✨ <b>${item.name}</b>\n\n${item.description}\n\n💵 Price: <b>$${(item.priceCents / 100).toFixed(2)}</b>\n📦 Stock: <b>${item.stock}</b>\n🚚 Delivery: <b>Automatic</b>`, keyboard([[{ text: "🛒 Buy now", callback_data: `buy:${item.id}` }], [{ text: "↩️ Back to shop", callback_data: "shop" }]]));
+  await sendMessage(chatId, `✨ <b>${item.name}</b>\n\n${item.description}\n\n💵 Price: <b>$${(item.priceCents / 100).toFixed(2)}</b>\n📦 Stock: <b>${item.stock}</b>\n🚚 Delivery: <b>Automatic</b>`, keyboard([[{ text: "🛒 Buy now", callback_data: `buy:${item.id}`, style: "success" }], [{ text: "↩️ Back to shop", callback_data: "shop", style: "primary" }]]));
 }
 
 async function showWallet(chatId: number, userId: number) {

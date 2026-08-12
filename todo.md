@@ -76,3 +76,9 @@
 - [x] Capture the logged-in Telegram comparison views for Qamify and Nebula Nook, including Qamify’s emoji-rich announcement/menu presentation and Nebula Nook’s current menu surface.
 - [x] Improve Nebula Nook `/start` with richer user details, clearer membership status, and polished grouped buttons where Telegram Bot API permits.
 - [x] Add regression coverage for the revised `/start` formatting; `pnpm check` and all 22 Vitest tests pass.
+
+- [x] Inspect Qamify’s rendered button elements and distinguish callback, URL, Web App, and client/theme styling mechanisms.
+- [x] Compare the observed mechanism with Telegram Bot API capabilities and document what Nebula Nook can reproduce.
+- [x] Decide whether Nebula Nook needs a Mini App for truly custom colored controls and document the implementation path.
+- [ ] Add Telegram Bot API 10.2-compatible predefined button styles to Nebula Nook keyboards and verify the live rendering in Telegram Web.
+- [x] Document representative Qamify button-type evidence: URL, callback-style, and whether any inspected control launches a Web App; record any limits of Telegram Web DOM evidence.

@@ -73,6 +73,7 @@ describe("Telegram presentation and notification helpers", () => {
     expect(announcement.replyMarkup.inline_keyboard[0][0]).toEqual({
       text: "🛍️ View product in bot",
       url: "https://t.me/NebulaNook4827_bot?start=product_12",
+      style: "primary",
     });
   });
 });
