@@ -92,3 +92,10 @@
 - [x] Revise Nebula Nook `/start` copy and menu structure against the audited Qamify interaction pattern without copying proprietary branding or text.
 - [x] Add regression coverage for single-message Freebies and the revised start/menu keyboard; type checking and all 24 Vitest tests pass.
 - [ ] Live-test the revised commands and buttons, then publish a verified checkpoint.
+- [x] Fix callback-driven menu navigation so Freebies, Shop, Wallet, Orders, Profile, Support, and Back actions edit the current bot message instead of creating a new message on every tap.
+- [x] Add regression coverage for edit-in-place callback responses while preserving direct slash-command responses; `pnpm check` and all 25 Vitest tests pass.
+- [ ] Complete a representative live audit of every current Nebula Nook menu button and document any Qamify flow that cannot be reproduced through the Bot API.
+- [x] Add compact Refresh and Back to home controls to the Shop/product flow, matching the audited commerce-bot navigation pattern without copying branding.
+- [x] Add regression coverage for Shop Refresh, Shop Back to home, and product Back navigation.
+- [ ] Add handler-level callback-route tests that verify representative callbacks resolve to editMessageText while direct commands resolve to sendMessage.
+- [ ] Add callback-routing tests for shop pagination, home, product back, Refresh, and claim/buy actions.

@@ -30,3 +30,7 @@ The live Nebula Nook conversation currently exposes the expected six primary con
 Telegram Web inspection of Qamify Chat showed the latest announcement in the compact format: `Qamify: User N***** just bought 1× [product emoji] LEONARDO AI VIDEO GEN!`. The announcement has an inline product button labeled `LEONARDO AI VIDEO GEN`; opening it navigates to the Qamify product detail flow, which shows product metadata and `Buy Now`, quantity choices, `Custom Quantity`, `Set Price Alert`, and `« Back to Shop` controls. This confirms the desired pattern: masked buyer + quantity + product emoji/name in the group announcement, with a product button leading back into the bot product/purchase flow.
 
 Observed source: logged-in Telegram Web, Qamify Chat, 2026-08-12.
+
+## Latest live Telegram Web audit — 2026-08-12
+
+The current logged-in view confirms Qamify’s visible group patterns: masked buyer/referral announcements, urgency cards with stock and price, and product/deep-link affordances. The latest Nebula Nook responses are bounded single messages: Wallet shows balance and activity; Orders shows the fulfilled order; Profile shows name, tier, referrals, and referral URL; the newest Freebies response shows one compact catalog message with `🎁 Gemini Pro Trial Link` and `📦 Stock: 39`. Telegram Web history still contains older multi-message responses, so newest timestamped messages must be used for verification.

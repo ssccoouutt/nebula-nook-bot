@@ -47,6 +47,18 @@ async function sendMessage(chatId: number, text: string, replyMarkup?: unknown) 
   return telegramCall("sendMessage", { chat_id: chatId, text, parse_mode: "HTML", reply_markup: replyMarkup });
 }
 
+async function editMessage(chatId: number, messageId: number, text: string, replyMarkup?: unknown) {
+  return telegramCall("editMessageText", { chat_id: chatId, message_id: messageId, text, parse_mode: "HTML", reply_markup: replyMarkup });
+}
+
+export function telegramResponseMethod(messageId?: number) {
+  return messageId === undefined ? "sendMessage" as const : "editMessageText" as const;
+}
+
+async function respond(chatId: number, text: string, replyMarkup?: unknown, messageId?: number) {
+  return telegramResponseMethod(messageId) === "editMessageText" ? editMessage(chatId, messageId as number, text, replyMarkup) : sendMessage(chatId, text, replyMarkup);
+}
+
 export async function sendTelegramMessage(chatId: number, text: string) {
   return sendMessage(chatId, text);
 }
@@ -198,13 +210,14 @@ export function buildShopKeyboard(items: Array<{ id: number; name: string; price
   if (page > 0) nav.push({ text: "◀️ Previous", callback_data: `shop:${page - 1}`, style: "primary" });
   if (page < pageCount - 1) nav.push({ text: "Next ▶️", callback_data: `shop:${page + 1}`, style: "primary" });
   if (nav.length) rows.push(nav);
+  rows.push([{ text: "🔄 Refresh", callback_data: `shop:${page}`, style: "primary" }, { text: "🏠 Back to home", callback_data: "home", style: "primary" }]);
   return keyboard(rows);
 }
 
 export function buildProductKeyboard(productId: number) {
   return keyboard([
     [{ text: "🛒 Buy now", callback_data: `buy:${productId}`, style: "success" }],
-    [{ text: "↩️ Back to shop", callback_data: "shop", style: "primary" }],
+    [{ text: "↩️ Back to shop", callback_data: "shop", style: "primary" }, { text: "🏠 Home", callback_data: "home", style: "primary" }],
   ]);
 }
 
@@ -257,109 +270,109 @@ async function ensureBotUser(user: TelegramUser, referralCode?: string) {
   return created;
 }
 
-async function requireAccess(chatId: number, userId: number) {
+async function requireAccess(chatId: number, userId: number, messageId?: number) {
   const status = await membershipStatus(userId);
   if (status.access) return true;
   const gate = await runtimeGate();
-  await sendMessage(chatId, formatMembershipMessage(), buildMembershipKeyboard(gate.channelUrl, gate.groupUrl));
+  await respond(chatId, formatMembershipMessage(), buildMembershipKeyboard(gate.channelUrl, gate.groupUrl), messageId);
   return false;
 }
 
-async function showHome(chatId: number, userId: number) {
-  if (!(await requireAccess(chatId, userId))) return;
+async function showHome(chatId: number, userId: number, messageId?: number) {
+  if (!(await requireAccess(chatId, userId, messageId))) return;
   const db = await getDb();
   if (!db) throw new Error("Database is unavailable");
   const user = (await db.select().from(botUsers).where(eq(botUsers.telegramUserId, userId)).limit(1))[0];
   const referralRows = await db.select({ count: sql<number>`count(*)` }).from(referrals).where(eq(referrals.referrerId, user?.id ?? -1));
   const status = await membershipStatus(userId);
-  await sendMessage(chatId, formatHomeMessage({
+  await respond(chatId, formatHomeMessage({
     firstName: user?.firstName,
     username: user?.username,
     tier: user?.tier,
     balanceCents: user?.balanceCents,
     referrals: Number(referralRows[0]?.count ?? 0),
     access: status.access,
-  }), buildHomeKeyboard());
+  }), buildHomeKeyboard(), messageId);
 }
 
-async function showFreebies(chatId: number) {
+async function showFreebies(chatId: number, messageId?: number) {
   const db = await getDb();
   if (!db) throw new Error("Database is unavailable");
   const items = await db.select().from(products).where(and(eq(products.active, 1), eq(products.freeEligible, 1))).limit(20);
-  if (!items.length) return sendMessage(chatId, "🎁 <b>Nebula Nook Freebies</b>\n\nThere are no free items available right now. Check back soon!", buildFreebiesKeyboard([]));
-  return sendMessage(chatId, formatFreebiesMessage(items), buildFreebiesKeyboard(items));
+  if (!items.length) return respond(chatId, "🎁 <b>Nebula Nook Freebies</b>\n\nThere are no free items available right now. Check back soon!", buildFreebiesKeyboard([]), messageId);
+  return respond(chatId, formatFreebiesMessage(items), buildFreebiesKeyboard(items), messageId);
 }
 
-async function showShop(chatId: number, page = 0) {
+async function showShop(chatId: number, page = 0, messageId?: number) {
   const db = await getDb();
   if (!db) throw new Error("Database is unavailable");
   const items = await db.select().from(products).where(eq(products.active, 1)).limit(60);
-  if (!items.length) return sendMessage(chatId, "🛍️ <b>Shop</b>\n\nThe catalog is empty right now. Please check back soon.");
+  if (!items.length) return respond(chatId, "🛍️ <b>Shop</b>\n\nThe catalog is empty right now. Please check back soon.", undefined, messageId);
   const pageCount = Math.max(1, Math.ceil(items.length / SHOP_PAGE_SIZE));
   const safePage = Math.min(Math.max(page, 0), pageCount - 1);
   const pageItems = items.slice(safePage * SHOP_PAGE_SIZE, (safePage + 1) * SHOP_PAGE_SIZE);
-  await sendMessage(chatId, formatShopSummary(safePage, pageCount), buildShopKeyboard(pageItems, safePage, pageCount));
+  await respond(chatId, formatShopSummary(safePage, pageCount), buildShopKeyboard(pageItems, safePage, pageCount), messageId);
 }
 
-async function showProduct(chatId: number, productId: number) {
+async function showProduct(chatId: number, productId: number, messageId?: number) {
   const db = await getDb();
   if (!db) throw new Error("Database is unavailable");
   const item = (await db.select().from(products).where(eq(products.id, productId)).limit(1))[0];
-  if (!item || !item.active || item.stock <= 0) return sendMessage(chatId, "⚠️ This product is currently unavailable.");
-  await sendMessage(chatId, `✨ <b>${item.name}</b>\n\n${item.description}\n\n💵 Price: <b>$${(item.priceCents / 100).toFixed(2)}</b>\n📦 Stock: <b>${item.stock}</b>\n🚚 Delivery: <b>Automatic</b>`, buildProductKeyboard(item.id));
+  if (!item || !item.active || item.stock <= 0) return respond(chatId, "⚠️ This product is currently unavailable.", undefined, messageId);
+  await respond(chatId, `✨ <b>${item.name}</b>\n\n${item.description}\n\n💵 Price: <b>$${(item.priceCents / 100).toFixed(2)}</b>\n📦 Stock: <b>${item.stock}</b>\n🚚 Delivery: <b>Automatic</b>`, buildProductKeyboard(item.id), messageId);
 }
 
-async function showWallet(chatId: number, userId: number) {
+async function showWallet(chatId: number, userId: number, messageId?: number) {
   const db = await getDb();
   if (!db) throw new Error("Database is unavailable");
   const user = (await db.select().from(botUsers).where(eq(botUsers.telegramUserId, userId)).limit(1))[0];
   const ledger = await db.select().from(walletLedger).where(eq(walletLedger.botUserId, user?.id ?? -1)).orderBy(desc(walletLedger.createdAt)).limit(1000);
   const history = ledger.length ? ledger.map((entry) => `${entry.amountCents >= 0 ? "+" : ""}$${(entry.amountCents / 100).toFixed(2)} — ${entry.kind}`).join("\n") : "No ledger activity yet.";
-  await sendMessage(chatId, `💳 <b>Wallet</b>\n\n💰 Balance: $${((user?.balanceCents ?? 0) / 100).toFixed(2)}\n\n📒 <b>Recent activity</b>\n${history}`);
+  await respond(chatId, `💳 <b>Wallet</b>\n\n💰 Balance: $${((user?.balanceCents ?? 0) / 100).toFixed(2)}\n\n📒 <b>Recent activity</b>\n${history}`, buildHomeKeyboard(), messageId);
 }
 
-async function showOrders(chatId: number, userId: number) {
+async function showOrders(chatId: number, userId: number, messageId?: number) {
   const db = await getDb();
   if (!db) throw new Error("Database is unavailable");
   const user = (await db.select().from(botUsers).where(eq(botUsers.telegramUserId, userId)).limit(1))[0];
   const rows = await db.select().from(orders).where(eq(orders.botUserId, user?.id ?? -1)).orderBy(desc(orders.createdAt)).limit(1000);
-  await sendMessage(chatId, rows.length ? `📦 <b>Orders</b>\n\n${rows.map((o) => formatOrderStatus(o.id, o.kind, o.status, o.amountCents)).join("\n")}` : "📦 <b>Orders</b>\n\nYou do not have any orders yet.");
+  await respond(chatId, rows.length ? `📦 <b>Orders</b>\n\n${rows.map((o) => formatOrderStatus(o.id, o.kind, o.status, o.amountCents)).join("\n")}` : "📦 <b>Orders</b>\n\nYou do not have any orders yet.", buildHomeKeyboard(), messageId);
 }
 
-async function showProfile(chatId: number, userId: number) {
+async function showProfile(chatId: number, userId: number, messageId?: number) {
   const db = await getDb();
   if (!db) throw new Error("Database is unavailable");
   const user = (await db.select().from(botUsers).where(eq(botUsers.telegramUserId, userId)).limit(1))[0];
   const referralsCount = await db.select({ count: sql<number>`count(*)` }).from(referrals).where(eq(referrals.referrerId, user?.id ?? -1));
-  await sendMessage(chatId, `👤 <b>Profile</b>\n\n🪪 Name: ${user?.firstName ?? "User"}\n🏅 Tier: ${user?.tier ?? "Bronze"}\n🤝 Referrals: ${Number(referralsCount[0]?.count ?? 0)}\n\n🔗 Your referral link:\nhttps://t.me/NebulaNook4827_bot?start=ref_${user?.referralCode ?? ""}`);
+  await respond(chatId, `👤 <b>Profile</b>\n\n🪪 Name: ${user?.firstName ?? "User"}\n🏅 Tier: ${user?.tier ?? "Bronze"}\n🤝 Referrals: ${Number(referralsCount[0]?.count ?? 0)}\n\n🔗 Your referral link:\nhttps://t.me/NebulaNook4827_bot?start=ref_${user?.referralCode ?? ""}`, buildHomeKeyboard(), messageId);
 }
 
-async function claimFree(chatId: number, userId: number, productId: number) {
+async function claimFree(chatId: number, userId: number, productId: number, messageId?: number) {
   const db = await getDb();
   if (!db) throw new Error("Database is unavailable");
   const user = (await db.select().from(botUsers).where(eq(botUsers.telegramUserId, userId)).limit(1))[0];
   const product = (await db.select().from(products).where(eq(products.id, productId)).limit(1))[0];
-  if (!user || !product || !product.freeEligible || !product.freeWindowMs || product.stock <= 0) return sendMessage(chatId, "⚠️ This free item is currently unavailable.");
+  if (!user || !product || !product.freeEligible || !product.freeWindowMs || product.stock <= 0) return respond(chatId, "⚠️ This free item is currently unavailable.", buildFreebiesKeyboard([]), messageId);
   const now = Date.now();
   const windowStart = freeWindowStart(now, product.freeWindowMs);
   const last = await db.select().from(freeClaims).where(and(eq(freeClaims.botUserId, user.id), eq(freeClaims.productId, product.id))).orderBy(desc(freeClaims.createdAt)).limit(1);
-  if (!canClaimFreeItem(last[0] ? Number(last[0].windowStartMs) : null, now, product.freeWindowMs)) return sendMessage(chatId, "⏳ You have already claimed this item during the current free window.");
+  if (!canClaimFreeItem(last[0] ? Number(last[0].windowStartMs) : null, now, product.freeWindowMs)) return respond(chatId, "⏳ You have already claimed this item during the current free window.", buildFreebiesKeyboard([{ id: product.id, name: product.name }]), messageId);
   await db.insert(freeClaims).values({ botUserId: user.id, productId: product.id, windowStartMs: windowStart, status: "claimed" });
   await db.update(products).set({ stock: product.stock - 1 }).where(eq(products.id, product.id));
   const order = await db.insert(orders).values({ botUserId: user.id, productId: product.id, kind: "free", amountCents: 0, status: "fulfilled" });
-  await sendMessage(chatId, `✅ <b>Free claim recorded</b>\n\n🎁 ${product.name}\n\nYour claim has been added to your order history.`);
+  await respond(chatId, `✅ <b>Free claim recorded</b>\n\n🎁 ${product.name}\n\nYour claim has been added to your order history.`, buildHomeKeyboard(), messageId);
   await notifyAdmin("free_claim", `${user.id}:${product.id}:${windowStart}`, `<b>Free claim</b>\nUser: ${user.telegramUserId}\nProduct: ${product.name}`);
 }
 
-async function createPurchase(chatId: number, userId: number, productId: number) {
+async function createPurchase(chatId: number, userId: number, productId: number, messageId?: number) {
   const db = await getDb();
   if (!db) throw new Error("Database is unavailable");
   const user = (await db.select().from(botUsers).where(eq(botUsers.telegramUserId, userId)).limit(1))[0];
   const product = (await db.select().from(products).where(eq(products.id, productId)).limit(1))[0];
-  if (!user || !product || !product.active) return sendMessage(chatId, "⚠️ This product is currently unavailable.");
+  if (!user || !product || !product.active) return respond(chatId, "⚠️ This product is currently unavailable.", undefined, messageId);
   const purchase = buildAutoPurchaseResult(user.balanceCents, product.priceCents, product.stock);
-  if (purchase.status === "insufficient_balance") return sendMessage(chatId, `💳 <b>Insufficient balance</b>\n\nYour balance is <b>$${(user.balanceCents / 100).toFixed(2)}</b>. This product costs <b>$${(product.priceCents / 100).toFixed(2)}</b>.`);
-  if (purchase.status === "out_of_stock") return sendMessage(chatId, "⚠️ This product is currently unavailable.");
+  if (purchase.status === "insufficient_balance") return respond(chatId, `💳 <b>Insufficient balance</b>\n\nYour balance is <b>$${(user.balanceCents / 100).toFixed(2)}</b>. This product costs <b>$${(product.priceCents / 100).toFixed(2)}</b>.`, buildProductKeyboard(product.id), messageId);
+  if (purchase.status === "out_of_stock") return respond(chatId, "⚠️ This product is currently unavailable.", undefined, messageId);
   const result = await db.insert(orders).values({ botUserId: user.id, productId: product.id, kind: "purchase", amountCents: product.priceCents, status: "fulfilled" });
   const orderId = String(result[0]?.insertId ?? `${user.id}:${product.id}:${Date.now()}`);
   await db.update(botUsers).set({ balanceCents: user.balanceCents - product.priceCents }).where(eq(botUsers.id, user.id));
@@ -367,28 +380,30 @@ async function createPurchase(chatId: number, userId: number, productId: number)
   await db.insert(walletLedger).values({ botUserId: user.id, amountCents: -product.priceCents, kind: "purchase", referenceId: orderId, note: `Automatic purchase: ${product.name}` });
   const notifications = buildFulfillmentNotifications(orderId, product.priceCents, user.telegramUserId);
   const announcement = buildPurchaseAnnouncement(product.id, product.name, 1, user.firstName ?? user.username ?? "User", user.telegramUserId);
-  await sendMessage(chatId, formatPurchaseConfirmation(orderId, product.name, product.priceCents));
+  await respond(chatId, formatPurchaseConfirmation(orderId, product.name, product.priceCents), buildHomeKeyboard(), messageId);
   await notifyAdmin("order_fulfilled", orderId, announcement.text, announcement.replyMarkup);
 }
 
 async function handleCallback(query: TelegramCallbackQuery) {
   const chatId = query.message?.chat.id;
+  const messageId = query.message?.message_id;
   if (!chatId) return;
   const userId = query.from.id;
   await answerCallback(query.id);
   const data = query.data ?? "";
-  if (data === "verify_membership") return showHome(chatId, userId);
-  if (!(await requireAccess(chatId, userId))) return;
-  if (data === "freebies") return showFreebies(chatId);
-  if (data === "shop") return showShop(chatId);
-  if (data.startsWith("shop:")) return showShop(chatId, Number(data.slice(5)));
-  if (data.startsWith("product:")) return showProduct(chatId, Number(data.slice(8)));
-  if (data === "wallet") return showWallet(chatId, userId);
-  if (data === "orders") return showOrders(chatId, userId);
-  if (data === "profile") return showProfile(chatId, userId);
-  if (data === "support") return sendMessage(chatId, formatSupportPrompt());
-  if (data.startsWith("claim:")) return claimFree(chatId, userId, Number(data.slice(6)));
-  if (data.startsWith("buy:")) return createPurchase(chatId, userId, Number(data.slice(4)));
+  if (data === "verify_membership") return showHome(chatId, userId, messageId);
+  if (!(await requireAccess(chatId, userId, messageId))) return;
+  if (data === "home") return showHome(chatId, userId, messageId);
+  if (data === "freebies") return showFreebies(chatId, messageId);
+  if (data === "shop") return showShop(chatId, 0, messageId);
+  if (data.startsWith("shop:")) return showShop(chatId, Number(data.slice(5)), messageId);
+  if (data.startsWith("product:")) return showProduct(chatId, Number(data.slice(8)), messageId);
+  if (data === "wallet") return showWallet(chatId, userId, messageId);
+  if (data === "orders") return showOrders(chatId, userId, messageId);
+  if (data === "profile") return showProfile(chatId, userId, messageId);
+  if (data === "support") return respond(chatId, formatSupportPrompt(), buildHomeKeyboard(), messageId);
+  if (data.startsWith("claim:")) return claimFree(chatId, userId, Number(data.slice(6)), messageId);
+  if (data.startsWith("buy:")) return createPurchase(chatId, userId, Number(data.slice(4)), messageId);
 }
 
 async function handleMessage(message: TelegramMessage) {

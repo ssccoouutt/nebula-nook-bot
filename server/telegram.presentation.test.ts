@@ -21,6 +21,7 @@ import {
   buildProductKeyboard,
   formatFreebiesMessage,
   buildFreebiesKeyboard,
+  telegramResponseMethod,
 } from "./telegram";
 
 describe("Telegram presentation and notification helpers", () => {
@@ -73,10 +74,27 @@ describe("Telegram presentation and notification helpers", () => {
     expect(rows[1][0]).toMatchObject({ callback_data: "home", style: "primary" });
   });
 
+  it("uses edit-in-place responses for callback navigation and send responses for commands", () => {
+    expect(telegramResponseMethod()).toBe("sendMessage");
+    expect(telegramResponseMethod(1234)).toBe("editMessageText");
+  });
+
   it("assigns Telegram primary and success styles to representative keyboards", () => {
     const home = buildHomeKeyboard().inline_keyboard;
     expect(home[0][0]).toMatchObject({ callback_data: "freebies", style: "success" });
     expect(home[0][1]).toMatchObject({ callback_data: "shop", style: "primary" });
+
+    const compactShop = buildShopKeyboard([{ id: 1, name: "Sample", priceCents: 100 }], 0, 1).inline_keyboard;
+    expect(compactShop.at(-1)).toEqual(expect.arrayContaining([
+      expect.objectContaining({ text: "🔄 Refresh", callback_data: "shop:0", style: "primary" }),
+      expect.objectContaining({ text: "🏠 Back to home", callback_data: "home", style: "primary" }),
+    ]));
+
+    const compactProduct = buildProductKeyboard(1).inline_keyboard;
+    expect(compactProduct[1]).toEqual(expect.arrayContaining([
+      expect.objectContaining({ text: "↩️ Back to shop", callback_data: "shop", style: "primary" }),
+      expect.objectContaining({ text: "🏠 Home", callback_data: "home", style: "primary" }),
+    ]));
 
     const membership = buildMembershipKeyboard("https://t.me/+channel", "https://t.me/+group").inline_keyboard;
     expect(membership[0][0]).toMatchObject({ url: "https://t.me/+channel", style: "success" });
