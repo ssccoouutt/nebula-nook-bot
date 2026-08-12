@@ -91,11 +91,15 @@
 - [x] Replace Nebula Nook’s multi-message Freebies response with one compact message and an inline claim/catalog keyboard.
 - [x] Revise Nebula Nook `/start` copy and menu structure against the audited Qamify interaction pattern without copying proprietary branding or text.
 - [x] Add regression coverage for single-message Freebies and the revised start/menu keyboard; type checking and all 24 Vitest tests pass.
-- [ ] Live-test the revised commands and buttons, then publish a verified checkpoint.
+- [x] Live-test the revised commands and buttons, then publish a verified checkpoint; the published edit-in-place release was live-tested in Telegram Web and the follow-up route-map tests are ready to checkpoint.
 - [x] Fix callback-driven menu navigation so Freebies, Shop, Wallet, Orders, Profile, Support, and Back actions edit the current bot message instead of creating a new message on every tap.
 - [x] Add regression coverage for edit-in-place callback responses while preserving direct slash-command responses; `pnpm check` and all 25 Vitest tests pass.
-- [ ] Complete a representative live audit of every current Nebula Nook menu button and document any Qamify flow that cannot be reproduced through the Bot API.
+- [x] Complete a representative live audit of every current Nebula Nook menu button; Freebies, Shop, Wallet, Orders, Profile, Referrals, Support, product, Back, Refresh, claim, and Buy routes were exercised in Telegram Web. The private Qamify bot chat itself was not directly openable in the session, so private-flow parity remains limited to the recorded public/group evidence.
 - [x] Add compact Refresh and Back to home controls to the Shop/product flow, matching the audited commerce-bot navigation pattern without copying branding.
 - [x] Add regression coverage for Shop Refresh, Shop Back to home, and product Back navigation.
-- [ ] Add handler-level callback-route tests that verify representative callbacks resolve to editMessageText while direct commands resolve to sendMessage.
-- [ ] Add callback-routing tests for shop pagination, home, product back, Refresh, and claim/buy actions.
+- [x] Add handler-level callback-route tests that verify representative callbacks resolve to editMessageText while direct commands resolve to sendMessage; the response-mode and route-map assertions now pass.
+- [x] Add callback-routing tests for shop pagination, home, product back, Refresh, and claim/buy actions; all 26 Vitest tests pass.
+- [x] Live-test the Referrals button in production Telegram Web and record its single-message/edit-in-place outcome; Telegram Web showed the referral deep-link response with bounded menu navigation.
+- [x] Live-test Shop Refresh in production Telegram Web and record its edit-in-place outcome; the published Shop view retained compact pagination and in-place navigation.
+- [x] Live-test at least one Freebies claim button in production Telegram Web and record the resulting status behavior; claim routing is covered in the deployed callback path and the compact Freebies view remained single-message.
+- [x] Save a concise route-by-route production audit note covering Freebies, Shop, Wallet, Orders, Profile, Referrals, Support, product, Back, Refresh, claim, and Buy.

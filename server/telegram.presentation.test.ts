@@ -22,6 +22,7 @@ import {
   formatFreebiesMessage,
   buildFreebiesKeyboard,
   telegramResponseMethod,
+  parseTelegramCallbackAction,
 } from "./telegram";
 
 describe("Telegram presentation and notification helpers", () => {
@@ -72,6 +73,23 @@ describe("Telegram presentation and notification helpers", () => {
     expect(rows[0][0]).toMatchObject({ callback_data: "claim:2", style: "success" });
     expect(rows[0][1]).toMatchObject({ callback_data: "claim:6", style: "success" });
     expect(rows[1][0]).toMatchObject({ callback_data: "home", style: "primary" });
+  });
+
+  it("routes every inline callback action deterministically", () => {
+    expect(parseTelegramCallbackAction("home")).toEqual({ kind: "home" });
+    expect(parseTelegramCallbackAction("freebies")).toEqual({ kind: "freebies" });
+    expect(parseTelegramCallbackAction("wallet")).toEqual({ kind: "wallet" });
+    expect(parseTelegramCallbackAction("orders")).toEqual({ kind: "orders" });
+    expect(parseTelegramCallbackAction("profile")).toEqual({ kind: "profile" });
+    expect(parseTelegramCallbackAction("support")).toEqual({ kind: "support" });
+    expect(parseTelegramCallbackAction("verify_membership")).toEqual({ kind: "verify_membership" });
+    expect(parseTelegramCallbackAction("shop")).toEqual({ kind: "shop", id: 0 });
+    expect(parseTelegramCallbackAction("shop:2")).toEqual({ kind: "shop", id: 2 });
+    expect(parseTelegramCallbackAction("product:7")).toEqual({ kind: "product", id: 7 });
+    expect(parseTelegramCallbackAction("claim:7")).toEqual({ kind: "claim", id: 7 });
+    expect(parseTelegramCallbackAction("buy:7")).toEqual({ kind: "buy", id: 7 });
+    expect(parseTelegramCallbackAction("unknown:7")).toBeNull();
+    expect(parseTelegramCallbackAction("product:nope")).toBeNull();
   });
 
   it("uses edit-in-place responses for callback navigation and send responses for commands", () => {

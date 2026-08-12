@@ -384,26 +384,40 @@ async function createPurchase(chatId: number, userId: number, productId: number,
   await notifyAdmin("order_fulfilled", orderId, announcement.text, announcement.replyMarkup);
 }
 
+export type TelegramCallbackAction =
+  | { kind: "verify_membership" | "home" | "freebies" | "wallet" | "orders" | "profile" | "support" }
+  | { kind: "shop" | "product" | "claim" | "buy"; id: number };
+
+export function parseTelegramCallbackAction(data?: string): TelegramCallbackAction | null {
+  const value = data ?? "";
+  if (["verify_membership", "home", "freebies", "wallet", "orders", "profile", "support"].includes(value)) return { kind: value as TelegramCallbackAction["kind"] } as TelegramCallbackAction;
+  const match = value.match(/^(shop|product|claim|buy)(?::(\d+))?$/);
+  if (!match) return null;
+  if (match[1] === "shop" && match[2] === undefined) return { kind: "shop", id: 0 };
+  if (!match[2]) return null;
+  return { kind: match[1] as "shop" | "product" | "claim" | "buy", id: Number(match[2]) };
+}
+
 async function handleCallback(query: TelegramCallbackQuery) {
   const chatId = query.message?.chat.id;
   const messageId = query.message?.message_id;
   if (!chatId) return;
   const userId = query.from.id;
   await answerCallback(query.id);
-  const data = query.data ?? "";
-  if (data === "verify_membership") return showHome(chatId, userId, messageId);
+  const action = parseTelegramCallbackAction(query.data);
+  if (!action) return;
+  if (action.kind === "verify_membership") return showHome(chatId, userId, messageId);
   if (!(await requireAccess(chatId, userId, messageId))) return;
-  if (data === "home") return showHome(chatId, userId, messageId);
-  if (data === "freebies") return showFreebies(chatId, messageId);
-  if (data === "shop") return showShop(chatId, 0, messageId);
-  if (data.startsWith("shop:")) return showShop(chatId, Number(data.slice(5)), messageId);
-  if (data.startsWith("product:")) return showProduct(chatId, Number(data.slice(8)), messageId);
-  if (data === "wallet") return showWallet(chatId, userId, messageId);
-  if (data === "orders") return showOrders(chatId, userId, messageId);
-  if (data === "profile") return showProfile(chatId, userId, messageId);
-  if (data === "support") return respond(chatId, formatSupportPrompt(), buildHomeKeyboard(), messageId);
-  if (data.startsWith("claim:")) return claimFree(chatId, userId, Number(data.slice(6)), messageId);
-  if (data.startsWith("buy:")) return createPurchase(chatId, userId, Number(data.slice(4)), messageId);
+  if (action.kind === "home") return showHome(chatId, userId, messageId);
+  if (action.kind === "freebies") return showFreebies(chatId, messageId);
+  if (action.kind === "shop") return showShop(chatId, action.id, messageId);
+  if (action.kind === "product") return showProduct(chatId, action.id, messageId);
+  if (action.kind === "wallet") return showWallet(chatId, userId, messageId);
+  if (action.kind === "orders") return showOrders(chatId, userId, messageId);
+  if (action.kind === "profile") return showProfile(chatId, userId, messageId);
+  if (action.kind === "support") return respond(chatId, formatSupportPrompt(), buildHomeKeyboard(), messageId);
+  if (action.kind === "claim") return claimFree(chatId, userId, action.id, messageId);
+  if (action.kind === "buy") return createPurchase(chatId, userId, action.id, messageId);
 }
 
 async function handleMessage(message: TelegramMessage) {
