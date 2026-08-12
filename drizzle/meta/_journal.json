@@ -1,5 +1,27 @@
 {
   "version": "7",
   "dialect": "mysql",
-  "entries": []
+  "entries": [
+    {
+      "idx": 0,
+      "version": "5",
+      "when": 1786530530954,
+      "tag": "0000_dusty_doorman",
+      "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "5",
+      "when": 1786531251005,
+      "tag": "0001_demonic_patch",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "5",
+      "when": 1786531475402,
+      "tag": "0002_safe_agent_zero",
+      "breakpoints": true
+    }
+  ]
 }

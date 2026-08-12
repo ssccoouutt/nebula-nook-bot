@@ -1,33 +1,83 @@
+import { useMemo, useState } from "react";
 import { useAuth } from "@/_core/hooks/useAuth";
+import { startLogin } from "@/const";
+import { trpc } from "@/lib/trpc";
 import { Button } from "@/components/ui/button";
-import { Loader2 } from "lucide-react";
-import { Streamdown } from 'streamdown';
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
+import { Badge } from "@/components/ui/badge";
+import { LayoutDashboard, Package, Settings2, Users, ShoppingBag, LifeBuoy, Send, LogOut, Plus, Trash2, Radio, Pencil } from "lucide-react";
 
-/**
- * All content in this page are only for example, replace with your own feature implementation
- * When building pages, remember your instructions in Frontend Workflow, Frontend Best Practices, Design Guide and Common Pitfalls
- */
+const tabs = [
+  { id: "overview", label: "Overview", icon: LayoutDashboard },
+  { id: "products", label: "Products", icon: Package },
+  { id: "users", label: "Users", icon: Users },
+  { id: "orders", label: "Orders", icon: ShoppingBag },
+  { id: "wallet", label: "Wallet ledger", icon: Radio },
+  { id: "support", label: "Support", icon: LifeBuoy },
+  { id: "settings", label: "Settings", icon: Settings2 },
+];
+
+type ProductDraft = { name: string; description: string; priceCents: number; stock: number; freeEligible: boolean; freeWindowMs: number | null };
+const emptyDraft: ProductDraft = { name: "", description: "", priceCents: 0, stock: 0, freeEligible: false, freeWindowMs: 86_400_000 };
+
+function Metric({ label, value, accent }: { label: string; value: number | undefined; accent: string }) {
+  return <Card className="border-0 bg-white/80 shadow-sm"><CardContent className="p-5"><div className="mb-3 flex items-center justify-between"><span className={`h-2 w-2 rounded-full ${accent}`} /><span className="text-xs font-medium uppercase tracking-[0.18em] text-slate-400">Live</span></div><p className="text-sm text-slate-500">{label}</p><p className="mt-1 text-3xl font-semibold tracking-tight text-slate-950">{value ?? "—"}</p></CardContent></Card>;
+}
+
 export default function Home() {
-  // The useAuth hook provides authentication state.
-  // To implement login/logout, call logout(), or start login from an event
-  // handler: onClick={() => startLogin()} (imported from "@/const"). Never call
-  // startLogin() during render (no href={startLogin()}) — it mints a one-time
-  // nonce cookie and must run only at the moment of navigation.
-  let { user, loading, error, isAuthenticated, logout } = useAuth();
+  const { user, loading, isAuthenticated, logout } = useAuth();
+  const [tab, setTab] = useState("overview");
+  const [draft, setDraft] = useState<ProductDraft>(emptyDraft);
+  const [editId, setEditId] = useState<number | null>(null);
+  const [broadcast, setBroadcast] = useState("");
+  const [settingKey, setSettingKey] = useState("membership_channel_id");
+  const [settingValue, setSettingValue] = useState("-1004462190741");
+  const utils = trpc.useUtils();
+  const overview = trpc.admin.overview.useQuery(undefined, { enabled: isAuthenticated });
+  const products = trpc.admin.products.useQuery(undefined, { enabled: isAuthenticated && tab === "products" });
+  const users = trpc.admin.users.useQuery(undefined, { enabled: isAuthenticated && tab === "users" });
+  const orders = trpc.admin.orders.useQuery(undefined, { enabled: isAuthenticated && tab === "orders" });
+  const ledger = trpc.admin.ledger.useQuery(undefined, { enabled: isAuthenticated && tab === "wallet" });
+  const tickets = trpc.admin.tickets.useQuery(undefined, { enabled: isAuthenticated && tab === "support" });
+  const settings = trpc.admin.settings.useQuery(undefined, { enabled: isAuthenticated && tab === "settings" });
+  const createProduct = trpc.admin.createProduct.useMutation({ onSuccess: () => { setDraft(emptyDraft); setEditId(null); void utils.admin.products.invalidate(); void utils.admin.overview.invalidate(); } });
+  const updateProduct = trpc.admin.updateProduct.useMutation({ onSuccess: () => { setDraft(emptyDraft); setEditId(null); void utils.admin.products.invalidate(); } });
+  const deleteProduct = trpc.admin.deleteProduct.useMutation({ onSuccess: () => { void utils.admin.products.invalidate(); void utils.admin.overview.invalidate(); } });
+  const setSetting = trpc.admin.setSetting.useMutation({ onSuccess: () => void utils.admin.settings.invalidate() });
+  const configureWebhook = trpc.admin.configureWebhook.useMutation();
+  const queueBroadcast = trpc.admin.queueBroadcast.useMutation({ onSuccess: () => setBroadcast("") });
+  const updateOrderStatus = trpc.admin.updateOrderStatus.useMutation({ onSuccess: () => void utils.admin.orders.invalidate() });
 
-  // If theme is switchable in App.tsx, we can implement theme toggling like this:
-  // const { theme, toggleTheme } = useTheme();
+  const welcome = useMemo(() => user?.name ? `Welcome back, ${user.name.split(" ")[0]}.` : "Welcome to Nebula Nook.", [user?.name]);
+  if (loading) return <div className="flex min-h-screen items-center justify-center bg-[#f4f6fb] text-slate-500">Loading workspace…</div>;
+  if (!isAuthenticated) return <div className="flex min-h-screen items-center justify-center bg-[#f4f6fb] p-6"><Card className="w-full max-w-md border-0 shadow-xl"><CardContent className="p-8"><p className="mb-3 text-xs font-semibold uppercase tracking-[0.22em] text-indigo-600">Nebula Nook</p><h1 className="text-3xl font-semibold tracking-tight text-slate-950">Bot operations, in one place.</h1><p className="mt-3 text-slate-500">Sign in with the project owner account to manage your Telegram catalog and membership system.</p><Button className="mt-7 w-full" onClick={() => startLogin()}>Sign in to continue</Button></CardContent></Card></div>;
+  if (user?.role !== "admin") return <div className="flex min-h-screen items-center justify-center bg-[#f4f6fb] p-6"><Card className="max-w-md border-0 shadow-xl"><CardContent className="p-8"><h1 className="text-2xl font-semibold text-slate-950">Admin access required</h1><p className="mt-2 text-slate-500">Your signed-in account is not assigned the admin role.</p><Button className="mt-6" variant="outline" onClick={() => logout()}>Sign out</Button></CardContent></Card></div>;
 
-  return (
-    <div className="min-h-screen flex flex-col">
-      <main>
-        {/* Example: lucide-react for icons */}
-        <Loader2 className="animate-spin" />
-        Example Page
-        {/* Example: Streamdown for markdown rendering */}
-        <Streamdown>Any **markdown** content</Streamdown>
-        <Button variant="default">Example Button</Button>
+  const submitProduct = () => editId ? updateProduct.mutate({ id: editId, ...draft, active: true }) : createProduct.mutate(draft);
+  return <div className="min-h-screen bg-[#f4f6fb] text-slate-950">
+    <div className="mx-auto flex min-h-screen max-w-[1440px]">
+      <aside className="hidden w-64 shrink-0 border-r border-slate-200/80 bg-[#111827] px-4 py-6 text-slate-300 lg:block">
+        <div className="mb-10 px-3"><div className="mb-2 flex items-center gap-2 text-white"><span className="grid h-8 w-8 place-items-center rounded-lg bg-indigo-500 font-bold">N</span><span className="font-semibold tracking-tight">Nebula Nook</span></div><p className="text-xs text-slate-500">Bot operations console</p></div>
+        <nav className="space-y-1">{tabs.map(({ id, label, icon: Icon }) => <button key={id} onClick={() => setTab(id)} className={`flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-sm transition ${tab === id ? "bg-white/10 text-white" : "text-slate-400 hover:bg-white/5 hover:text-slate-200"}`}><Icon className="h-4 w-4" />{label}</button>)}</nav>
+        <div className="mt-auto pt-20"><div className="rounded-xl border border-white/10 bg-white/5 p-3"><p className="text-xs font-medium text-slate-300">@NebulaNook4827_bot</p><p className="mt-1 text-[11px] text-slate-500">Webhook workspace</p></div><button onClick={() => logout()} className="mt-5 flex items-center gap-2 px-3 text-sm text-slate-500 hover:text-white"><LogOut className="h-4 w-4" />Sign out</button></div>
+      </aside>
+      <main className="min-w-0 flex-1 px-5 py-6 sm:px-8 lg:px-10">
+        <header className="mb-8 flex items-start justify-between gap-4"><div><p className="text-sm font-medium text-indigo-600">Operations console</p><h1 className="mt-1 text-3xl font-semibold tracking-tight text-slate-950">{tab === "overview" ? welcome : tabs.find((x) => x.id === tab)?.label}</h1><p className="mt-2 text-sm text-slate-500">Manage your original Telegram commerce and freebies experience.</p></div><div className="hidden items-center gap-3 sm:flex"><Badge variant="outline" className="border-emerald-200 bg-emerald-50 text-emerald-700">Webhook ready</Badge><div className="grid h-9 w-9 place-items-center rounded-full bg-indigo-100 text-sm font-semibold text-indigo-700">{user?.name?.slice(0, 1) ?? "A"}</div></div></header>
+        <div className="mb-6 flex gap-2 overflow-x-auto lg:hidden">{tabs.map(({ id, label }) => <Button key={id} size="sm" variant={tab === id ? "default" : "outline"} onClick={() => setTab(id)}>{label}</Button>)}</div>
+        {tab === "overview" && <div className="space-y-6"><div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4"><Metric label="Bot users" value={overview.data?.users} accent="bg-indigo-500" /><Metric label="Active products" value={overview.data?.activeProducts} accent="bg-emerald-500" /><Metric label="Open tickets" value={overview.data?.openTickets} accent="bg-amber-500" /><Metric label="Orders" value={overview.data?.orders} accent="bg-violet-500" /></div><div className="grid gap-6 xl:grid-cols-[1.3fr_0.7fr]"><Card className="border-0 shadow-sm"><CardHeader><CardTitle className="text-lg">Broadcast center</CardTitle><p className="text-sm font-normal text-slate-500">Queue an announcement for the bot audience.</p></CardHeader><CardContent><Textarea value={broadcast} onChange={(e) => setBroadcast(e.target.value)} placeholder="Write a concise announcement…" className="min-h-32" /><Button className="mt-4" disabled={!broadcast.trim() || queueBroadcast.isPending} onClick={() => queueBroadcast.mutate({ message: broadcast })}><Send className="mr-2 h-4 w-4" />Queue broadcast</Button></CardContent></Card><Card className="border-0 bg-[#172554] text-white shadow-sm"><CardContent className="p-6"><Radio className="mb-6 h-5 w-5 text-indigo-300" /><p className="text-sm text-indigo-200">Configured membership gate</p><h2 className="mt-2 text-xl font-semibold">Nebula Nook Updates</h2><p className="mt-1 text-sm text-indigo-200">+ Nebula Nook Community</p><div className="mt-8 rounded-lg bg-white/10 p-3 text-xs text-indigo-100">Bot checks both spaces before granting access.</div></CardContent></Card></div></div>}
+        {tab === "products" && <div className="grid gap-6 xl:grid-cols-[380px_1fr]"><Card className="border-0 shadow-sm"><CardHeader><CardTitle className="text-lg">{editId ? "Edit product" : "Add product"}</CardTitle></CardHeader><CardContent className="space-y-3"><Input placeholder="Product name" value={draft.name} onChange={(e) => setDraft({ ...draft, name: e.target.value })} /><Textarea placeholder="Description" value={draft.description} onChange={(e) => setDraft({ ...draft, description: e.target.value })} /><div className="grid grid-cols-2 gap-3"><Input type="number" placeholder="Price cents" value={draft.priceCents} onChange={(e) => setDraft({ ...draft, priceCents: Number(e.target.value) })} /><Input type="number" placeholder="Stock" value={draft.stock} onChange={(e) => setDraft({ ...draft, stock: Number(e.target.value) })} /></div><label className="flex items-center gap-2 text-sm text-slate-600"><input type="checkbox" checked={draft.freeEligible} onChange={(e) => setDraft({ ...draft, freeEligible: e.target.checked })} />Eligible for freebies</label>{draft.freeEligible && <Input type="number" placeholder="Free window ms" value={draft.freeWindowMs ?? ""} onChange={(e) => setDraft({ ...draft, freeWindowMs: Number(e.target.value) })} />}<Button className="w-full" disabled={!draft.name || !draft.description || createProduct.isPending || updateProduct.isPending} onClick={submitProduct}><Plus className="mr-2 h-4 w-4" />{editId ? "Save changes" : "Add product"}</Button>{editId && <Button variant="outline" className="w-full" onClick={() => { setEditId(null); setDraft(emptyDraft); }}>Cancel edit</Button>}</CardContent></Card><Card className="border-0 shadow-sm"><CardHeader><CardTitle className="text-lg">Catalog</CardTitle></CardHeader><CardContent className="space-y-3">{products.isLoading ? <p className="text-sm text-slate-500">Loading catalog…</p> : products.data?.length ? products.data.map((p) => <div key={p.id} className="flex items-center justify-between gap-4 rounded-xl border border-slate-100 p-4"><div className="min-w-0"><div className="flex items-center gap-2"><p className="font-medium text-slate-900">{p.name}</p><Badge variant="outline">{p.active ? "Active" : "Archived"}</Badge></div><p className="mt-1 truncate text-sm text-slate-500">{p.description}</p><p className="mt-2 text-xs text-slate-400">${(p.priceCents / 100).toFixed(2)} · {p.stock} in stock</p></div><div className="flex items-center gap-1"><Button size="icon" variant="ghost" className="text-slate-400 hover:text-indigo-600" onClick={() => { setEditId(p.id); setDraft({ name: p.name, description: p.description, priceCents: p.priceCents, stock: p.stock, freeEligible: Boolean(p.freeEligible), freeWindowMs: p.freeWindowMs }); }}><Pencil className="h-4 w-4" /></Button><Button size="icon" variant="ghost" className="text-slate-400 hover:text-red-600" onClick={() => deleteProduct.mutate({ id: p.id })}><Trash2 className="h-4 w-4" /></Button></div></div>) : <p className="text-sm text-slate-500">No products yet.</p>}</CardContent></Card></div>}
+        {tab === "users" && <DataCard title="Bot users" rows={users.data?.map((u) => [u.firstName ?? "—", u.username ? `@${u.username}` : "—", u.tier, `$${(u.balanceCents / 100).toFixed(2)}`]) ?? []} headers={["Name", "Username", "Tier", "Balance"]} />}
+        {tab === "orders" && <Card className="border-0 shadow-sm"><CardHeader><CardTitle className="text-lg">Recent orders</CardTitle></CardHeader><CardContent className="space-y-3">{orders.data?.length ? orders.data.map((o) => <div key={o.id} className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-slate-100 p-4"><div><p className="font-medium">Order #{o.id} · {o.kind}</p><p className="text-sm text-slate-500">{o.status} · ${(o.amountCents / 100).toFixed(2)}</p></div><div className="flex gap-2">{o.status !== "fulfilled" && o.status !== "cancelled" && <Button size="sm" onClick={() => updateOrderStatus.mutate({ id: o.id, status: "fulfilled" })}>Mark fulfilled</Button>}<Button size="sm" variant="outline" onClick={() => updateOrderStatus.mutate({ id: o.id, status: "cancelled" })}>Cancel</Button></div></div>) : <p className="text-sm text-slate-500">No orders yet.</p>}</CardContent></Card>}
+        {tab === "wallet" && <DataCard title="Wallet ledger" rows={ledger.data?.map((entry) => [`#${entry.id}`, `User ${entry.botUserId}`, entry.kind, `${entry.amountCents >= 0 ? "+" : ""}$${(entry.amountCents / 100).toFixed(2)}`]) ?? []} headers={["Entry", "User", "Kind", "Amount"]} />}
+        {tab === "support" && <DataCard title="Support tickets" rows={tickets.data?.map((t) => [`#${t.id}`, t.message.slice(0, 48), t.status, new Date(t.createdAt).toLocaleDateString()]) ?? []} headers={["Ticket", "Message", "Status", "Created"]} />}
+        {tab === "settings" && <div className="grid gap-6 xl:grid-cols-[1fr_1fr]"><Card className="border-0 shadow-sm"><CardHeader><CardTitle className="text-lg">Runtime configuration</CardTitle><p className="text-sm font-normal text-slate-500">These values are stored in the database and can change without a deploy.</p></CardHeader><CardContent className="space-y-3"><Input value={settingKey} onChange={(e) => setSettingKey(e.target.value)} placeholder="Setting key" /><Input value={settingValue} onChange={(e) => setSettingValue(e.target.value)} placeholder="Setting value" /><div className="flex flex-wrap gap-2"><Button onClick={() => setSetting.mutate({ key: settingKey, value: settingValue })}>Save setting</Button><Button variant="outline" onClick={() => configureWebhook.mutate()} disabled={configureWebhook.isPending}>Register webhook</Button></div>{configureWebhook.data?.webhookUrl && <p className="text-xs text-emerald-600">Registered: {configureWebhook.data.webhookUrl}</p>}</CardContent></Card><Card className="border-0 shadow-sm"><CardHeader><CardTitle className="text-lg">Saved settings</CardTitle></CardHeader><CardContent className="space-y-2">{settings.data?.map((s) => <div key={s.key} className="flex justify-between rounded-lg bg-slate-50 px-3 py-2 text-sm"><span className="font-medium text-slate-700">{s.key}</span><span className="max-w-[55%] truncate text-slate-500">{s.value}</span></div>)}</CardContent></Card></div>}
       </main>
     </div>
-  );
+  </div>;
+}
+
+function DataCard({ title, headers, rows }: { title: string; headers: string[]; rows: string[][] }) {
+  return <Card className="border-0 shadow-sm"><CardHeader><CardTitle className="text-lg">{title}</CardTitle></CardHeader><CardContent><div className="overflow-x-auto"><table className="w-full min-w-[560px] text-left text-sm"><thead><tr className="border-b border-slate-100 text-xs uppercase tracking-[0.14em] text-slate-400">{headers.map((h) => <th key={h} className="px-3 py-3 font-medium">{h}</th>)}</tr></thead><tbody>{rows.length ? rows.map((row, i) => <tr key={i} className="border-b border-slate-50 last:border-0">{row.map((cell, j) => <td key={j} className="px-3 py-3 text-slate-600">{cell}</td>)}</tr>) : <tr><td colSpan={headers.length} className="px-3 py-8 text-center text-slate-400">Nothing here yet.</td></tr>}</tbody></table></div></CardContent></Card>;
 }

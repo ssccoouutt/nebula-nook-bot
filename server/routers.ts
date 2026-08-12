@@ -1,28 +1,96 @@
+import { z } from "zod";
+import { desc, eq, sql } from "drizzle-orm";
 import { COOKIE_NAME } from "@shared/const";
 import { getSessionCookieOptions } from "./_core/cookies";
 import { systemRouter } from "./_core/systemRouter";
-import { publicProcedure, router } from "./_core/trpc";
+import { publicProcedure, protectedProcedure, router } from "./_core/trpc";
+import { getDb } from "./db";
+import { botSettings, botUsers, broadcasts, orders, products, supportTickets, walletLedger } from "../drizzle/schema";
+import { TRPCError } from "@trpc/server";
+import { configureTelegramWebhook, sendTelegramMessage } from "./telegram";
+
+const adminProcedure = protectedProcedure.use(({ ctx, next }) => {
+  if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN", message: "Admin access required" });
+  return next();
+});
+
+async function database() {
+  const db = await getDb();
+  if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Database is unavailable" });
+  return db;
+}
 
 export const appRouter = router({
-    // if you need to use socket.io, read and register route in server/_core/index.ts, all api should start with '/api/' so that the gateway can route correctly
   system: systemRouter,
   auth: router({
     me: publicProcedure.query(opts => opts.ctx.user),
     logout: publicProcedure.mutation(({ ctx }) => {
       const cookieOptions = getSessionCookieOptions(ctx.req);
       ctx.res.clearCookie(COOKIE_NAME, { ...cookieOptions, maxAge: -1 });
-      return {
-        success: true,
-      } as const;
+      return { success: true } as const;
     }),
   }),
-
-  // TODO: add feature routers here, e.g.
-  // todo: router({
-  //   list: protectedProcedure.query(({ ctx }) =>
-  //     db.getUserTodos(ctx.user.id)
-  //   ),
-  // }),
+  admin: router({
+    overview: adminProcedure.query(async () => {
+      const db = await database();
+      const [users, activeProducts, openTickets, ordersCount] = await Promise.all([
+        db.select({ count: sql<number>`count(*)` }).from(botUsers),
+        db.select({ count: sql<number>`count(*)` }).from(products).where(eq(products.active, 1)),
+        db.select({ count: sql<number>`count(*)` }).from(supportTickets).where(eq(supportTickets.status, "open")),
+        db.select({ count: sql<number>`count(*)` }).from(orders),
+      ]);
+      return { users: Number(users[0]?.count ?? 0), activeProducts: Number(activeProducts[0]?.count ?? 0), openTickets: Number(openTickets[0]?.count ?? 0), orders: Number(ordersCount[0]?.count ?? 0) };
+    }),
+    products: adminProcedure.query(async () => (await database()).select().from(products).orderBy(desc(products.createdAt))),
+    createProduct: adminProcedure.input(z.object({ name: z.string().min(1).max(255), description: z.string().min(1), priceCents: z.number().int().nonnegative(), stock: z.number().int().nonnegative(), freeEligible: z.boolean(), freeWindowMs: z.number().int().positive().nullable() })).mutation(async ({ input }) => {
+      const db = await database();
+      await db.insert(products).values({ ...input, freeEligible: input.freeEligible ? 1 : 0, active: 1 });
+      return { success: true };
+    }),
+    updateProduct: adminProcedure.input(z.object({ id: z.number().int(), name: z.string().min(1).max(255), description: z.string().min(1), priceCents: z.number().int().nonnegative(), stock: z.number().int().nonnegative(), active: z.boolean(), freeEligible: z.boolean(), freeWindowMs: z.number().int().positive().nullable() })).mutation(async ({ input }) => {
+      const db = await database();
+      await db.update(products).set({ ...input, active: input.active ? 1 : 0, freeEligible: input.freeEligible ? 1 : 0 }).where(eq(products.id, input.id));
+      return { success: true };
+    }),
+    deleteProduct: adminProcedure.input(z.object({ id: z.number().int() })).mutation(async ({ input }) => {
+      const db = await database();
+      await db.update(products).set({ active: 0 }).where(eq(products.id, input.id));
+      return { success: true };
+    }),
+    settings: adminProcedure.query(async () => (await database()).select().from(botSettings).orderBy(botSettings.key)),
+    setSetting: adminProcedure.input(z.object({ key: z.string().min(1).max(128), value: z.string().max(10000) })).mutation(async ({ input }) => {
+      const db = await database();
+      await db.insert(botSettings).values(input).onDuplicateKeyUpdate({ set: { value: input.value } });
+      return { success: true };
+    }),
+    users: adminProcedure.query(async () => (await database()).select().from(botUsers).orderBy(desc(botUsers.createdAt)).limit(200)),
+    ledger: adminProcedure.query(async () => (await database()).select().from(walletLedger).orderBy(desc(walletLedger.createdAt)).limit(300)),
+    orders: adminProcedure.query(async () => (await database()).select().from(orders).orderBy(desc(orders.createdAt)).limit(200)),
+    updateOrderStatus: adminProcedure.input(z.object({ id: z.number().int(), status: z.enum(["pending", "paid", "fulfilled", "cancelled"]) })).mutation(async ({ input }) => {
+      const db = await database();
+      const order = (await db.select().from(orders).where(eq(orders.id, input.id)).limit(1))[0];
+      if (!order) throw new TRPCError({ code: "NOT_FOUND", message: "Order not found" });
+      await db.update(orders).set({ status: input.status }).where(eq(orders.id, input.id));
+      if (input.status === "fulfilled") {
+        const users = await db.select().from(botUsers).where(eq(botUsers.id, order.botUserId)).limit(1);
+        if (users[0]) await sendTelegramMessage(users[0].telegramUserId, `Order <b>#${order.id}</b> has been marked fulfilled.`);
+      }
+      return { success: true };
+    }),
+    tickets: adminProcedure.query(async () => (await database()).select().from(supportTickets).orderBy(desc(supportTickets.createdAt)).limit(200)),
+    configureWebhook: adminProcedure.mutation(async ({ ctx }) => {
+      const protocol = String(ctx.req.headers["x-forwarded-proto"] ?? ctx.req.protocol ?? "https").split(",")[0];
+      const host = ctx.req.headers.host;
+      if (!host) throw new TRPCError({ code: "BAD_REQUEST", message: "Public host is unavailable" });
+      await configureTelegramWebhook(`${protocol}://${host}/api/telegram/webhook`);
+      return { success: true, webhookUrl: `${protocol}://${host}/api/telegram/webhook` };
+    }),
+    queueBroadcast: adminProcedure.input(z.object({ message: z.string().min(1).max(4000) })).mutation(async ({ input }) => {
+      const db = await database();
+      await db.insert(broadcasts).values({ message: input.message, status: "queued" });
+      return { success: true };
+    }),
+  }),
 });
 
 export type AppRouter = typeof appRouter;
