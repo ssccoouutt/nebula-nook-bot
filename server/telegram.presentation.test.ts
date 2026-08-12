@@ -15,6 +15,10 @@ import {
   formatSupportPrompt,
   formatSupportSubmitted,
   resolveNotificationChatId,
+  buildHomeKeyboard,
+  buildMembershipKeyboard,
+  buildShopKeyboard,
+  buildProductKeyboard,
 } from "./telegram";
 
 describe("Telegram presentation and notification helpers", () => {
@@ -45,6 +49,23 @@ describe("Telegram presentation and notification helpers", () => {
     expect(SHOP_PAGE_SIZE).toBe(6);
     expect(formatShopSummary(0, 2)).toContain("📄 Page 1 of 2");
     expect(formatShopSummary(1, 2)).toContain("🛍️ <b>Nebula Nook Shop</b>");
+  });
+
+  it("assigns Telegram primary and success styles to representative keyboards", () => {
+    const home = buildHomeKeyboard().inline_keyboard;
+    expect(home[0][0]).toMatchObject({ callback_data: "freebies", style: "success" });
+    expect(home[0][1]).toMatchObject({ callback_data: "shop", style: "primary" });
+
+    const membership = buildMembershipKeyboard("https://t.me/+channel", "https://t.me/+group").inline_keyboard;
+    expect(membership[0][0]).toMatchObject({ url: "https://t.me/+channel", style: "success" });
+    expect(membership[2][0]).toMatchObject({ callback_data: "verify_membership", style: "primary" });
+
+    const shop = buildShopKeyboard([{ id: 7, name: "Gemini Pro", priceCents: 1 }], 0, 2).inline_keyboard;
+    expect(shop[0][0]).toMatchObject({ callback_data: "product:7", style: "primary" });
+    expect(shop[1][0]).toMatchObject({ callback_data: "shop:1", style: "primary" });
+
+    const product = buildProductKeyboard(7).inline_keyboard;
+    expect(product[0][0]).toMatchObject({ callback_data: "buy:7", style: "success" });
   });
 
   it("computes an automatically fulfilled wallet purchase without dashboard intervention", () => {

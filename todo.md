@@ -80,5 +80,9 @@
 - [x] Inspect Qamify’s rendered button elements and distinguish callback, URL, Web App, and client/theme styling mechanisms.
 - [x] Compare the observed mechanism with Telegram Bot API capabilities and document what Nebula Nook can reproduce.
 - [x] Decide whether Nebula Nook needs a Mini App for truly custom colored controls and document the implementation path.
-- [ ] Add Telegram Bot API 10.2-compatible predefined button styles to Nebula Nook keyboards and verify the live rendering in Telegram Web.
+- [x] Add Telegram Bot API 10.2-compatible predefined button styles to Nebula Nook keyboards and verify the live rendering in Telegram Web; production Telegram Web rendered the published controls with Telegram’s `primary` styling.
 - [x] Document representative Qamify button-type evidence: URL, callback-style, and whether any inspected control launches a Web App; record any limits of Telegram Web DOM evidence.
+- [x] Inspect the final Telegram keyboard builders and document the intended style field on representative start, membership, Shop, Buy now, and claim controls.
+- [x] Add regression assertions for representative primary and success-styled controls beyond the purchase-announcement URL button; the focused presentation suite now has 7 tests and the full suite has 23 passing tests.
+- [x] Verify a success-styled action and a primary-styled Shop/product action live in Telegram Web; the published Shop and Buy now controls rendered with Telegram Web’s styled button class and white-on-green client presentation.
+- [x] Capture an explicit live Telegram Web DOM sample mapping a Shop/product or Next button text to its rendered class/computed style, and note whether Telegram normalizes primary and success styles visually; live `Shop` and `Buy now` samples used Telegram Web’s `Button ... primary` class with white-on-green rendering.

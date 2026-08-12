@@ -161,6 +161,39 @@ function keyboard(rows: Array<Array<TelegramButton>>) {
   return { inline_keyboard: rows };
 }
 
+export function buildHomeKeyboard() {
+  return keyboard([
+    [{ text: "🎁 Freebies", callback_data: "freebies", style: "success" }, { text: "🛍️ Shop", callback_data: "shop", style: "primary" }],
+    [{ text: "💳 Wallet", callback_data: "wallet", style: "primary" }, { text: "📦 Orders", callback_data: "orders", style: "primary" }],
+    [{ text: "👤 Profile", callback_data: "profile", style: "primary" }, { text: "🤝 Referrals", callback_data: "profile", style: "primary" }],
+    [{ text: "🆘 Support", callback_data: "support", style: "primary" }],
+  ]);
+}
+
+export function buildMembershipKeyboard(channelUrl: string, groupUrl: string) {
+  return keyboard([
+    [{ text: "📣 Join Updates Channel", url: channelUrl, style: "success" }],
+    [{ text: "👥 Join Community Group", url: groupUrl, style: "success" }],
+    [{ text: "✅ I have joined", callback_data: "verify_membership", style: "primary" }],
+  ]);
+}
+
+export function buildShopKeyboard(items: Array<{ id: number; name: string; priceCents: number }>, page: number, pageCount: number) {
+  const rows: TelegramButton[][] = items.map((item) => [{ text: `✨ ${item.name} · $${(item.priceCents / 100).toFixed(2)}`, callback_data: `product:${item.id}`, style: "primary" }]);
+  const nav: TelegramButton[] = [];
+  if (page > 0) nav.push({ text: "◀️ Previous", callback_data: `shop:${page - 1}`, style: "primary" });
+  if (page < pageCount - 1) nav.push({ text: "Next ▶️", callback_data: `shop:${page + 1}`, style: "primary" });
+  if (nav.length) rows.push(nav);
+  return keyboard(rows);
+}
+
+export function buildProductKeyboard(productId: number) {
+  return keyboard([
+    [{ text: "🛒 Buy now", callback_data: `buy:${productId}`, style: "success" }],
+    [{ text: "↩️ Back to shop", callback_data: "shop", style: "primary" }],
+  ]);
+}
+
 async function runtimeGate() {
   const db = await getDb();
   if (!db) return { channelId: DEFAULT_CHANNEL_ID, groupId: DEFAULT_GROUP_ID, channelUrl: DEFAULT_CHANNEL_URL, groupUrl: DEFAULT_GROUP_URL };
@@ -214,11 +247,7 @@ async function requireAccess(chatId: number, userId: number) {
   const status = await membershipStatus(userId);
   if (status.access) return true;
   const gate = await runtimeGate();
-  await sendMessage(chatId, formatMembershipMessage(), keyboard([
-    [{ text: "📣 Join Updates Channel", url: gate.channelUrl, style: "success" }],
-    [{ text: "👥 Join Community Group", url: gate.groupUrl, style: "success" }],
-    [{ text: "✅ I have joined", callback_data: "verify_membership", style: "primary" }],
-  ]));
+  await sendMessage(chatId, formatMembershipMessage(), buildMembershipKeyboard(gate.channelUrl, gate.groupUrl));
   return false;
 }
 
@@ -236,12 +265,7 @@ async function showHome(chatId: number, userId: number) {
     balanceCents: user?.balanceCents,
     referrals: Number(referralRows[0]?.count ?? 0),
     access: status.access,
-  }), keyboard([
-    [{ text: "🎁 Freebies", callback_data: "freebies", style: "success" }, { text: "🛍️ Shop", callback_data: "shop", style: "primary" }],
-    [{ text: "💳 Wallet", callback_data: "wallet", style: "primary" }, { text: "📦 Orders", callback_data: "orders", style: "primary" }],
-    [{ text: "👤 Profile", callback_data: "profile", style: "primary" }, { text: "🤝 Referrals", callback_data: "profile", style: "primary" }],
-    [{ text: "🆘 Support", callback_data: "support", style: "primary" }],
-  ]));
+  }), buildHomeKeyboard());
 }
 
 async function showFreebies(chatId: number) {
@@ -263,12 +287,7 @@ async function showShop(chatId: number, page = 0) {
   const pageCount = Math.max(1, Math.ceil(items.length / SHOP_PAGE_SIZE));
   const safePage = Math.min(Math.max(page, 0), pageCount - 1);
   const pageItems = items.slice(safePage * SHOP_PAGE_SIZE, (safePage + 1) * SHOP_PAGE_SIZE);
-  const rows: TelegramButton[][] = pageItems.map((item) => [{ text: `✨ ${item.name} · $${(item.priceCents / 100).toFixed(2)}`, callback_data: `product:${item.id}`, style: "primary" }]);
-  const nav: TelegramButton[] = [];
-  if (safePage > 0) nav.push({ text: "◀️ Previous", callback_data: `shop:${safePage - 1}`, style: "primary" });
-  if (safePage < pageCount - 1) nav.push({ text: "Next ▶️", callback_data: `shop:${safePage + 1}`, style: "primary" });
-  if (nav.length) rows.push(nav);
-  await sendMessage(chatId, formatShopSummary(safePage, pageCount), keyboard(rows));
+  await sendMessage(chatId, formatShopSummary(safePage, pageCount), buildShopKeyboard(pageItems, safePage, pageCount));
 }
 
 async function showProduct(chatId: number, productId: number) {
@@ -276,7 +295,7 @@ async function showProduct(chatId: number, productId: number) {
   if (!db) throw new Error("Database is unavailable");
   const item = (await db.select().from(products).where(eq(products.id, productId)).limit(1))[0];
   if (!item || !item.active || item.stock <= 0) return sendMessage(chatId, "⚠️ This product is currently unavailable.");
-  await sendMessage(chatId, `✨ <b>${item.name}</b>\n\n${item.description}\n\n💵 Price: <b>$${(item.priceCents / 100).toFixed(2)}</b>\n📦 Stock: <b>${item.stock}</b>\n🚚 Delivery: <b>Automatic</b>`, keyboard([[{ text: "🛒 Buy now", callback_data: `buy:${item.id}`, style: "success" }], [{ text: "↩️ Back to shop", callback_data: "shop", style: "primary" }]]));
+  await sendMessage(chatId, `✨ <b>${item.name}</b>\n\n${item.description}\n\n💵 Price: <b>$${(item.priceCents / 100).toFixed(2)}</b>\n📦 Stock: <b>${item.stock}</b>\n🚚 Delivery: <b>Automatic</b>`, buildProductKeyboard(item.id));
 }
 
 async function showWallet(chatId: number, userId: number) {
