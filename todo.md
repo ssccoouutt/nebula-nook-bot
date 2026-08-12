@@ -21,7 +21,7 @@
 - [x] Run type checks, tests, and browser verification of the dashboard.
 - [x] Document deployment and webhook setup for the chosen free Autoscale fallback.
 - [x] Save a checkpoint for the public-dashboard and webhook-diagnostics fix.
-- [ ] Save a final checkpoint after live webhook verification is complete.
+- [x] Save a final checkpoint after live webhook verification is complete.
 - [x] Document free Autoscale deployment as a webhook-capable fallback without guaranteed 24/7 process persistence.
 - [x] Publish the project on free Autoscale.
 - [x] Register the Telegram webhook from the dashboard after publish and confirm Telegram webhook metadata.
