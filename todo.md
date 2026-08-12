@@ -24,11 +24,16 @@
 - [ ] Save a final checkpoint after live webhook verification is complete.
 - [x] Document free Autoscale deployment as a webhook-capable fallback without guaranteed 24/7 process persistence.
 - [x] Publish the project on free Autoscale.
-- [ ] Register the Telegram webhook from the dashboard after publish and confirm Telegram webhook metadata.
+- [x] Register the Telegram webhook from the dashboard after publish and confirm Telegram webhook metadata.
 - [x] Patch webhook registration handling and add visible diagnostics.
-- [ ] Verify the published webhook registration and restore Telegram bot responsiveness end to end.
+- [x] Verify the published webhook registration and restore Telegram bot responsiveness end to end.
 - [x] Remove the dashboard sign-in gate and make the admin UI publicly accessible, with the security tradeoff documented.
 - [x] Replace the invalid webhook secret with a Telegram-allowed alphanumeric/hyphen/underscore value and add regression coverage.
 - [x] Replace the invalid webhook secret with a Telegram-allowed value and validate its character set before registration.
-- [ ] Perform live webhook registration and verify Telegram webhook metadata before delivery.
+- [x] Perform live webhook registration and verify Telegram webhook metadata before delivery.
 - [ ] Send and verify an end-to-end bot update after webhook registration.
+- [ ] Diagnose the reported live `/start` non-response after webhook registration by tracing Telegram webhook status, server logs, and handler delivery.
+- [ ] Fix the live webhook or bot-response path if the trace identifies a code or deployment issue.
+- [ ] Verify a real `/start` update receives a successful bot response and complete the end-to-end delivery item.
+
+**Progress note:** The dashboard previously showed successful webhook registration and 4 pending Telegram updates, but the user now reports that sending `/start` still produces no reply.

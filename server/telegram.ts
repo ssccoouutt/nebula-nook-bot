@@ -63,7 +63,7 @@ function keyboard(rows: Array<Array<{ text: string; callback_data?: string; url?
 async function runtimeGate() {
   const db = await getDb();
   if (!db) return { channelId: DEFAULT_CHANNEL_ID, groupId: DEFAULT_GROUP_ID, channelUrl: DEFAULT_CHANNEL_URL, groupUrl: DEFAULT_GROUP_URL };
-  const rows = await db.select().from(botSettings).where(sql`key in ('membership_channel_id', 'membership_group_id', 'membership_channel_url', 'membership_group_url')`);
+  const rows = await db.select().from(botSettings).where(sql`\`key\` in ('membership_channel_id', 'membership_group_id', 'membership_channel_url', 'membership_group_url')`);
   const values = Object.fromEntries(rows.map((row) => [row.key, row.value]));
   return {
     channelId: values.membership_channel_id || DEFAULT_CHANNEL_ID,
