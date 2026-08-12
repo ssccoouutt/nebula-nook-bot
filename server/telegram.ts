@@ -247,9 +247,13 @@ async function handleMessage(message: TelegramMessage) {
   return showHome(message.chat.id, user.id);
 }
 
+export function validTelegramWebhookSecret(value: string | undefined) {
+  return value && /^[A-Za-z0-9_-]{1,256}$/.test(value) ? value : undefined;
+}
+
 export async function configureTelegramWebhook(webhookUrl: string) {
   if (!/^https:\/\//i.test(webhookUrl)) throw new Error("Webhook URL must use HTTPS");
-  const secret = process.env.TELEGRAM_WEBHOOK_SECRET;
+  const secret = validTelegramWebhookSecret(process.env.TELEGRAM_WEBHOOK_SECRET);
   await telegramCall("setWebhook", { url: webhookUrl, ...(secret ? { secret_token: secret } : {}) });
   return telegramCall<{ url: string; has_custom_certificate: boolean; pending_update_count: number; last_error_message?: string }>("getWebhookInfo", {});
 }
@@ -265,7 +269,7 @@ export async function telegramWebhookHealth(_req: Request, res: Response) {
 
 export async function telegramWebhookHandler(req: Request, res: Response) {
   try {
-    const configuredSecret = process.env.TELEGRAM_WEBHOOK_SECRET;
+    const configuredSecret = validTelegramWebhookSecret(process.env.TELEGRAM_WEBHOOK_SECRET);
     if (configuredSecret && req.header("x-telegram-bot-api-secret-token") !== configuredSecret) return res.status(401).json({ error: "invalid webhook secret" });
     const update = req.body as TelegramUpdate;
     if (!update || typeof update.update_id !== "number" || (!update.message && !update.callback_query)) return res.status(400).json({ ok: false, error: "invalid Telegram update" });
