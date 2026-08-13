@@ -203,8 +203,19 @@
 
 - [x] Review external-hosting requirements and Koyeb compatibility for the Express/Drizzle/Telegram webhook runtime.
 - [x] Prepare Koyeb deployment configuration, start command, health behavior, and non-secret environment-variable documentation.
-- [ ] Export the project to a GitHub repository without committing secrets or local credentials.
+- [x] Export the project to a GitHub repository without committing secrets or local credentials; verified remote `main` at checkpoint `9c1dbea4`.
 - [ ] Deploy or provide the Koyeb deployment handoff, configure secrets and Telegram webhook migration, and verify runtime health.
 
-- [ ] Sync the prepared project to the user-provided GitHub repository `https://github.com/ssccoouutt/nebula-nook-bot.git` without committing secrets or local artifacts.
+- [x] Sync the prepared project to the user-provided GitHub repository `https://github.com/ssccoouutt/nebula-nook-bot.git` without committing secrets or local artifacts; verified remote `main` at checkpoint `9c1dbea4`.
 - [ ] Verify the GitHub repository contents and complete the Koyeb deployment handoff using encrypted secrets and the documented runtime configuration.
+
+- [ ] Create the Koyeb service from the synced GitHub repository `ssccoouutt/nebula-nook-bot` after inspecting the logged-in account.
+- [ ] Configure Koyeb runtime settings and encrypted environment variables without exposing secrets, then verify deployment health and webhook readiness.
+
+- [x] Make the GitHub repository public so Koyeb can import it without the GitHub App repository-picker issue.
+- [ ] Re-import the public repository into Koyeb and continue service deployment.
+
+- [ ] Provide a single centralized configuration template covering Telegram, Binance Pay, database, webhook, owner, and app settings without committing live credentials to the public repository.
+- [ ] Resume Koyeb deployment using protected credentials or a private-repository configuration if selected.
+
+- [x] Create a Pydroid 3-compatible utility for generating age keys and encrypting/decrypting the local configuration safely.
