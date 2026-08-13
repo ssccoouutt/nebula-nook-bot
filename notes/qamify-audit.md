@@ -96,3 +96,15 @@ After publishing the pending-payment refinement, Telegram Web was used against t
 ## 2026-08-13 live Binance Pay wallet verification diagnosis
 
 A live Telegram test opened Wallet → Add funds with Binance Pay and submitted order ID `448035041403518976` as a standalone message. The bot returned `Binance Pay order expired` before reaching the wallet top-up verifier. The cause was dispatcher ordering: a stale pending purchase intent was checked before the newly opened wallet top-up state, so the expired purchase branch intercepted the numeric ID. The fix gives the explicit wallet top-up state precedence, preserves slash-command passthrough, and adds regression coverage. The provider receipt was not credited during this run because the stale-state routing failure occurred before provider lookup.
+
+
+## 2026-08-13 provider-confirmed wallet order lookup
+
+A read-only signed lookup for order ID `448035041403518976` returned a matching Pay transaction with `orderId=448035041403518976`, `transactionId=P_A23PW5ZPMMN71115`, amount `3.05031447`, and currency `USDT`. The request without `limit` was rejected by Binance as missing the mandatory `limit` parameter; the script-compatible request with `limit=200` succeeded and returned 70 transactions.
+
+The dispatcher precedence fix was published in checkpoint `d441efb5`. The fresh `/wallet` view rendered balance `$5.05` and current Add funds controls. The remaining verification step is to activate the newest current Add funds control and submit the ID against that fresh top-up state; no wallet credit should be claimed until Telegram accepts it and the amount is credited idempotently.
+
+
+## 2026-08-13 production provider restriction finding
+
+The post-fix fresh Telegram submission of `448035041403518976` reached the published webhook. Production runtime logs show the Binance request failed inside `findBinancePayTransaction` with: `Service unavailable from a restricted location according to 'b. Eligibility' in https://www.binance.com/en/terms.` This is a provider/network eligibility failure, not an invalid order ID or Telegram routing failure. The provider lookup previously confirmed the order exists and is `3.05031447 USDT`; the deployed Autoscale runtime cannot complete the live verification from its current location. No wallet credit was issued, correctly.
