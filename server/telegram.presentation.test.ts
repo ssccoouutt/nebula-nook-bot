@@ -22,6 +22,7 @@ import {
   buildProductKeyboard,
   buildQuantityKeyboard,
   buildPurchaseReviewKeyboard,
+  buildUnavailableProductKeyboard,
   formatQuantityPrompt,
   formatCustomQuantityPrompt,
   parseCustomQuantityInput,
@@ -44,6 +45,12 @@ describe("Telegram presentation and notification helpers", () => {
     expect(isPurchasableProduct({ active: 1, stock: 0 })).toBe(false);
     expect(isPurchasableProduct({ active: 0, stock: 12 })).toBe(false);
     expect(isPurchasableProduct(undefined)).toBe(false);
+  });
+
+  it("offers a current Shop recovery action for stale unavailable-product buttons", () => {
+    const markup = buildUnavailableProductKeyboard();
+    expect(markup.inline_keyboard[0][0]).toMatchObject({ text: "🛍️ Open current Shop", callback_data: "shop:0", style: "primary" });
+    expect(markup.inline_keyboard[1][0]).toMatchObject({ text: "↩️ Back to home", callback_data: "home" });
   });
 
   it("resolves the configured operations group before runtime and fallback targets", () => {

@@ -265,6 +265,13 @@ export function buildPurchaseReviewKeyboard(productId: number, quantity: number)
   ]);
 }
 
+export function buildUnavailableProductKeyboard() {
+  return keyboard([
+    [{ text: "🛍️ Open current Shop", callback_data: "shop:0", style: "primary" }],
+    [{ text: "↩️ Back to home", callback_data: "home" }],
+  ]);
+}
+
 export function formatQuantityPrompt(productName: string, priceCents: number, stock: number) {
   return `🛒 <b>Choose quantity</b>\n\n<b>${productName.replace(/[<&>]/g, "")}</b>\n💵 Unit price: <b>$${(priceCents / 100).toFixed(2)}</b>\n📦 Available: <b>${stock}</b>\n\nSelect a preset or choose <b>✏️ Custom quantity</b>:`;
 }
@@ -404,7 +411,7 @@ async function showProduct(chatId: number, productId: number, messageId?: number
   const db = await getDb();
   if (!db) throw new Error("Database is unavailable");
   const item = (await db.select().from(products).where(eq(products.id, productId)).limit(1))[0];
-  if (!isPurchasableProduct(item)) return respond(chatId, "⚠️ This product is currently unavailable.", undefined, messageId);
+  if (!isPurchasableProduct(item)) return respond(chatId, "⚠️ This product is currently unavailable.\n\nThis may be an old product button. Open the current Shop to see items that are in stock.", buildUnavailableProductKeyboard(), messageId);
   const safeName = item.name.replace(/[<&>]/g, "");
   const safeDescription = item.description.replace(/[<&>]/g, "");
   await respond(chatId, `✨ <b>${safeName}</b>\n\n${safeDescription}\n\n━━━━━━━━━━━━━━\n💵 <b>$${(item.priceCents / 100).toFixed(2)}</b> per unit\n📦 <b>${item.stock}</b> available\n⚡ <b>Instant digital delivery</b>\n🛡️ <b>Quality checked</b>\n\nChoose an action below:`, buildProductKeyboard(item.id), messageId);
@@ -456,7 +463,7 @@ async function showQuantityPrompt(chatId: number, productId: number, messageId?:
   const db = await getDb();
   if (!db) throw new Error("Database is unavailable");
   const product = (await db.select().from(products).where(eq(products.id, productId)).limit(1))[0];
-  if (!isPurchasableProduct(product)) return respond(chatId, "⚠️ This product is currently unavailable.", undefined, messageId);
+  if (!isPurchasableProduct(product)) return respond(chatId, "⚠️ This product is currently unavailable.\n\nThis may be an old product button. Open the current Shop to see items that are in stock.", buildUnavailableProductKeyboard(), messageId);
   return respond(chatId, formatQuantityPrompt(product.name, product.priceCents, product.stock), buildQuantityKeyboard(product.id, product.stock), messageId);
 }
 
@@ -466,7 +473,7 @@ async function showPurchaseReview(chatId: number, userId: number, productId: num
   const user = (await db.select().from(botUsers).where(eq(botUsers.telegramUserId, userId)).limit(1))[0];
   const product = (await db.select().from(products).where(eq(products.id, productId)).limit(1))[0];
   const safeQuantity = Math.max(1, Math.min(10, Math.floor(quantity)));
-  if (!user || !product || !product.active) return respond(chatId, "⚠️ This product is currently unavailable.", undefined, messageId);
+  if (!user || !isPurchasableProduct(product)) return respond(chatId, "⚠️ This product is currently unavailable.\n\nOpen the current Shop to choose an in-stock product.", buildUnavailableProductKeyboard(), messageId);
   if (product.stock < safeQuantity) return respond(chatId, `⚠️ Only <b>${product.stock}</b> unit${product.stock === 1 ? "" : "s"} remain. Choose a smaller quantity.`, buildQuantityKeyboard(product.id, product.stock), messageId);
   const purchase = buildAutoPurchaseResult(user.balanceCents, product.priceCents, product.stock, safeQuantity);
   if (purchase.status === "insufficient_balance") return respond(chatId, `💳 <b>Insufficient balance</b>\n\nYour balance is <b>$${(user.balanceCents / 100).toFixed(2)}</b>, but this quantity costs <b>$${(purchase.totalCents / 100).toFixed(2)}</b>.`, buildQuantityKeyboard(product.id, product.stock), messageId);
@@ -497,7 +504,7 @@ async function createPurchase(chatId: number, userId: number, productId: number,
   if (!outcome.ok) {
     if (outcome.status === "insufficient_balance") return respond(chatId, `💳 <b>Insufficient balance</b>\n\nYour balance is <b>$${(outcome.balanceCents / 100).toFixed(2)}</b>. This quantity costs <b>$${(outcome.totalCents / 100).toFixed(2)}.</b>`, buildQuantityKeyboard(outcome.productId, outcome.stock), messageId);
     if (outcome.status === "out_of_stock") return respond(chatId, "⚠️ The requested quantity is no longer available.", buildQuantityKeyboard(outcome.productId, outcome.stock), messageId);
-    return respond(chatId, "⚠️ This product is currently unavailable.", undefined, messageId);
+    return respond(chatId, "⚠️ This product is currently unavailable.\n\nOpen the current Shop to choose an in-stock product.", buildUnavailableProductKeyboard(), messageId);
   }
   const announcement = buildPurchaseAnnouncement(outcome.productId, outcome.productName, outcome.quantity, outcome.buyerName, outcome.telegramUserId);
   await respond(chatId, formatPurchaseConfirmation(outcome.orderId, `${outcome.quantity}× ${outcome.productName}`, outcome.totalCents), buildHomeKeyboard(), messageId);

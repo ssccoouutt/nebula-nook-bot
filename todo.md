@@ -154,3 +154,7 @@
 - [x] Fix product availability without weakening safeguards: Shop now filters active positive-stock products, and product/detail/quantity/custom-quantity paths share the same guard.
 - [x] Add regression coverage for live product availability and run the full verification suite; TypeScript and all 36 tests pass.
 - [x] Publish the availability fix with evidence from the production database/test suite and document the remaining stale Telegram-history delivery limitation; checkpoint `ab555e2a`.
+
+- [x] Reproduce the logged-in Telegram error: the chat showed a stale `This product is currently unavailable` message while current stocked product buttons were also present; database rows confirmed legacy product ID 1 stock 0 and IDs 30001–30006 stocked.
+- [x] Fix the stale-button purchase path without weakening safeguards: unavailable responses now offer `Open current Shop`, and the shared active/positive-stock guard remains enforced; TypeScript and all 37 tests pass.
+- [x] Publish the verified availability correction and document the delivery limitation: checkpoint `ab555e2a` contains the stock filter, and the current recovery change is ready for the next checkpoint; old Telegram messages cannot be rewritten.
