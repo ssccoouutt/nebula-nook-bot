@@ -40,6 +40,22 @@ describe("Telegram webhook acknowledgement", () => {
     expect(response.status).not.toHaveBeenCalled();
   });
 
+  it("acknowledges malformed payloads so they cannot remain stuck in Telegram retries", async () => {
+    process.env.NODE_ENV = "production";
+    process.env.PORT = "8000";
+    process.env.PASS = "test-pass";
+    delete process.env.TELEGRAM_WEBHOOK_SECRET;
+
+    const json = vi.fn();
+    const response = { status: vi.fn(() => response), json } as any;
+    const request = { body: {}, header: vi.fn(() => undefined) } as any;
+
+    await telegramWebhookHandler(request, response);
+
+    expect(json).toHaveBeenCalledWith({ ok: true });
+    expect(response.status).not.toHaveBeenCalled();
+  });
+
   it("acknowledges valid channel_post updates so they cannot block later bot messages", async () => {
     process.env.NODE_ENV = "production";
     process.env.PORT = "8000";

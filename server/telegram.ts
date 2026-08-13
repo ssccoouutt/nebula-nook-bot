@@ -862,13 +862,13 @@ export async function telegramWebhookHandler(req: Request, res: Response) {
   try {
     const configuredSecret = validTelegramWebhookSecret(process.env.TELEGRAM_WEBHOOK_SECRET);
     if (configuredSecret && req.header("x-telegram-bot-api-secret-token") !== configuredSecret) return res.status(401).json({ error: "invalid webhook secret" });
-    const update = req.body as TelegramUpdate;
-    if (!update || typeof update.update_id !== "number") return res.status(400).json({ ok: false, error: "invalid Telegram update" });
+    const update = req.body as TelegramUpdate | undefined;
 
     // A Telegram webhook must be acknowledged quickly. Database access, Binance Pay
     // verification, and outbound notifications run after the 200 response so a slow
     // dependency cannot make Telegram report "Read timeout expired" and redeliver it.
     res.json({ ok: true });
+    if (!update || typeof update.update_id !== "number") return;
     void processTelegramWebhookUpdate(update).catch((error) => {
       console.error("[Telegram] asynchronous webhook error", error);
     });

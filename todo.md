@@ -244,7 +244,7 @@
 
 - [x] Disable Telegram update handling on the Manus-hosted runtime while preserving its public dashboard, so Koyeb is the sole bot runtime.
 
-- [ ] Run authenticated Telegram smoke tests directly through the existing logged-in session after Manus is disabled and Koyeb is active.
+- [x] Run authenticated Telegram smoke tests directly through the existing logged-in session after Manus is disabled and Koyeb is active; a fresh /start returned the Nebula Nook menu.
 
 - [x] Treat Koyeb as the sole production host for the Telegram bot and admin dashboard; remove remaining Manus production assumptions and references from runtime/deployment behavior.
 - [x] Verify the admin dashboard and bot health using only the Koyeb URL and Koyeb runtime logs.
@@ -262,7 +262,7 @@
 
 - [x] Diagnose the current live Telegram non-response on Koyeb, including webhook metadata, delivery logs, and secret/config alignment.
 - [x] Reproduce and fix the live Telegram delivery failure without reintroducing webhook read timeouts.
-- [ ] Test and publish the response fix, then verify the Koyeb webhook and Telegram delivery state.
+- [x] Test and publish the response fix, then verify the Koyeb webhook and Telegram delivery state; the live /start response succeeded and the webhook remained active.
 
 - [x] Prevent a synthetic or corrupt future `last_update_id` from permanently suppressing real Telegram updates.
 - [x] Reset/recover the live update cursor and verify a real-range webhook update is processed after the fix.
