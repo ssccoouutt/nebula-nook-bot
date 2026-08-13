@@ -269,3 +269,13 @@
 
 - [x] Fix Koyeb first-contact failure: corrected the SQLite proxy row mapping so ensureBotUser receives a numeric ID and walletLedger no longer receives null.
 - [x] Accept and acknowledge unsupported but valid Telegram update types such as channel_post so one channel update cannot hold the webhook queue and block real bot messages.
+- [x] Add Google Drive credentials and a secure Drive storage adapter modeled on the KnightBot-Mini reference, without copying unrelated WhatsApp logic.
+- [x] Persist and synchronize the complete SQLite commerce dataset, including users, wallets, ledger entries, products, orders, order history, referrals, support records, settings, and webhook cursor state.
+- [x] Restore the latest verified Drive snapshot before normal bot operations and create durable snapshots after successful data mutations.
+- [ ] Add backup consistency, locking, retry, corruption detection, and recovery tests for Drive synchronization.
+- [ ] Configure the required Google Drive credential strategy for Koyeb and validate persistence across a redeploy simulation.
+
+- [x] On Koyeb startup, find or create a named Nebula Nook root folder in Google Drive and keep all bot data, snapshots, manifests, and subfolders inside it.
+- [x] Restore the latest valid Drive snapshot into local SQLite before Telegram webhook processing begins.
+- [x] Synchronize every successful bot and dashboard data operation to Drive without blocking Telegram webhook acknowledgements.
+- [x] Preserve complete users, wallets, ledger entries, products, orders, and order history across redeployments with versioned snapshots and recovery safeguards.
