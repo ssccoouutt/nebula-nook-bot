@@ -85,6 +85,15 @@ export const referrals = mysqlTable("referrals", {
   createdAt: timestamp("createdAt").defaultNow().notNull(),
 });
 
+export const priceAlerts = mysqlTable("priceAlerts", {
+  id: int("id").autoincrement().primaryKey(),
+  botUserId: int("botUserId").notNull(),
+  productId: int("productId").notNull(),
+  active: int("active").default(1).notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, (table) => ({ userProductUniq: uniqueIndex("priceAlerts_user_product_idx").on(table.botUserId, table.productId) }));
+
 export const supportTickets = mysqlTable("supportTickets", {
   id: int("id").autoincrement().primaryKey(),
   botUserId: int("botUserId").notNull(),

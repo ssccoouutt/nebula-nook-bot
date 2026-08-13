@@ -23,6 +23,11 @@ import {
   buildQuantityKeyboard,
   buildPurchaseReviewKeyboard,
   formatQuantityPrompt,
+  formatCustomQuantityPrompt,
+  parseCustomQuantityInput,
+  resolveCustomQuantityReply,
+  resolvePriceAlertToggle,
+  formatPriceAlertMessage,
   formatPurchaseReview,
   formatFreebiesMessage,
   buildFreebiesKeyboard,
@@ -98,6 +103,8 @@ describe("Telegram presentation and notification helpers", () => {
     expect(parseTelegramCallbackAction("buyqty:7:3")).toEqual({ kind: "buyqty", id: 7, quantity: 3 });
     expect(parseTelegramCallbackAction("buyconfirm:7:3")).toEqual({ kind: "buyconfirm", id: 7, quantity: 3 });
     expect(parseTelegramCallbackAction("buycancel:7")).toEqual({ kind: "buycancel", id: 7 });
+    expect(parseTelegramCallbackAction("customqty:7")).toEqual({ kind: "customqty", id: 7 });
+    expect(parseTelegramCallbackAction("pricealert:7")).toEqual({ kind: "pricealert", id: 7 });
     expect(parseTelegramCallbackAction("unknown:7")).toBeNull();
     expect(parseTelegramCallbackAction("product:nope")).toBeNull();
   });
@@ -108,23 +115,38 @@ describe("Telegram presentation and notification helpers", () => {
     expect(resolvePurchaseCallbackRoute({ kind: "buyqty", id: 7, quantity: 3 })).toBe("purchase_review");
     expect(resolvePurchaseCallbackRoute({ kind: "buyconfirm", id: 7, quantity: 3 })).toBe("purchase_confirm");
     expect(resolvePurchaseCallbackRoute({ kind: "buycancel", id: 7 })).toBe("product_view");
+    expect(resolvePurchaseCallbackRoute({ kind: "customqty", id: 7 })).toBe("custom_quantity");
+    expect(resolvePurchaseCallbackRoute({ kind: "pricealert", id: 7 })).toBe("price_alert");
     expect(resolvePurchaseCallbackRoute({ kind: "home" })).toBeNull();
   });
 
   it("renders the Qamify-style quantity and confirmation steps", () => {
     expect(formatQuantityPrompt("Gemini Pro", 299, 25)).toContain("🛒 <b>Choose quantity</b>");
     expect(formatQuantityPrompt("Gemini Pro", 299, 25)).toContain("📦 Available: <b>25</b>");
+    expect(formatCustomQuantityPrompt("Gemini Pro", 25)).toContain("Reply with a whole number from <b>1</b> to <b>10</b>");
+    expect(parseCustomQuantityInput("abc", 25)).toEqual({ ok: false, reason: "invalid" });
+    expect(parseCustomQuantityInput("26", 25)).toEqual({ ok: false, reason: "range" });
+    expect(parseCustomQuantityInput("3", 25)).toEqual({ ok: true, quantity: 3 });
+    expect(resolveCustomQuantityReply("abc", "Gemini Pro", 25)).toMatchObject({ kind: "retry", reason: "invalid" });
+    expect(resolveCustomQuantityReply("4", "Gemini Pro", 25)).toEqual({ kind: "review", quantity: 4 });
+    expect(resolvePriceAlertToggle(null)).toBe(true);
+    expect(resolvePriceAlertToggle(true)).toBe(false);
+    expect(resolvePriceAlertToggle(false)).toBe(true);
+    expect(formatPriceAlertMessage("Gemini Pro", true)).toContain("Price alert enabled");
+    expect(formatPriceAlertMessage("Gemini Pro", false)).toContain("Price alert disabled");
     const quantityRows = buildQuantityKeyboard(7, 25).inline_keyboard;
     expect(quantityRows[0]).toEqual(expect.arrayContaining([
-      expect.objectContaining({ text: "1×", callback_data: "buyqty:7:1", style: "primary" }),
-      expect.objectContaining({ text: "2×", callback_data: "buyqty:7:2", style: "primary" }),
-      expect.objectContaining({ text: "3×", callback_data: "buyqty:7:3", style: "primary" }),
+      expect.objectContaining({ text: "1×", callback_data: "buyqty:7:1" }),
+      expect.objectContaining({ text: "2×", callback_data: "buyqty:7:2" }),
+      expect.objectContaining({ text: "3×", callback_data: "buyqty:7:3" }),
     ]));
+    expect(quantityRows.at(-2)?.[0]).toMatchObject({ text: "✏️ Custom quantity", callback_data: "customqty:7", style: "primary" });
     expect(quantityRows.at(-1)?.[0]).toMatchObject({ text: "↩️ Back to product", callback_data: "product:7" });
     expect(formatPurchaseReview("Gemini Pro", 299, 3, 1000)).toContain("💰 Total: <b>$8.97</b>");
     const reviewRows = buildPurchaseReviewKeyboard(7, 3).inline_keyboard;
     expect(reviewRows[0][0]).toMatchObject({ callback_data: "buyconfirm:7:3", style: "success" });
-    expect(reviewRows[1][0]).toMatchObject({ callback_data: "buycancel:7", style: "danger" });
+    expect(reviewRows[1][0]).toMatchObject({ callback_data: "buycancel:7" });
+    expect(reviewRows[1][0]).not.toHaveProperty("style");
   });
 
   it("uses edit-in-place responses for callback navigation and send responses for commands", () => {
@@ -165,9 +187,10 @@ describe("Telegram presentation and notification helpers", () => {
     ]));
 
     const compactProduct = buildProductKeyboard(1).inline_keyboard;
-    expect(compactProduct[1]).toEqual(expect.arrayContaining([
+    expect(compactProduct[1]).toEqual([expect.objectContaining({ text: "🔔 Set price alert", callback_data: "pricealert:1" })]);
+    expect(compactProduct[2]).toEqual(expect.arrayContaining([
       expect.objectContaining({ text: "↩️ Back to shop", callback_data: "shop", style: "primary" }),
-      expect.objectContaining({ text: "🏠 Home", callback_data: "home", style: "primary" }),
+      expect.objectContaining({ text: "🏠 Home", callback_data: "home" }),
     ]));
 
     const membership = buildMembershipKeyboard("https://t.me/+channel", "https://t.me/+group").inline_keyboard;
@@ -179,7 +202,8 @@ describe("Telegram presentation and notification helpers", () => {
     expect(shop[1][0]).toMatchObject({ callback_data: "shop:1", style: "primary" });
 
     const product = buildProductKeyboard(7).inline_keyboard;
-    expect(product[0][0]).toMatchObject({ callback_data: "buyqty:7:0", style: "success" });
+    expect(product[0][0]).toMatchObject({ callback_data: "buyqty:7:0" });
+    expect(product[2][0]).toMatchObject({ text: "↩️ Back to shop", callback_data: "shop", style: "primary" });
   });
 
   it("computes an automatically fulfilled wallet purchase without dashboard intervention", () => {

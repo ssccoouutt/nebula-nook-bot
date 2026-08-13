@@ -117,3 +117,18 @@
 - [x] Add regression coverage for edit-failure fallback; the real mocked `respond()` test now rejects `editMessageText` and asserts exactly one fallback `sendMessage` with the same content and keyboard. Live product-to-quantity verification remains pending.
 - [x] Fix the Product Buy now keyboard callback from legacy `buy:<productId>` to the quantity-prompt route `buyqty:<productId>:0` so live purchases show quantity buttons.
 - [x] Add regression coverage asserting Buy now emits the quantity-prompt entry route; TypeScript and 13 focused Telegram presentation tests pass. Live production verification remains pending.
+
+- [ ] Audit Qamify’s product-detail screen for metadata, quantity choices, Custom Quantity, Set Price Alert, Buy Now, and Back to Shop behavior.
+- [x] Add an original Nebula Nook product-detail screen with richer metadata and compact navigation.
+- [x] Add Custom Quantity input flow with validation, review, confirmation, and cancellation.
+- [x] Add a non-destructive Set Price Alert affordance with clear status feedback.
+- [x] Add regression coverage for product-detail rendering and all new purchase controls; type checking and 13 focused Telegram presentation tests pass.
+- [ ] Live-test the revised product flow and publish a verified checkpoint.
+- [x] Match Qamify’s product-button hierarchy: emphasize only Custom Quantity and Back to Shop; keep preset quantity, Buy Now, Cancel, and utility controls visually restrained.
+- [x] Handle invalid custom-quantity replies explicitly with a retry message and keep the user in the custom-quantity flow until a valid 1..max value is provided.
+- [x] Implement persisted price-alert status and a real user-facing alert toggle instead of a placeholder response; the `price_alerts` migration is applied and the callback toggles user/product state.
+- [x] Add handler-level regression coverage for custom-quantity replies, price-alert toggling, and new product-detail controls through the production dispatcher; the focused dispatcher/presentation tests and full suite pass with 31 tests.
+- [x] Remove styled emphasis from Cancel so only Custom Quantity and Back to Shop use emphasized Telegram styles.
+- [x] Add real handler/dispatcher regression coverage for a pending custom-quantity reply, including retry and valid-review outcomes.
+- [x] Add a callback-dispatch regression test for the real `pricealert:<productId>` route with database-backed toggle behavior and returned message/keyboard.
+- [x] Re-run the full Telegram regression suite after adding true handler-level coverage for custom quantity and price alerts.

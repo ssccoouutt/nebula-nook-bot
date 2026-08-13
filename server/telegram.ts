@@ -1,12 +1,12 @@
 import type { Request, Response } from "express";
 import { and, desc, eq, sql } from "drizzle-orm";
 import { getDb } from "./db";
-import { botSettings, botUsers, freeClaims, notificationDeliveries, orders, products, referrals, supportTickets, walletLedger } from "../drizzle/schema";
+import { botSettings, botUsers, freeClaims, notificationDeliveries, orders, priceAlerts, products, referrals, supportTickets, walletLedger } from "../drizzle/schema";
 import { canClaimFreeItem, freeWindowStart, hasAccess, referralCodeForTelegramId, tierForReferralCount } from "../shared/botLogic";
 
 type TelegramUser = { id: number; username?: string; first_name?: string; last_name?: string };
 type TelegramChat = { id: number; type: string };
-type TelegramMessage = { message_id: number; from?: TelegramUser; chat: TelegramChat; text?: string };
+type TelegramMessage = { message_id: number; from?: TelegramUser; chat: TelegramChat; text?: string; reply_to_message?: TelegramMessage };
 type TelegramCallbackQuery = { id: string; from: TelegramUser; message?: TelegramMessage; data?: string };
 type TelegramUpdate = { update_id: number; message?: TelegramMessage; callback_query?: TelegramCallbackQuery };
 
@@ -16,6 +16,7 @@ const DEFAULT_GROUP_ID = process.env.TELEGRAM_MEMBERSHIP_GROUP_ID ?? "-503678589
 const DEFAULT_CHANNEL_URL = process.env.TELEGRAM_CHANNEL_JOIN_URL ?? "https://t.me/+hwT_8FtgDU85Mzlk";
 const DEFAULT_GROUP_URL = process.env.TELEGRAM_GROUP_JOIN_URL ?? "https://t.me/+4I-HIdE73NIyMzI8";
 const recentRequests = new Map<number, number>();
+const pendingCustomQuantities = new Map<number, { productId: number; expiresAt: number }>();
 
 /** Testing-mode bootstrap credit; remove or disable before real-money launch. */
 export const TESTING_WALLET_CREDIT_CENTS = 1000;
@@ -230,8 +231,9 @@ export function buildShopKeyboard(items: Array<{ id: number; name: string; price
 
 export function buildProductKeyboard(productId: number) {
   return keyboard([
-    [{ text: "🛒 Buy now", callback_data: `buyqty:${productId}:0`, style: "success" }],
-    [{ text: "↩️ Back to shop", callback_data: "shop", style: "primary" }, { text: "🏠 Home", callback_data: "home", style: "primary" }],
+    [{ text: "🛒 Buy now", callback_data: `buyqty:${productId}:0` }],
+    [{ text: "🔔 Set price alert", callback_data: `pricealert:${productId}` }],
+    [{ text: "↩️ Back to shop", callback_data: "shop", style: "primary" }, { text: "🏠 Home", callback_data: "home" }],
   ]);
 }
 
@@ -240,21 +242,51 @@ export function buildQuantityKeyboard(productId: number, stock: number) {
   const choices = [1, 2, 3, 4, 5, 10].filter((quantity) => quantity <= max);
   const rows: TelegramButton[][] = [];
   for (let index = 0; index < choices.length; index += 3) {
-    rows.push(choices.slice(index, index + 3).map((quantity) => ({ text: `${quantity}×`, callback_data: `buyqty:${productId}:${quantity}`, style: "primary" as const })));
+    rows.push(choices.slice(index, index + 3).map((quantity) => ({ text: `${quantity}×`, callback_data: `buyqty:${productId}:${quantity}` })));
   }
-  rows.push([{ text: "↩️ Back to product", callback_data: `product:${productId}`, style: "primary" }]);
+  rows.push([{ text: "✏️ Custom quantity", callback_data: `customqty:${productId}`, style: "primary" }]);
+  rows.push([{ text: "↩️ Back to product", callback_data: `product:${productId}` }]);
   return keyboard(rows);
 }
 
 export function buildPurchaseReviewKeyboard(productId: number, quantity: number) {
   return keyboard([
     [{ text: "✅ Confirm purchase", callback_data: `buyconfirm:${productId}:${quantity}`, style: "success" }],
-    [{ text: "✖️ Cancel", callback_data: `buycancel:${productId}`, style: "danger" }],
+    [{ text: "✖️ Cancel", callback_data: `buycancel:${productId}` }],
   ]);
 }
 
 export function formatQuantityPrompt(productName: string, priceCents: number, stock: number) {
-  return `🛒 <b>Choose quantity</b>\n\n<b>${productName.replace(/[<&>]/g, "")}</b>\n💵 Unit price: <b>$${(priceCents / 100).toFixed(2)}</b>\n📦 Available: <b>${stock}</b>\n\nSelect how many units you want:`;
+  return `🛒 <b>Choose quantity</b>\n\n<b>${productName.replace(/[<&>]/g, "")}</b>\n💵 Unit price: <b>$${(priceCents / 100).toFixed(2)}</b>\n📦 Available: <b>${stock}</b>\n\nSelect a preset or choose <b>✏️ Custom quantity</b>:`;
+}
+
+export function formatCustomQuantityPrompt(productName: string, stock: number, error?: "invalid" | "range") {
+  const notice = error === "invalid" ? "⚠️ Please reply with a whole number only.\n\n" : error === "range" ? `⚠️ Choose a quantity from 1 to ${Math.min(stock, 10)}.\n\n` : "";
+  return `${notice}✏️ <b>Custom quantity</b>\n\n<b>${productName.replace(/[<&>]/g, "")}</b>\n📦 Available: <b>${stock}</b>\n\nReply with a whole number from <b>1</b> to <b>${Math.min(stock, 10)}</b>.`;
+}
+
+export function parseCustomQuantityInput(text: string, maxQuantity: number) {
+  const value = text.trim();
+  if (!/^\d+$/.test(value)) return { ok: false as const, reason: "invalid" as const };
+  const quantity = Number(value);
+  if (!Number.isSafeInteger(quantity) || quantity < 1 || quantity > Math.min(maxQuantity, 10)) return { ok: false as const, reason: "range" as const };
+  return { ok: true as const, quantity };
+}
+
+export function formatPriceAlertMessage(productName: string, active: boolean) {
+  return active
+    ? `🔔 <b>Price alert enabled</b>\n\nYou’ll be notified when <b>${productName.replace(/[<&>]/g, "")}</b> changes price. Tap the alert button again to turn it off.`
+    : `🔕 <b>Price alert disabled</b>\n\nYou will no longer receive price updates for <b>${productName.replace(/[<&>]/g, "")}</b>.`;
+}
+
+export function resolveCustomQuantityReply(text: string, productName: string, stock: number) {
+  const parsed = parseCustomQuantityInput(text, stock);
+  if (!parsed.ok) return { kind: "retry" as const, reason: parsed.reason, text: formatCustomQuantityPrompt(productName, stock, parsed.reason) };
+  return { kind: "review" as const, quantity: parsed.quantity };
+}
+
+export function resolvePriceAlertToggle(existingActive: boolean | null) {
+  return existingActive === null || !existingActive;
 }
 
 export function formatPurchaseReview(productName: string, priceCents: number, quantity: number, balanceCents: number) {
@@ -360,7 +392,9 @@ async function showProduct(chatId: number, productId: number, messageId?: number
   if (!db) throw new Error("Database is unavailable");
   const item = (await db.select().from(products).where(eq(products.id, productId)).limit(1))[0];
   if (!item || !item.active || item.stock <= 0) return respond(chatId, "⚠️ This product is currently unavailable.", undefined, messageId);
-  await respond(chatId, `✨ <b>${item.name}</b>\n\n${item.description}\n\n💵 Price: <b>$${(item.priceCents / 100).toFixed(2)}</b>\n📦 Stock: <b>${item.stock}</b>\n🚚 Delivery: <b>Automatic</b>`, buildProductKeyboard(item.id), messageId);
+  const safeName = item.name.replace(/[<&>]/g, "");
+  const safeDescription = item.description.replace(/[<&>]/g, "");
+  await respond(chatId, `✨ <b>${safeName}</b>\n\n${safeDescription}\n\n━━━━━━━━━━━━━━\n💵 <b>$${(item.priceCents / 100).toFixed(2)}</b> per unit\n📦 <b>${item.stock}</b> available\n⚡ <b>Instant digital delivery</b>\n🛡️ <b>Quality checked</b>\n\nChoose an action below:`, buildProductKeyboard(item.id), messageId);
 }
 
 async function showWallet(chatId: number, userId: number, messageId?: number) {
@@ -459,7 +493,7 @@ async function createPurchase(chatId: number, userId: number, productId: number,
 
 export type TelegramCallbackAction =
   | { kind: "verify_membership" | "home" | "freebies" | "wallet" | "orders" | "profile" | "support" }
-  | { kind: "shop" | "product" | "claim" | "buy"; id: number }
+  | { kind: "shop" | "product" | "claim" | "buy" | "customqty" | "pricealert"; id: number }
   | { kind: "buyqty" | "buyconfirm"; id: number; quantity: number }
   | { kind: "buycancel"; id: number };
 
@@ -470,7 +504,7 @@ export function parseTelegramCallbackAction(data?: string): TelegramCallbackActi
   if (quantityMatch) return { kind: quantityMatch[1] as "buyqty" | "buyconfirm", id: Number(quantityMatch[2]), quantity: Number(quantityMatch[3]) };
   const cancelMatch = value.match(/^buycancel:([0-9]+)$/);
   if (cancelMatch) return { kind: "buycancel", id: Number(cancelMatch[1]) };
-  const match = value.match(/^(shop|product|claim|buy)(?::(\d+))?$/);
+  const match = value.match(/^(shop|product|claim|buy|customqty|pricealert)(?::(\d+))?$/);
   if (!match) return null;
   if (match[1] === "shop" && match[2] === undefined) return { kind: "shop", id: 0 };
   if (!match[2]) return null;
@@ -482,10 +516,12 @@ export function resolvePurchaseCallbackRoute(action: TelegramCallbackAction) {
   if (action.kind === "buyqty") return action.quantity > 0 ? "purchase_review" as const : "quantity_prompt" as const;
   if (action.kind === "buyconfirm") return "purchase_confirm" as const;
   if (action.kind === "buycancel") return "product_view" as const;
+  if (action.kind === "customqty") return "custom_quantity" as const;
+  if (action.kind === "pricealert") return "price_alert" as const;
   return null;
 }
 
-async function handleCallback(query: TelegramCallbackQuery) {
+export async function handleCallback(query: TelegramCallbackQuery, options: { skipAccess?: boolean } = {}) {
   const chatId = query.message?.chat.id;
   const messageId = query.message?.message_id;
   if (!chatId) return;
@@ -494,7 +530,7 @@ async function handleCallback(query: TelegramCallbackQuery) {
   const action = parseTelegramCallbackAction(query.data);
   if (!action) return;
   if (action.kind === "verify_membership") return showHome(chatId, userId, messageId);
-  if (!(await requireAccess(chatId, userId, messageId))) return;
+  if (!options.skipAccess && !(await requireAccess(chatId, userId, messageId))) return;
   if (action.kind === "home") return showHome(chatId, userId, messageId);
   if (action.kind === "freebies") return showFreebies(chatId, messageId);
   if (action.kind === "shop") return showShop(chatId, action.id, messageId);
@@ -509,11 +545,49 @@ async function handleCallback(query: TelegramCallbackQuery) {
   if (purchaseRoute === "purchase_review" && action.kind === "buyqty") return showPurchaseReview(chatId, userId, action.id, action.quantity, messageId);
   if (purchaseRoute === "purchase_confirm" && action.kind === "buyconfirm") return createPurchase(chatId, userId, action.id, action.quantity, messageId);
   if (purchaseRoute === "product_view" && action.kind === "buycancel") return cancelPurchase(chatId, action.id, messageId);
+  if (purchaseRoute === "custom_quantity" && action.kind === "customqty") {
+    const db = await getDb();
+    if (!db) throw new Error("Database is unavailable");
+    const product = (await db.select().from(products).where(eq(products.id, action.id)).limit(1))[0];
+    if (!product || !product.active || product.stock <= 0) return respond(chatId, "⚠️ This product is currently unavailable.", undefined, messageId);
+    pendingCustomQuantities.set(userId, { productId: action.id, expiresAt: Date.now() + 5 * 60 * 1000 });
+    return respond(chatId, formatCustomQuantityPrompt(product.name, product.stock), { force_reply: true, selective: true }, messageId);
+  }
+  if (purchaseRoute === "price_alert" && action.kind === "pricealert") {
+    const db = await getDb();
+    if (!db) throw new Error("Database is unavailable");
+    const user = (await db.select().from(botUsers).where(eq(botUsers.telegramUserId, userId)).limit(1))[0];
+    const product = (await db.select().from(products).where(eq(products.id, action.id)).limit(1))[0];
+    if (!user || !product) return respond(chatId, "⚠️ This product is currently unavailable.", undefined, messageId);
+    const existing = (await db.select().from(priceAlerts).where(and(eq(priceAlerts.botUserId, user.id), eq(priceAlerts.productId, product.id))).limit(1))[0];
+    const active = resolvePriceAlertToggle(existing ? existing.active === 1 : null);
+    if (existing) {
+      await db.update(priceAlerts).set({ active: active ? 1 : 0 }).where(eq(priceAlerts.id, existing.id));
+    } else {
+      await db.insert(priceAlerts).values({ botUserId: user.id, productId: product.id, active: 1 });
+    }
+    return respond(chatId, formatPriceAlertMessage(product.name, active), buildProductKeyboard(product.id), messageId);
+  }
 }
 
-async function handleMessage(message: TelegramMessage) {
+export async function handleMessage(message: TelegramMessage) {
   const user = message.from;
   if (!user || !message.text) return;
+  const pending = pendingCustomQuantities.get(user.id);
+  if (pending && pending.expiresAt > Date.now()) {
+    const db = await getDb();
+    if (!db) throw new Error("Database is unavailable");
+    const product = (await db.select().from(products).where(eq(products.id, pending.productId)).limit(1))[0];
+    if (!product || !product.active || product.stock <= 0) {
+      pendingCustomQuantities.delete(user.id);
+      return respond(message.chat.id, "⚠️ This product is currently unavailable.", undefined, message.reply_to_message?.message_id);
+    }
+    const reply = resolveCustomQuantityReply(message.text, product.name, product.stock);
+    if (reply.kind === "retry") return respond(message.chat.id, reply.text, { force_reply: true, selective: true }, message.reply_to_message?.message_id);
+    pendingCustomQuantities.delete(user.id);
+    return showPurchaseReview(message.chat.id, user.id, pending.productId, reply.quantity, message.reply_to_message?.message_id);
+  }
+  if (pending && pending.expiresAt <= Date.now()) pendingCustomQuantities.delete(user.id);
   const [command, ...rest] = message.text.trim().split(/\s+/);
   const referral = rest.find((part) => part.startsWith("ref_"))?.slice(4);
   const productDeepLink = rest.find((part) => part.startsWith("product_"))?.slice(8);
