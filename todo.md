@@ -109,7 +109,7 @@
 - [x] Add purchase review with quantity, total, wallet balance, Confirm, and Cancel actions.
 - [x] Preserve wallet debit, stock decrement, automatic fulfillment, and group notification for confirmed multi-unit purchases; the confirmed flow records the total amount and sends the masked quantity announcement.
 - [x] Add regression coverage for quantity parsing, stock limits, confirmation, cancellation, and multi-unit totals; type checking and 17 focused tests pass, with the existing credential test blocked by a Telegram API connection timeout.
-- [ ] Live-test the quantity purchase flow and publish a verified checkpoint.
+- [ ] Live-test the quantity purchase flow and publish a new checkpoint tied to conclusive Buy → Quantity → Review → Confirm or clearly reflected Cancel evidence.
 - [x] Wrap confirmed multi-unit order, wallet, stock, and ledger mutations in one database transaction; the handler re-reads state and performs all four mutations inside `db.transaction(...)`.
 - [x] Add deterministic callback-route coverage for buyconfirm and buycancel; the real callback dispatcher uses the tested purchase-route seam, while mutation safety is covered by the confirmed-purchase plan assertions.
 - [x] Add stale/concurrent quantity validation coverage so insufficient stock or balance cannot create partial updates; fresh transactional reads reject insufficient balance or stock before mutations.
@@ -123,7 +123,7 @@
 - [x] Add Custom Quantity input flow with validation, review, confirmation, and cancellation.
 - [x] Add a non-destructive Set Price Alert affordance with clear status feedback.
 - [x] Add regression coverage for product-detail rendering and all new purchase controls; type checking and 13 focused Telegram presentation tests pass.
-- [ ] Live-test the revised product flow and publish a verified checkpoint.
+- [ ] Publish a new checkpoint after the successful revised product-flow smoke test, referencing fresh evidence rather than the earlier `8a678fea` checkpoint.
 - [x] Match Qamify’s product-button hierarchy: emphasize only Custom Quantity and Back to Shop; keep preset quantity, Buy Now, Cancel, and utility controls visually restrained.
 - [x] Handle invalid custom-quantity replies explicitly with a retry message and keep the user in the custom-quantity flow until a valid 1..max value is provided.
 - [x] Implement persisted price-alert status and a real user-facing alert toggle instead of a placeholder response; the `price_alerts` migration is applied and the callback toggles user/product state.
