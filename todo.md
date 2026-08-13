@@ -223,3 +223,5 @@
 - [x] Add dependency installation guidance and automatic `cryptography` recovery to the Pydroid configuration utility.
 
 - [x] Replace the failing Android `cryptography` installation path with a dependency-free fallback and document its security limitations.
+
+- [x] Make the Pydroid utility show a guided menu when launched without a command.

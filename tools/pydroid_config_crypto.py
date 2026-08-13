@@ -155,12 +155,47 @@ def verify_file(source: Path) -> None:
     print("Values were not printed.")
 
 
+def interactive_menu() -> int:
+    print("\\nNebula Nook configuration utility")
+    print("1. Create a configuration template")
+    print("2. Encrypt a configuration file")
+    print("3. Decrypt an encrypted configuration")
+    print("4. Verify an encrypted configuration")
+    print("0. Exit")
+    choice = input("Choose an option: ").strip()
+    if choice == "0":
+        return 0
+    if choice == "1":
+        output = Path(input("Template filename [config.txt]: ").strip() or "config.txt")
+        if output.exists() and input(f"Overwrite {output}? Type YES: ") != "YES":
+            raise RuntimeError("Cancelled.")
+        output.write_text(TEMPLATE, encoding="utf-8")
+        print(f"Template written to: {output}")
+        print("Fill it locally, then choose option 2. Do not upload the plaintext file.")
+        return 0
+    if choice == "2":
+        source = Path(input("Plaintext filename [config.txt]: ").strip() or "config.txt")
+        destination = Path(input("Encrypted filename [config.enc]: ").strip() or "config.enc")
+        encrypt_file(source, destination)
+        return 0
+    if choice == "3":
+        source = Path(input("Encrypted filename [config.enc]: ").strip() or "config.enc")
+        destination = Path(input("Output filename [decrypted.txt]: ").strip() or "decrypted.txt")
+        decrypt_file(source, destination)
+        return 0
+    if choice == "4":
+        source = Path(input("Encrypted filename [config.enc]: ").strip() or "config.enc")
+        verify_file(source)
+        return 0
+    raise ValueError("Please choose 0, 1, 2, 3, or 4.")
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Nebula Nook local config encryption utility")
-    sub = parser.add_subparsers(dest="command", required=True)
+    sub = parser.add_subparsers(dest="command")
 
     template = sub.add_parser("template", help="write a safe plaintext template")
-    template.add_argument("output", nargs="?", default="config.env")
+    template.add_argument("output", nargs="?", default="config.txt")
 
     encrypt = sub.add_parser("encrypt", help="encrypt a plaintext config")
     encrypt.add_argument("source")
@@ -168,13 +203,15 @@ def main() -> int:
 
     decrypt = sub.add_parser("decrypt", help="decrypt a config for local inspection")
     decrypt.add_argument("source", nargs="?", default="config.enc")
-    decrypt.add_argument("destination", nargs="?", default="config.decrypted.env")
+    decrypt.add_argument("destination", nargs="?", default="decrypted.txt")
 
     verify = sub.add_parser("verify", help="verify decryption without writing plaintext")
     verify.add_argument("source", nargs="?", default="config.enc")
 
     args = parser.parse_args()
     try:
+        if args.command is None:
+            return interactive_menu()
         if args.command == "template":
             output = Path(args.output)
             if output.exists() and input(f"Overwrite {output}? Type YES: ") != "YES":
