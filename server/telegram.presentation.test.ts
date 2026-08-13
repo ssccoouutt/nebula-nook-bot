@@ -30,6 +30,7 @@ import {
   resolvePriceAlertToggle,
   formatPriceAlertMessage,
   formatPurchaseReview,
+  formatBinancePayPurchasePrompt,
   formatFreebiesMessage,
   buildFreebiesKeyboard,
   telegramResponseMethod,
@@ -166,6 +167,12 @@ describe("Telegram presentation and notification helpers", () => {
     expect(reviewRows[1][0]).toMatchObject({ text: "🟡 Pay with Binance Pay", callback_data: "paybinance:7:3", style: "primary" });
     expect(reviewRows[2][0]).toMatchObject({ callback_data: "buycancel:7" });
     expect(reviewRows[2][0]).not.toHaveProperty("style");
+    const payPrompt = formatBinancePayPurchasePrompt("Gemini Pro Trial Link", 1, 99);
+    expect(payPrompt).toContain("Pay exactly <b>$0.99</b>");
+    expect(payPrompt).toContain("within <b>20 minutes</b>");
+    expect(payPrompt).toContain("No reply is required");
+    expect(payPrompt).not.toContain("configured Binance Pay merchant account");
+    expect(payPrompt).not.toContain("force_reply");
   });
 
   it("uses edit-in-place responses for callback navigation and send responses for commands", () => {

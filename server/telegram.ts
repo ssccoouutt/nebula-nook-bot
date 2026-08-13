@@ -317,6 +317,10 @@ export function formatPurchaseReview(productName: string, priceCents: number, qu
   return `🧾 <b>Review your purchase</b>\n\n📦 <b>${productName.replace(/[<&>]/g, "")}</b>\n🔢 Quantity: <b>${quantity}</b>\n💵 Unit price: <b>$${(priceCents / 100).toFixed(2)}</b>\n💰 Total to pay: <b>$${(totalCents / 100).toFixed(2)}</b>\n\nWallet balance: <b>$${(balanceCents / 100).toFixed(2)}</b>\n\nChoose a payment method below. Your order is not completed until the selected payment is verified.`;
 }
 
+export function formatBinancePayPurchasePrompt(productName: string, quantity: number, amountCents: number) {
+  return `🟡 <b>Binance Pay</b>\n\n📦 ${productName.replace(/[<&>]/g, "")} × ${quantity}\n💰 Pay exactly <b>$${(amountCents / 100).toFixed(2)}</b>\n\nAfter paying, send the transaction/order ID here within <b>20 minutes</b>. No reply is required.`;
+}
+
 async function runtimeGate() {
   const db = await getDb();
   if (!db) return { channelId: DEFAULT_CHANNEL_ID, groupId: DEFAULT_GROUP_ID, channelUrl: DEFAULT_CHANNEL_URL, groupUrl: DEFAULT_GROUP_URL };
@@ -529,7 +533,7 @@ async function createBinancePayPurchaseIntent(chatId: number, userId: number, pr
   const intentId = Number(inserted[0]?.insertId ?? 0);
   if (!intentId) throw new Error("Failed to create Binance Pay payment intent");
   pendingBinancePayPurchases.set(userId, { intentId, expiresAt: Date.now() + BINANCE_PAY_PURCHASE_WINDOW_MS });
-  return respond(chatId, `🟡 <b>Pay with Binance Pay</b>\\n\\n📦 <b>${product.name.replace(/[<&>]/g, "")}</b>\\n🔢 Quantity: <b>${safeQuantity}</b>\\n💰 <b>Amount to pay: $${(amountCents / 100).toFixed(2)}</b>\\n\\nPay exactly <b>$${(amountCents / 100).toFixed(2)}</b> to the configured Binance Pay merchant account. After payment, send the Binance Pay transaction/order ID as a normal message within <b>20 minutes</b>. It does not need to be a reply to this prompt. You can still use commands and buttons normally while waiting.\\n\\nYour order will remain pending until the transaction is verified. No stock will be deducted before successful verification.`, { force_reply: true, selective: true }, messageId);
+  return respond(chatId, formatBinancePayPurchasePrompt(product.name, safeQuantity, amountCents), undefined, messageId);
 }
 
 export type TelegramCallbackAction =
@@ -581,7 +585,7 @@ export async function handleCallback(query: TelegramCallbackQuery, options: { sk
   if (action.kind === "wallet") return showWallet(chatId, userId, messageId);
   if (action.kind === "walletadd") {
     pendingBinancePayTopups.set(userId, { expiresAt: Date.now() + 10 * 60 * 1000 });
-    return respond(chatId, "💳 <b>Add funds with Binance Pay</b>\n\nSend the Binance Pay transaction ID after you have paid the merchant account. I will verify it server-side and credit the positive received amount in USDT, USDC, or BUSD.\n\n⚠️ Never send a password, API key, or secret here.", { force_reply: true, selective: true }, messageId);
+    return respond(chatId, "💳 <b>Add funds with Binance Pay</b>\n\nPay the merchant, then send the transaction ID here. I’ll verify the payment and credit supported USDT, USDC, or BUSD receipts.\n\n⚠️ Never send a password, API key, or secret here.", undefined, messageId);
   }
   if (action.kind === "orders") return showOrders(chatId, userId, messageId);
   if (action.kind === "profile") return showProfile(chatId, userId, messageId);
@@ -627,10 +631,10 @@ async function verifyAndFulfillBinancePurchase(chatId: number, userId: number, i
   const result = await findBinancePayTransaction(transactionId, intent.amountCents);
   if (!result.ok) {
     const reason = result.reason === "invalid_id" ? "That does not look like a valid transaction/order ID." : result.reason === "not_found" ? "I could not find that Binance Pay payment yet." : result.reason === "amount_mismatch" ? `The payment amount does not match the required $${(intent.amountCents / 100).toFixed(2)}.` : result.reason === "unsupported_asset" ? "Only USDT, USDC, or BUSD payments can be verified." : "That payment is not a positive received transaction.";
-    await respond(chatId, `❌ <b>Payment not verified</b>\n\n${reason}\n\nPlease send the correct Binance Pay transaction/order ID.`, { force_reply: true, selective: true });
+    await respond(chatId, `❌ <b>Payment not verified</b>\n\n${reason}\n\nSend the correct transaction/order ID within the remaining payment window.`, undefined);
     return false;
   }
-  const transactionRef = result.transaction.transactionId ?? transactionId.trim();
+  const transactionRef = String(result.transaction.transactionId ?? transactionId.trim());
   const outcome = await db.transaction(async (tx) => {
     const current = (await tx.select().from(paymentIntents).where(eq(paymentIntents.id, intentId)).limit(1))[0];
     if (!current || current.status !== "pending") return { ok: false as const, reason: "already_processed" as const };
@@ -702,11 +706,11 @@ export async function handleMessage(message: TelegramMessage) {
     const db = await getDb();
     if (!db) throw new Error("Database is unavailable");
     const credited = await db.transaction(async (tx) => {
-      const existing = (await tx.select().from(binancePayDeposits).where(eq(binancePayDeposits.transactionId, result.transaction.transactionId ?? messageText.trim())).limit(1))[0];
+      const transactionId = String(result.transaction.transactionId ?? messageText.trim());
+      const existing = (await tx.select().from(binancePayDeposits).where(eq(binancePayDeposits.transactionId, transactionId)).limit(1))[0];
       if (existing) return { ok: false as const, reason: "already_credited" as const, amountCents: existing.amountCents, asset: existing.asset };
       const account = (await tx.select().from(botUsers).where(eq(botUsers.telegramUserId, user.id)).limit(1))[0];
       if (!account) return { ok: false as const, reason: "user_missing" as const };
-      const transactionId = result.transaction.transactionId ?? messageText.trim();
       await tx.insert(binancePayDeposits).values({ botUserId: account.id, transactionId, amountCents: result.amountCents, asset: result.asset, rawStatus: result.transaction.status ?? null });
       await tx.update(botUsers).set({ balanceCents: account.balanceCents + result.amountCents }).where(eq(botUsers.id, account.id));
       await tx.insert(walletLedger).values({ botUserId: account.id, amountCents: result.amountCents, kind: "topup", referenceId: transactionId, note: `Binance Pay ${result.asset} transaction verified` });

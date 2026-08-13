@@ -173,3 +173,12 @@
 - [x] Accept Binance Pay transaction IDs as plain messages within a durable 20-minute purchase window while allowing commands and menu navigation to continue normally.
 - [x] Add regression coverage for the user-provided transaction ID shape, command passthrough, and 20-minute expiry semantics.
 - [x] Complete final Telegram smoke verification of the Binance Pay checkout flow and document any provider-verification limitation honestly.
+
+- [ ] Align Binance Pay transaction lookup with the attached Python script: use a 60-second recvWindow, fetch Pay transactions with limit 200 plus fallback, and match exact or partial orderId/transactionId fields.
+- [ ] Preserve exact positive received amount, supported currency, and idempotency safeguards after script-compatible lookup.
+- [ ] Add regression tests for orderId matching, transactionId matching, partial matching, request parameters, fallback behavior, and the user-provided ID shape.
+- [ ] Run the full validation suite and publish the verified script-parity update.
+
+- [x] Replace the verbose Binance Pay pending prompt with concise payment instructions and remove Telegram force-reply metadata/keyboard.
+- [x] Add regression coverage proving the concise prompt remains standalone-message compatible and commands stay responsive.
+- [ ] Publish and smoke-test the revised prompt in Telegram.
