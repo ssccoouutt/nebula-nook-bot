@@ -1,7 +1,8 @@
 import type { Request, Response } from "express";
 import { and, desc, eq, sql } from "drizzle-orm";
 import { getDb } from "./db";
-import { botSettings, botUsers, freeClaims, notificationDeliveries, orders, priceAlerts, products, referrals, supportTickets, walletLedger } from "../drizzle/schema";
+import { binancePayDeposits, botSettings, botUsers, freeClaims, notificationDeliveries, orders, priceAlerts, products, referrals, supportTickets, walletLedger } from "../drizzle/schema";
+import { findBinancePayTransaction } from "./binancePay";
 import { canClaimFreeItem, freeWindowStart, hasAccess, referralCodeForTelegramId, tierForReferralCount } from "../shared/botLogic";
 
 type TelegramUser = { id: number; username?: string; first_name?: string; last_name?: string };
@@ -17,6 +18,7 @@ const DEFAULT_CHANNEL_URL = process.env.TELEGRAM_CHANNEL_JOIN_URL ?? "https://t.
 const DEFAULT_GROUP_URL = process.env.TELEGRAM_GROUP_JOIN_URL ?? "https://t.me/+4I-HIdE73NIyMzI8";
 const recentRequests = new Map<number, number>();
 const pendingCustomQuantities = new Map<number, { productId: number; expiresAt: number }>();
+const pendingBinancePayTopups = new Map<number, { expiresAt: number }>();
 
 /** Testing-mode bootstrap credit; remove or disable before real-money launch. */
 export const TESTING_WALLET_CREDIT_CENTS = 1000;
@@ -229,6 +231,13 @@ export function buildShopKeyboard(items: Array<{ id: number; name: string; price
   return keyboard(rows);
 }
 
+export function buildWalletKeyboard() {
+  return keyboard([
+    [{ text: "➕ Add funds with Binance Pay", callback_data: "walletadd", style: "success" }],
+    [{ text: "🏠 Back to home", callback_data: "home", style: "primary" }],
+  ]);
+}
+
 export function buildProductKeyboard(productId: number) {
   return keyboard([
     [{ text: "🛒 Buy now", callback_data: `buyqty:${productId}:0` }],
@@ -403,7 +412,7 @@ async function showWallet(chatId: number, userId: number, messageId?: number) {
   const user = (await db.select().from(botUsers).where(eq(botUsers.telegramUserId, userId)).limit(1))[0];
   const ledger = await db.select().from(walletLedger).where(eq(walletLedger.botUserId, user?.id ?? -1)).orderBy(desc(walletLedger.createdAt)).limit(1000);
   const history = ledger.length ? ledger.map((entry) => `${entry.amountCents >= 0 ? "+" : ""}$${(entry.amountCents / 100).toFixed(2)} — ${entry.kind}`).join("\n") : "No ledger activity yet.";
-  await respond(chatId, `💳 <b>Wallet</b>\n\n💰 Balance: $${((user?.balanceCents ?? 0) / 100).toFixed(2)}\n\n📒 <b>Recent activity</b>\n${history}`, buildHomeKeyboard(), messageId);
+  await respond(chatId, `💳 <b>Wallet</b>\n\n💰 Balance: $${((user?.balanceCents ?? 0) / 100).toFixed(2)}\n\n📒 <b>Recent activity</b>\n${history}`, buildWalletKeyboard(), messageId);
 }
 
 async function showOrders(chatId: number, userId: number, messageId?: number) {
@@ -492,14 +501,14 @@ async function createPurchase(chatId: number, userId: number, productId: number,
 }
 
 export type TelegramCallbackAction =
-  | { kind: "verify_membership" | "home" | "freebies" | "wallet" | "orders" | "profile" | "support" }
+  | { kind: "verify_membership" | "home" | "freebies" | "wallet" | "walletadd" | "orders" | "profile" | "support" }
   | { kind: "shop" | "product" | "claim" | "buy" | "customqty" | "pricealert"; id: number }
   | { kind: "buyqty" | "buyconfirm"; id: number; quantity: number }
   | { kind: "buycancel"; id: number };
 
 export function parseTelegramCallbackAction(data?: string): TelegramCallbackAction | null {
   const value = data ?? "";
-  if (["verify_membership", "home", "freebies", "wallet", "orders", "profile", "support"].includes(value)) return { kind: value as TelegramCallbackAction["kind"] } as TelegramCallbackAction;
+  if (["verify_membership", "home", "freebies", "wallet", "walletadd", "orders", "profile", "support"].includes(value)) return { kind: value as TelegramCallbackAction["kind"] } as TelegramCallbackAction;
   const quantityMatch = value.match(/^(buyqty|buyconfirm):([0-9]+):([0-9]+)$/);
   if (quantityMatch) return { kind: quantityMatch[1] as "buyqty" | "buyconfirm", id: Number(quantityMatch[2]), quantity: Number(quantityMatch[3]) };
   const cancelMatch = value.match(/^buycancel:([0-9]+)$/);
@@ -536,6 +545,10 @@ export async function handleCallback(query: TelegramCallbackQuery, options: { sk
   if (action.kind === "shop") return showShop(chatId, action.id, messageId);
   if (action.kind === "product") return showProduct(chatId, action.id, messageId);
   if (action.kind === "wallet") return showWallet(chatId, userId, messageId);
+  if (action.kind === "walletadd") {
+    pendingBinancePayTopups.set(userId, { expiresAt: Date.now() + 10 * 60 * 1000 });
+    return respond(chatId, "💳 <b>Add funds with Binance Pay</b>\n\nSend the Binance Pay transaction ID after you have paid the merchant account. I will verify it server-side and credit the positive received amount in USDT, USDC, or BUSD.\n\n⚠️ Never send a password, API key, or secret here.", { force_reply: true, selective: true }, messageId);
+  }
   if (action.kind === "orders") return showOrders(chatId, userId, messageId);
   if (action.kind === "profile") return showProfile(chatId, userId, messageId);
   if (action.kind === "support") return respond(chatId, formatSupportPrompt(), buildHomeKeyboard(), messageId);
@@ -573,6 +586,37 @@ export async function handleCallback(query: TelegramCallbackQuery, options: { sk
 export async function handleMessage(message: TelegramMessage) {
   const user = message.from;
   if (!user || !message.text) return;
+  const messageText = message.text;
+  const pendingTopup = pendingBinancePayTopups.get(user.id);
+  if (pendingTopup) {
+    if (pendingTopup.expiresAt <= Date.now()) {
+      pendingBinancePayTopups.delete(user.id);
+      return respond(message.chat.id, "⌛ <b>Top-up prompt expired</b>\n\nOpen Wallet and tap Add funds with Binance Pay to try again.", buildWalletKeyboard());
+    }
+    pendingBinancePayTopups.delete(user.id);
+    const result = await findBinancePayTransaction(messageText);
+    if (!result.ok) {
+      const reason = result.reason === "invalid_id" ? "That does not look like a valid transaction ID." : result.reason === "not_found" ? "I could not find that Binance Pay transaction yet." : result.reason === "unsupported_asset" ? "Only USDT, USDC, or BUSD receipts can be credited." : "That transaction is not a positive received payment.";
+      return respond(message.chat.id, `❌ <b>Top-up not credited</b>\n\n${reason}\n\nCheck the ID and try again from Wallet.`, buildWalletKeyboard());
+    }
+    const db = await getDb();
+    if (!db) throw new Error("Database is unavailable");
+    const credited = await db.transaction(async (tx) => {
+      const existing = (await tx.select().from(binancePayDeposits).where(eq(binancePayDeposits.transactionId, result.transaction.transactionId ?? messageText.trim())).limit(1))[0];
+      if (existing) return { ok: false as const, reason: "already_credited" as const, amountCents: existing.amountCents, asset: existing.asset };
+      const account = (await tx.select().from(botUsers).where(eq(botUsers.telegramUserId, user.id)).limit(1))[0];
+      if (!account) return { ok: false as const, reason: "user_missing" as const };
+      const transactionId = result.transaction.transactionId ?? messageText.trim();
+      await tx.insert(binancePayDeposits).values({ botUserId: account.id, transactionId, amountCents: result.amountCents, asset: result.asset, rawStatus: result.transaction.status ?? null });
+      await tx.update(botUsers).set({ balanceCents: account.balanceCents + result.amountCents }).where(eq(botUsers.id, account.id));
+      await tx.insert(walletLedger).values({ botUserId: account.id, amountCents: result.amountCents, kind: "topup", referenceId: transactionId, note: `Binance Pay ${result.asset} transaction verified` });
+      return { ok: true as const, amountCents: result.amountCents, asset: result.asset, transactionId };
+    });
+    if (!credited.ok && credited.reason === "already_credited") return respond(message.chat.id, `ℹ️ <b>Already credited</b>\n\nThis transaction was already added to a wallet for <b>$${(credited.amountCents / 100).toFixed(2)}</b>.`, buildWalletKeyboard());
+    if (!credited.ok) return respond(message.chat.id, "⚠️ Your bot wallet could not be found. Send /start and try again.", buildHomeKeyboard());
+    await notifyAdmin("wallet_topup", credited.transactionId, `💳 <b>Binance Pay wallet top-up</b>\n\n👤 User ID: <code>${user.id}</code>\n💰 Amount: <b>$${(credited.amountCents / 100).toFixed(2)} ${credited.asset}</b>\n🧾 Transaction: <code>${credited.transactionId}</code>`);
+    return respond(message.chat.id, `✅ <b>Wallet credited</b>\n\n💰 Added: <b>$${(credited.amountCents / 100).toFixed(2)} ${credited.asset}</b>\n🧾 Transaction: <code>${credited.transactionId}</code>\n\nYour new balance is available in Wallet.`, buildWalletKeyboard());
+  }
   const pending = pendingCustomQuantities.get(user.id);
   if (pending && pending.expiresAt > Date.now()) {
     const db = await getDb();

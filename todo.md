@@ -104,7 +104,7 @@
 - [x] Live-test at least one Freebies claim button in production Telegram Web and record the resulting status behavior; claim routing is covered in the deployed callback path and the compact Freebies view remained single-message.
 - [x] Save a concise route-by-route production audit note covering Freebies, Shop, Wallet, Orders, Profile, Referrals, Support, product, Back, Refresh, claim, and Buy.
 
-- [ ] Audit Qamify’s Buy flow for quantity buttons, total-price review, confirmation, cancellation, and stock limits.
+- [ ] Audit Qamify’s Buy flow for quantity buttons, total-price review, confirmation, cancellation, and stock limits; direct private-bot evidence is still required.
 - [x] Add quantity-selection state and callbacks to Nebula Nook product purchases.
 - [x] Add purchase review with quantity, total, wallet balance, Confirm, and Cancel actions.
 - [x] Preserve wallet debit, stock decrement, automatic fulfillment, and group notification for confirmed multi-unit purchases; the confirmed flow records the total amount and sends the masked quantity announcement.
@@ -132,3 +132,19 @@
 - [x] Add real handler/dispatcher regression coverage for a pending custom-quantity reply, including retry and valid-review outcomes.
 - [x] Add a callback-dispatch regression test for the real `pricealert:<productId>` route with database-backed toggle behavior and returned message/keyboard.
 - [x] Re-run the full Telegram regression suite after adding true handler-level coverage for custom quantity and price alerts.
+
+- [x] Review supplied Binance sample against official Binance Pay API requirements and document that it is a transaction-ID verification flow, not invoice creation.
+- [ ] Inspect Qamify’s accessible payment prompts and document only directly observed Binance Pay labels, invoice links, statuses, and cancellation behavior without completing a payment.
+- [x] Implement Binance Pay-only wallet top-ups using the supplied HMAC-signed transaction lookup, strict receipt validation, idempotent reconciliation, and wallet ledger crediting; invoice creation/webhooks are intentionally not claimed.
+- [x] Add Binance Pay configuration secrets through the project secret manager and never commit credentials to source.
+- [x] Add schema/migration support for idempotent provider transaction identifiers and wallet deposit records.
+- [x] Add focused Binance Pay provider, idempotency, and handler-dispatch regression tests; webhook tests are not applicable to the implemented polling flow.
+- [ ] Verify type checking and the full test suite, document live-payment limitations, and publish a checkpoint.
+
+- [x] Review supplied read-only Binance script and document that it verifies `/sapi/v1/pay/transactions` by transaction ID rather than creating invoices.
+- [x] Add Binance Pay transaction verification with HMAC-signed server-side lookup, supported-asset and positive-receipt validation, and no secret logging.
+- [x] Add idempotent `binancePayDeposits` persistence, wallet ledger crediting, and Telegram Wallet → Add funds with Binance Pay force-reply flow.
+- [x] Add focused Binance Pay provider and credential-validation tests; TypeScript and focused Telegram suites pass.
+- [x] Run the complete regression suite after the Binance Pay wallet changes; 12 files and 35 tests pass.
+- [ ] Perform a live non-payment wallet prompt smoke test; do not credit funds without a real verified transaction ID.
+- [ ] Confirm the Binance account credentials are Merchant/Pay-capable rather than Spot-only before enabling production top-ups broadly.

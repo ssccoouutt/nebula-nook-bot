@@ -43,3 +43,18 @@ After checkpoint 66b357a9, the published Nebula Nook Shop still rendered multipl
 
 ## 2026-08-13 live smoke follow-up
 The persisted Telegram Web chat was reopened and inspected again. The conversation history exposed existing `1×`, `2×`, `3×`, `4×`, `5×`, `10×`, and `Back to product` controls, proving that quantity keyboards exist in the rendered history. However, the chat also contains older Shop, product, and Buy messages; clicking a currently exposed Buy control did not create a clean, newly timestamped quantity transition in the captured interval. Therefore this is evidence of rendered historical controls, not a successful fresh end-to-end smoke test. The production quantity/product checklist items remain pending until a fresh client interaction produces a new product detail, quantity prompt, review, and confirm/cancel outcome.
+
+## 2026-08-13 fresh session index observation
+A fresh Telegram Web load showed the persisted Qamify Chat feed with current stock-broadcast posts and the Nebula Nook chat with a recent compact Shop preview. This confirms the session is active and current, but the index view alone does not expose Qamify’s private bot menu or every callback destination; the complete command/button re-audit and a fresh Nebula Nook purchase transition remain unverified.
+
+## 2026-08-13 fresh Qamify Chat inspection
+The current Qamify Chat view exposed product/deep-link buttons labeled `SurfShark VPN Premium`, `Gemini AI Pro 18 Month`, `LEONARDO AI VIDEO GEN`, `Nord VPN 3 Month Accounts`, `ELEVENLABS CREATOR 3M Coupon`, `Google Veo 3 Ultra Extension`, and a `Get your referral link` control. The feed also showed a fresh masked-user free claim announcement. These observations extend the public group-feed audit, but they do not expose the private Qamify bot command menu or callback destinations, so the complete visible command/button re-audit remains pending.
+
+## 2026-08-13 fresh Nebula Nook product-to-quantity success
+From the current Nebula Nook Shop view, clicking the visible `Gemini Pro · $0.01` control produced a fresh live quantity state. Telegram Web exposed `1×`, `2×`, `3×`, `4×`, `5×`, `10×`, and `Back to product`, alongside the surrounding Home controls. This is the first reliable fresh production confirmation that the published Shop product entry reaches the quantity-selection step; review, confirm/cancel, and persistence outcomes still require separate fresh clicks.
+
+## 2026-08-13 fresh Nebula Nook quantity-to-review success
+After the fresh quantity keyboard appeared, selecting `3×` reached a live review state exposing `Confirm purchase` and `Cancel`. This verifies the product → quantity → review transition in production. Telegram Web did not visibly update after the attempted Cancel click, so no cancellation or purchase completion is claimed from this pass; the wallet-affecting Confirm purchase action was intentionally not executed.
+
+## 2026-08-13 Qamify direct-search result
+Searching Telegram Web for `Qamify_bot` found a Qamify account and indexed its store/product posts, including `/start`, product-detail text, membership-required notices, stock-limit announcements, and product metadata. Opening the result led to the account’s message-search view rather than an interactive private bot chat; no Qamify quantity/review callback controls were exposed. The direct private Buy-flow audit therefore remains pending and should not be inferred from the public/search-indexed posts.

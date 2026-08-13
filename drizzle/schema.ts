@@ -77,6 +77,17 @@ export const walletLedger = mysqlTable("walletLedger", {
   createdAt: timestamp("createdAt").defaultNow().notNull(),
 });
 
+export const binancePayDeposits = mysqlTable("binancePayDeposits", {
+  id: int("id").autoincrement().primaryKey(),
+  botUserId: int("botUserId").notNull(),
+  transactionId: varchar("transactionId", { length: 128 }).notNull().unique(),
+  amountCents: int("amountCents").notNull(),
+  asset: varchar("asset", { length: 16 }).notNull(),
+  status: mysqlEnum("status", ["verified", "rejected"]).default("verified").notNull(),
+  rawStatus: varchar("rawStatus", { length: 64 }),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+});
+
 export const referrals = mysqlTable("referrals", {
   id: int("id").autoincrement().primaryKey(),
   referrerId: int("referrerId").notNull(),
