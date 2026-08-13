@@ -118,7 +118,7 @@
 - [x] Fix the Product Buy now keyboard callback from legacy `buy:<productId>` to the quantity-prompt route `buyqty:<productId>:0` so live purchases show quantity buttons.
 - [x] Add regression coverage asserting Buy now emits the quantity-prompt entry route; TypeScript and 13 focused Telegram presentation tests pass. Live production verification remains pending.
 
-- [ ] Audit Qamify’s product-detail screen for metadata, quantity choices, Custom Quantity, Set Price Alert, Buy Now, and Back to Shop behavior.
+- [x] Audit Qamify’s product-detail screen for metadata, quantity choices, Custom Quantity, Set Price Alert, Buy Now, and Back to Shop behavior; documented in notes/qamify-audit.md from logged-in Telegram Web observations.
 - [x] Add an original Nebula Nook product-detail screen with richer metadata and compact navigation.
 - [x] Add Custom Quantity input flow with validation, review, confirmation, and cancellation.
 - [x] Add a non-destructive Set Price Alert affordance with clear status feedback.
