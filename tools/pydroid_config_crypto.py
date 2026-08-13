@@ -19,44 +19,43 @@ import argparse
 import base64
 import getpass
 import hashlib
+import hmac
 import secrets
-import subprocess
 import sys
 from pathlib import Path
 
-
-def load_aesgcm():
-    try:
-        from cryptography.hazmat.primitives.ciphers.aead import AESGCM
-        return AESGCM
-    except ImportError:
-        print("The cryptography package is not installed. Installing it now...")
-        try:
-            subprocess.check_call([sys.executable, "-m", "pip", "install", "cryptography"])
-            from cryptography.hazmat.primitives.ciphers.aead import AESGCM
-            print("cryptography installed successfully.")
-            return AESGCM
-        except Exception as exc:
-            print("Automatic installation failed.")
-            print("In Pydroid 3, open Pip and run: pip install cryptography")
-            raise SystemExit(2) from exc
-
-
-AESGCM = load_aesgcm()
-
-MAGIC = b"NEBULA-NOOK-CONFIG-v1\n"
+# This implementation intentionally uses only Python's standard library so it
+# works in Pydroid 3 without Rust, a compiler, or native cryptography wheels.
+# It uses PBKDF2-HMAC-SHA256 for key derivation, HMAC-SHA256 authentication,
+# and a SHA256/HMAC-derived keystream for confidentiality.
+MAGIC = b"NEBULA-NOOK-CONFIG-v2\n"
 SALT_BYTES = 16
-NONCE_BYTES = 12
-KEY_BYTES = 32
+NONCE_BYTES = 32
+KEY_BYTES = 64
+TAG_BYTES = 32
 PBKDF2_ROUNDS = 390_000
 
 TEMPLATE = """# Nebula Nook configuration template\n# Replace every placeholder locally. Never commit this plaintext file.\n\nDATABASE_URL=\nJWT_SECRET=\nTELEGRAM_BOT_TOKEN=\nTELEGRAM_WEBHOOK_SECRET=\nTELEGRAM_ADMIN_CHAT_ID=\nBINANCE_PAY_API_KEY=\nBINANCE_PAY_SECRET_KEY=\nOWNER_OPEN_ID=\nOWNER_NAME=\nVITE_APP_ID=\nVITE_APP_TITLE=Nebula Nook Bot\nVITE_APP_LOGO=\nOAUTH_SERVER_URL=\nVITE_OAUTH_PORTAL_URL=\nBUILT_IN_FORGE_API_URL=\nBUILT_IN_FORGE_API_KEY=\nVITE_FRONTEND_FORGE_API_URL=\nVITE_FRONTEND_FORGE_API_KEY=\nVITE_ANALYTICS_ENDPOINT=\nVITE_ANALYTICS_WEBSITE_ID=\nNODE_ENV=production\n"""
 
 
-def derive_key(password: str, salt: bytes) -> bytes:
-    return hashlib.pbkdf2_hmac(
+def derive_key(password: str, salt: bytes) -> tuple[bytes, bytes]:
+    material = hashlib.pbkdf2_hmac(
         "sha256", password.encode("utf-8"), salt, PBKDF2_ROUNDS, dklen=KEY_BYTES
     )
+    return material[:32], material[32:]
+
+
+def xor_keystream(data: bytes, key: bytes, nonce: bytes) -> bytes:
+    output = bytearray(len(data))
+    for offset in range(0, len(data), 32):
+        counter = offset // 32
+        block = hmac.new(
+            key, nonce + counter.to_bytes(8, "big"), hashlib.sha256
+        ).digest()
+        chunk = data[offset : offset + len(block)]
+        for index, value in enumerate(chunk):
+            output[offset + index] = value ^ block[index]
+    return bytes(output)
 
 
 def ask_password(confirm: bool = False) -> str:
@@ -81,9 +80,10 @@ def encrypt_file(source: Path, destination: Path) -> None:
     plaintext = source.read_bytes()
     salt = secrets.token_bytes(SALT_BYTES)
     nonce = secrets.token_bytes(NONCE_BYTES)
-    key = derive_key(ask_password(confirm=True), salt)
-    ciphertext = AESGCM(key).encrypt(nonce, plaintext, MAGIC)
-    payload = MAGIC + base64.b64encode(salt + nonce + ciphertext) + b"\n"
+    enc_key, mac_key = derive_key(ask_password(confirm=True), salt)
+    ciphertext = xor_keystream(plaintext, enc_key, nonce)
+    tag = hmac.new(mac_key, MAGIC + salt + nonce + ciphertext, hashlib.sha256).digest()
+    payload = MAGIC + base64.b64encode(salt + nonce + tag + ciphertext) + b"\n"
     destination.write_bytes(payload)
     try:
         destination.chmod(0o600)
@@ -99,16 +99,20 @@ def decrypt_bytes(source: Path, password: str) -> bytes:
         raise ValueError("Not a Nebula Nook encrypted config or unsupported version.")
     encoded = b"".join(raw[len(MAGIC) :].split())
     packed = base64.b64decode(encoded, validate=True)
-    if len(packed) <= SALT_BYTES + NONCE_BYTES:
+    if len(packed) <= SALT_BYTES + NONCE_BYTES + TAG_BYTES:
         raise ValueError("Encrypted file is incomplete.")
     salt = packed[:SALT_BYTES]
     nonce = packed[SALT_BYTES : SALT_BYTES + NONCE_BYTES]
-    ciphertext = packed[SALT_BYTES + NONCE_BYTES :]
-    key = derive_key(password, salt)
-    try:
-        return AESGCM(key).decrypt(nonce, ciphertext, MAGIC)
-    except Exception as exc:
-        raise ValueError("Decryption failed: wrong password or modified file.") from exc
+    tag_start = SALT_BYTES + NONCE_BYTES
+    tag = packed[tag_start : tag_start + TAG_BYTES]
+    ciphertext = packed[tag_start + TAG_BYTES :]
+    enc_key, mac_key = derive_key(password, salt)
+    expected = hmac.new(
+        mac_key, MAGIC + salt + nonce + ciphertext, hashlib.sha256
+    ).digest()
+    if not hmac.compare_digest(tag, expected):
+        raise ValueError("Decryption failed: wrong password or modified file.")
+    return xor_keystream(ciphertext, enc_key, nonce)
 
 
 def decrypt_file(source: Path, destination: Path) -> None:

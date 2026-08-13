@@ -1,18 +1,12 @@
 # Pydroid 3 configuration encryption
 
-The utility `tools/pydroid_config_crypto.py` encrypts a local `.env`-style file with AES-256-GCM. It derives the encryption key from a passphrase using PBKDF2-HMAC-SHA-256. The passphrase is never written into `config.enc`.
+The utility `tools/pydroid_config_crypto.py` encrypts a local `.env`-style file using only Python’s standard library. It derives separate encryption and authentication keys from a passphrase with PBKDF2-HMAC-SHA-256, uses a HMAC-derived keystream for confidentiality, and authenticates the encrypted payload with HMAC-SHA-256. The passphrase is never written into `config.enc`.
 
 ## Install in Pydroid 3
 
-Copy `pydroid_config_crypto.py` to a directory accessible from Pydroid, such as `Download/nebula-nook/`. Use Pydroid’s terminal and change into that directory. The script automatically checks for the `cryptography` package and attempts to install it with Pydroid’s Python if it is missing.
+There are **no third-party packages to install**. Copy `pydroid_config_crypto.py` to a directory accessible from Pydroid, such as `Download/nebula-nook/`, and run it from Pydroid’s terminal. This avoids the Rust/compiler issue encountered while installing `cryptography` on Android Python 3.11.
 
-If automatic installation is blocked, open Pydroid’s **Pip** terminal and run:
-
-```bash
-pip install cryptography
-```
-
-Then run the script again.
+This dependency-free implementation is convenient for the Android workflow, but a standard, audited library such as AES-GCM remains preferable when a compatible native package is available. Do not reuse this custom format for high-value secrets beyond the intended deployment handoff, and keep the password separate from the encrypted file.
 
 ## Create and fill the template
 

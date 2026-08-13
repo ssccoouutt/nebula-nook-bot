@@ -221,3 +221,5 @@
 - [x] Create a Pydroid 3-compatible utility for generating age keys and encrypting/decrypting the local configuration safely.
 
 - [x] Add dependency installation guidance and automatic `cryptography` recovery to the Pydroid configuration utility.
+
+- [x] Replace the failing Android `cryptography` installation path with a dependency-free fallback and document its security limitations.
