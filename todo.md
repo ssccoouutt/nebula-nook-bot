@@ -205,3 +205,6 @@
 - [x] Prepare Koyeb deployment configuration, start command, health behavior, and non-secret environment-variable documentation.
 - [ ] Export the project to a GitHub repository without committing secrets or local credentials.
 - [ ] Deploy or provide the Koyeb deployment handoff, configure secrets and Telegram webhook migration, and verify runtime health.
+
+- [ ] Sync the prepared project to the user-provided GitHub repository `https://github.com/ssccoouutt/nebula-nook-bot.git` without committing secrets or local artifacts.
+- [ ] Verify the GitHub repository contents and complete the Koyeb deployment handoff using encrypted secrets and the documented runtime configuration.
