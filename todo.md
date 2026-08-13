@@ -190,3 +190,13 @@
 - [x] Compare the successful script request with the deployed bot request, including endpoint, parameters, signature, headers, runtime path, and response timing; no request-shape mismatch was found.
 - [x] Fix any confirmed bot-path mismatch, add regression coverage, run validation, and publish a corrected checkpoint if code changes are required; no Binance client mismatch was confirmed, and the Telegram stale-state fix is already published.
 - [x] Perform a safe production retest and document whether wallet credit succeeds or remains blocked by Binance eligibility; production remains blocked and correctly issues no credit.
+
+- [x] Determine whether current Manus WebDev hosting exposes a selectable Germany region or Germany egress for this project; no selectable region or fixed egress control is documented.
+- [x] Evaluate compliant non-USA alternatives without assuming Binance eligibility from geography alone.
+- [x] Document the recommended path: a persistent non-USA gateway or VPS, read-only eligibility test first, and no wallet credits until verification succeeds.
+
+- [x] Evaluate the supplied VMess WebSocket endpoint as a possible non-USA egress without exposing its credentials; the temporary Xray handshake was reset by the endpoint.
+- [x] Determine whether a persistent Xray gateway or VPS is available; the sandbox-only process was not used for production.
+- [ ] If a persistent gateway is provided, route only Binance Pay API calls through it and validate the supplied order ID read-only before enabling credits.
+- [x] Attempt a temporary read-only Binance lookup through the supplied VMess tunnel; the VMess endpoint reset the connection, so no egress or Binance eligibility result was obtained and no funds were credited.
+- [x] Install only a temporary official Xray-compatible client for the authorized VMess read-only test, then remove or stop it after testing.
