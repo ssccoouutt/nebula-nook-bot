@@ -185,3 +185,8 @@
 
 - [x] Live-test Wallet → Add funds with Binance Pay using order ID `448035041403518976` and capture the exact provider/verifier outcome.
 - [x] If the live lookup fails, diagnose and fix the confirmed mismatch, add regression coverage, and publish the correction; the Telegram stale-state mismatch was fixed and the remaining production failure is Binance restricted-location eligibility.
+
+- [x] Reconcile why the read-only Binance lookup returned order `448035041403518976` while the production Telegram verifier received a restricted-location rejection: local sandbox egress succeeds, but production Autoscale egress is rejected by Binance eligibility.
+- [x] Compare the successful script request with the deployed bot request, including endpoint, parameters, signature, headers, runtime path, and response timing; no request-shape mismatch was found.
+- [x] Fix any confirmed bot-path mismatch, add regression coverage, run validation, and publish a corrected checkpoint if code changes are required; no Binance client mismatch was confirmed, and the Telegram stale-state fix is already published.
+- [x] Perform a safe production retest and document whether wallet credit succeeds or remains blocked by Binance eligibility; production remains blocked and correctly issues no credit.
