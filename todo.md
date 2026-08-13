@@ -246,7 +246,7 @@
 
 - [ ] Run authenticated Telegram smoke tests directly through the existing logged-in session after Manus is disabled and Koyeb is active.
 
-- [ ] Treat Koyeb as the sole production host for the Telegram bot and admin dashboard; remove remaining Manus production assumptions and references from runtime/deployment behavior.
+- [x] Treat Koyeb as the sole production host for the Telegram bot and admin dashboard; remove remaining Manus production assumptions and references from runtime/deployment behavior.
 - [ ] Verify the admin dashboard and bot health using only the Koyeb URL and Koyeb runtime logs.
 
 - [x] Fix Koyeb production dashboard static serving to use the built dist/public directory and remove Manus-only production build assumptions.
