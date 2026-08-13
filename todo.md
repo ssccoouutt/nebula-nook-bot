@@ -250,3 +250,8 @@
 - [ ] Verify the admin dashboard and bot health using only the Koyeb URL and Koyeb runtime logs.
 
 - [x] Fix Koyeb production dashboard static serving to use the built dist/public directory and remove Manus-only production build assumptions.
+
+- [x] Replace the external MySQL dependency with Koyeb-local storage for the temporary testing deployment, preserving the bot's required user, wallet, product, order, and membership data flows.
+- [x] Add a clear runtime storage mode and startup diagnostics for Koyeb-local temporary storage, including the data-loss limitation on redeploy.
+- [x] Update Koyeb deployment documentation and configuration guidance to use only Koyeb storage and no DATABASE_URL.
+- [ ] Validate the storage-only migration with typecheck, tests, production build, dashboard health, and Telegram webhook smoke checks.

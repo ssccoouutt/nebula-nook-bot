@@ -68,7 +68,7 @@ export const appRouter = router({
         if (!/^-?\d+$/.test(input.value.trim())) throw new TRPCError({ code: "BAD_REQUEST", message: "Chat IDs must be numeric, for example -1001234567890" });
       }
       const db = await database();
-      await db.insert(botSettings).values({ key: input.key, value: input.value.trim() }).onDuplicateKeyUpdate({ set: { value: input.value.trim() } });
+      await db.insert(botSettings).values({ key: input.key, value: input.value.trim() }).onConflictDoUpdate({ target: botSettings.key, set: { value: input.value.trim() } });
       return { success: true };
     }),
     users: adminProcedure.query(async () => (await database()).select().from(botUsers).orderBy(desc(botUsers.createdAt)).limit(200)),

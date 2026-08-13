@@ -195,7 +195,7 @@ export async function notifyAdmin(eventType: string, referenceId: string, text: 
   const configuredTarget = process.env.TELEGRAM_ORDER_NOTIFICATION_CHAT_ID;
   const targetChatId = resolveNotificationChatId(configuredTarget, gate.notificationChatId, gate.groupId);
   if (targetChatId === null) return;
-  await db.insert(notificationDeliveries).values({ adminChatId: targetChatId, eventType, referenceId, status: "queued" }).onDuplicateKeyUpdate({ set: { status: "queued" } });
+  await db.insert(notificationDeliveries).values({ adminChatId: targetChatId, eventType, referenceId, status: "queued" }).onConflictDoUpdate({ target: [notificationDeliveries.eventType, notificationDeliveries.referenceId], set: { status: "queued" } });
   try {
     await sendMessage(targetChatId, text, replyMarkup);
     await db.update(notificationDeliveries).set({ status: "sent", sentAt: new Date() }).where(and(eq(notificationDeliveries.eventType, eventType), eq(notificationDeliveries.referenceId, referenceId)));
@@ -367,7 +367,7 @@ async function ensureBotUser(user: TelegramUser, referralCode?: string) {
   if (!created) throw new Error("Failed to create Telegram user");
   await db.insert(walletLedger).values({ botUserId: created.id, amountCents: TESTING_WALLET_CREDIT_CENTS, kind: "adjustment", referenceId: TESTING_WALLET_CREDIT_REFERENCE, note: "Testing-mode bootstrap wallet credit" });
   if (referredById) {
-    await db.insert(referrals).values({ referrerId: referredById, referredUserId: created.id, bonusCents: 0 }).onDuplicateKeyUpdate({ set: { referredUserId: created.id } });
+    await db.insert(referrals).values({ referrerId: referredById, referredUserId: created.id, bonusCents: 0 }).onConflictDoUpdate({ target: referrals.referredUserId, set: { referredUserId: created.id } });
     const referralCount = await db.select({ count: sql<number>`count(*)` }).from(referrals).where(eq(referrals.referrerId, referredById));
     await db.update(botUsers).set({ tier: tierForReferralCount(Number(referralCount[0]?.count ?? 0)) }).where(eq(botUsers.id, referredById));
   }
@@ -508,7 +508,7 @@ async function createPurchase(chatId: number, userId: number, productId: number,
     const purchase = buildConfirmedPurchasePlan(user.balanceCents, product.priceCents, product.stock, requestedQuantity);
     if (!purchase.ok) return { ok: false as const, status: purchase.status, balanceCents: user.balanceCents, productId: product.id, stock: product.stock, totalCents: purchase.totalCents };
     const result = await tx.insert(orders).values({ botUserId: user.id, productId: product.id, kind: "purchase", amountCents: purchase.totalCents, status: "fulfilled" });
-    const orderId = String(result[0]?.insertId ?? `${user.id}:${product.id}:${Date.now()}`);
+    const orderId = String((result as any)[0]?.insertId ?? `${user.id}:${product.id}:${Date.now()}`);
     await tx.update(botUsers).set({ balanceCents: purchase.nextBalanceCents }).where(eq(botUsers.id, user.id));
     await tx.update(products).set({ stock: purchase.nextStock }).where(eq(products.id, product.id));
     await tx.insert(walletLedger).values({ botUserId: user.id, amountCents: -purchase.totalCents, kind: "purchase", referenceId: orderId, note: `Automatic purchase (${purchase.quantity}×): ${product.name}` });
@@ -534,7 +534,7 @@ async function createBinancePayPurchaseIntent(chatId: number, userId: number, pr
   if (product.stock < safeQuantity) return respond(chatId, `⚠️ Only <b>${product.stock}</b> unit${product.stock === 1 ? "" : "s"} remain. Choose a smaller quantity.`, buildQuantityKeyboard(product.id, product.stock), messageId);
   const amountCents = product.priceCents * safeQuantity;
   const inserted = await db.insert(paymentIntents).values({ botUserId: user.id, productId: product.id, quantity: safeQuantity, amountCents, method: "binance_pay", status: "pending" });
-  const intentId = Number(inserted[0]?.insertId ?? 0);
+  const intentId = Number((inserted as any)[0]?.insertId ?? 0);
   if (!intentId) throw new Error("Failed to create Binance Pay payment intent");
   pendingBinancePayPurchases.set(userId, { intentId, expiresAt: Date.now() + BINANCE_PAY_PURCHASE_WINDOW_MS });
   return respond(chatId, formatBinancePayPurchasePrompt(product.name, safeQuantity, amountCents), undefined, messageId);
@@ -650,7 +650,7 @@ async function verifyAndFulfillBinancePurchase(chatId: number, userId: number, i
     if (!account || account.id !== (await tx.select({ id: botUsers.id }).from(botUsers).where(eq(botUsers.telegramUserId, userId)).limit(1))[0]?.id) return { ok: false as const, reason: "user_mismatch" as const };
     if (!product || !isPurchasableProduct(product) || product.stock < current.quantity) return { ok: false as const, reason: "unavailable" as const };
     const inserted = await tx.insert(orders).values({ botUserId: account.id, productId: product.id, kind: "purchase", amountCents: current.amountCents, status: "fulfilled" });
-    const orderId = Number(inserted[0]?.insertId ?? 0);
+    const orderId = Number((inserted as any)[0]?.insertId ?? 0);
     await tx.update(products).set({ stock: sql`${products.stock} - ${current.quantity}` }).where(eq(products.id, product.id));
     await tx.update(paymentIntents).set({ status: "fulfilled", transactionId: transactionRef }).where(eq(paymentIntents.id, current.id));
     return { ok: true as const, orderId, product, quantity: current.quantity, amountCents: current.amountCents };
@@ -764,7 +764,7 @@ export async function handleMessage(message: TelegramMessage) {
     if (!db) throw new Error("Database is unavailable");
     const botUser = (await db.select().from(botUsers).where(eq(botUsers.telegramUserId, user.id)).limit(1))[0];
     const ticketResult = await db.insert(supportTickets).values({ botUserId: botUser.id, message: body, status: "open" });
-    const ticketId = String(ticketResult[0]?.insertId ?? `${user.id}:${Date.now()}`);
+    const ticketId = String((ticketResult as any)[0]?.insertId ?? `${user.id}:${Date.now()}`);
     await notifyAdmin("support", ticketId, `<b>New support ticket #${ticketId}</b>\nFrom: ${user.first_name ?? "User"} (${user.id})\n\n${body}`);
     return sendMessage(message.chat.id, formatSupportSubmitted(ticketId));
   }
@@ -836,7 +836,7 @@ export async function telegramWebhookHandler(req: Request, res: Response) {
     if (db) {
       const last = (await db.select().from(botSettings).where(eq(botSettings.key, "last_update_id")).limit(1))[0];
       if (last && update.update_id <= Number(last.value)) return res.json({ ok: true, duplicate: true });
-      await db.insert(botSettings).values({ key: "last_update_id", value: String(update.update_id) }).onDuplicateKeyUpdate({ set: { value: String(update.update_id) } });
+      await db.insert(botSettings).values({ key: "last_update_id", value: String(update.update_id) }).onConflictDoUpdate({ target: botSettings.key, set: { value: String(update.update_id) } });
     }
     const actorId = update.message?.from?.id ?? update.callback_query?.from.id;
     if (actorId) {
