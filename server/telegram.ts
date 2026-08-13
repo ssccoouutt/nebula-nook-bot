@@ -30,6 +30,19 @@ export function shouldRoutePendingBinancePurchase(messageText: string, isCommand
   return !isCommandMessage && !hasPendingTopup && hasPendingPurchase && isLikelyBinancePayTransactionId(messageText);
 }
 
+/**
+ * Telegram update IDs are currently well below this guard. A value far beyond
+ * that range indicates a synthetic/corrupt cursor and must not block real
+ * updates forever after a diagnostic probe or bad restore.
+ */
+export const TELEGRAM_UPDATE_ID_GUARD = 2_000_000_000;
+
+export function shouldIgnoreTelegramUpdate(lastUpdateId: number | undefined, updateId: number) {
+  if (lastUpdateId === undefined || !Number.isFinite(lastUpdateId)) return false;
+  if (lastUpdateId >= TELEGRAM_UPDATE_ID_GUARD) return false;
+  return updateId <= lastUpdateId;
+}
+
 /** Testing-mode bootstrap credit; remove or disable before real-money launch. */
 export const TESTING_WALLET_CREDIT_CENTS = 1000;
 export const TESTING_WALLET_CREDIT_REFERENCE = "testing-wallet-credit-v1";
@@ -829,7 +842,8 @@ async function processTelegramWebhookUpdate(update: TelegramUpdate) {
   const db = await getDb();
   if (db) {
     const last = (await db.select().from(botSettings).where(eq(botSettings.key, "last_update_id")).limit(1))[0];
-    if (last && update.update_id <= Number(last.value)) return;
+    const lastUpdateId = last ? Number(last.value) : undefined;
+    if (shouldIgnoreTelegramUpdate(lastUpdateId, update.update_id)) return;
     await db.insert(botSettings).values({ key: "last_update_id", value: String(update.update_id) }).onConflictDoUpdate({ target: botSettings.key, set: { value: String(update.update_id) } });
   }
   const actorId = update.message?.from?.id ?? update.callback_query?.from.id;

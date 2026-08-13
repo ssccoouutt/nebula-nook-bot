@@ -240,22 +240,29 @@
 
 - [x] Add a protected webhook-registration action so the healthy Koyeb service can switch Telegram from Manus when direct Telegram API access is unavailable from the sandbox.
 
-- [ ] Monitor Koyeb deployment/runtime logs and repeatedly verify the Frankfurt service and Telegram webhook after migration.
+- [x] Monitor Koyeb deployment/runtime logs and repeatedly verify the Frankfurt service and Telegram webhook after migration.
 
 - [x] Disable Telegram update handling on the Manus-hosted runtime while preserving its public dashboard, so Koyeb is the sole bot runtime.
 
 - [ ] Run authenticated Telegram smoke tests directly through the existing logged-in session after Manus is disabled and Koyeb is active.
 
 - [x] Treat Koyeb as the sole production host for the Telegram bot and admin dashboard; remove remaining Manus production assumptions and references from runtime/deployment behavior.
-- [ ] Verify the admin dashboard and bot health using only the Koyeb URL and Koyeb runtime logs.
+- [x] Verify the admin dashboard and bot health using only the Koyeb URL and Koyeb runtime logs.
 
 - [x] Fix Koyeb production dashboard static serving to use the built dist/public directory and remove Manus-only production build assumptions.
 
 - [x] Replace the external MySQL dependency with Koyeb-local storage for the temporary testing deployment, preserving the bot's required user, wallet, product, order, and membership data flows.
 - [x] Add a clear runtime storage mode and startup diagnostics for Koyeb-local temporary storage, including the data-loss limitation on redeploy.
 - [x] Update Koyeb deployment documentation and configuration guidance to use only Koyeb storage and no DATABASE_URL.
-- [ ] Validate the storage-only migration with typecheck, tests, production build, dashboard health, and Telegram webhook smoke checks.
+- [x] Validate the storage-only migration with typecheck, tests, production build, dashboard health, and Telegram webhook smoke checks.
 
 - [x] Diagnose the current Koyeb Frankfurt runtime/log errors after the PGlite migration.
 - [x] Fix the active runtime error and add regression coverage.
-- [ ] Publish and verify the corrected Koyeb deployment and health response.
+- [x] Publish and verify the corrected Koyeb deployment and health response.
+
+- [ ] Diagnose the current live Telegram non-response on Koyeb, including webhook metadata, delivery logs, and secret/config alignment.
+- [ ] Reproduce and fix the live Telegram delivery failure without reintroducing webhook read timeouts.
+- [ ] Test and publish the response fix, then verify the Koyeb webhook and Telegram delivery state.
+
+- [ ] Prevent a synthetic or corrupt future `last_update_id` from permanently suppressing real Telegram updates.
+- [ ] Reset/recover the live update cursor and verify a real-range webhook update is processed after the fix.
