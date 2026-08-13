@@ -825,6 +825,24 @@ export async function telegramWebhookHealth(_req: Request, res: Response) {
   }
 }
 
+async function processTelegramWebhookUpdate(update: TelegramUpdate) {
+  const db = await getDb();
+  if (db) {
+    const last = (await db.select().from(botSettings).where(eq(botSettings.key, "last_update_id")).limit(1))[0];
+    if (last && update.update_id <= Number(last.value)) return;
+    await db.insert(botSettings).values({ key: "last_update_id", value: String(update.update_id) }).onConflictDoUpdate({ target: botSettings.key, set: { value: String(update.update_id) } });
+  }
+  const actorId = update.message?.from?.id ?? update.callback_query?.from.id;
+  if (actorId) {
+    const now = Date.now();
+    const previous = recentRequests.get(actorId) ?? 0;
+    if (now - previous < 350) return;
+    recentRequests.set(actorId, now);
+  }
+  if (update.callback_query) await handleCallback(update.callback_query);
+  else if (update.message) await handleMessage(update.message);
+}
+
 export async function telegramWebhookHandler(req: Request, res: Response) {
   if (!isKoyebRuntime()) return res.status(410).json({ ok: false, error: "Telegram runtime moved to Koyeb" });
   try {
@@ -832,24 +850,16 @@ export async function telegramWebhookHandler(req: Request, res: Response) {
     if (configuredSecret && req.header("x-telegram-bot-api-secret-token") !== configuredSecret) return res.status(401).json({ error: "invalid webhook secret" });
     const update = req.body as TelegramUpdate;
     if (!update || typeof update.update_id !== "number" || (!update.message && !update.callback_query)) return res.status(400).json({ ok: false, error: "invalid Telegram update" });
-    const db = await getDb();
-    if (db) {
-      const last = (await db.select().from(botSettings).where(eq(botSettings.key, "last_update_id")).limit(1))[0];
-      if (last && update.update_id <= Number(last.value)) return res.json({ ok: true, duplicate: true });
-      await db.insert(botSettings).values({ key: "last_update_id", value: String(update.update_id) }).onConflictDoUpdate({ target: botSettings.key, set: { value: String(update.update_id) } });
-    }
-    const actorId = update.message?.from?.id ?? update.callback_query?.from.id;
-    if (actorId) {
-      const now = Date.now();
-      const previous = recentRequests.get(actorId) ?? 0;
-      if (now - previous < 350) return res.status(429).json({ ok: false, error: "rate limited" });
-      recentRequests.set(actorId, now);
-    }
-    if (update.callback_query) await handleCallback(update.callback_query);
-    else if (update.message) await handleMessage(update.message);
-    return res.json({ ok: true });
+
+    // A Telegram webhook must be acknowledged quickly. Database access, Binance Pay
+    // verification, and outbound notifications run after the 200 response so a slow
+    // dependency cannot make Telegram report "Read timeout expired" and redeliver it.
+    res.json({ ok: true });
+    void processTelegramWebhookUpdate(update).catch((error) => {
+      console.error("[Telegram] asynchronous webhook error", error);
+    });
   } catch (error) {
-    console.error("[Telegram] webhook error", error);
+    console.error("[Telegram] webhook validation error", error);
     return res.status(500).json({ ok: false, error: error instanceof Error ? error.message : "unknown error" });
   }
 }
