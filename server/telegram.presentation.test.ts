@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   buildAutoPurchaseResult,
   buildConfirmedPurchasePlan,
@@ -27,6 +27,7 @@ import {
   formatFreebiesMessage,
   buildFreebiesKeyboard,
   telegramResponseMethod,
+  respond,
   parseTelegramCallbackAction,
   resolvePurchaseCallbackRoute,
 } from "./telegram";
@@ -128,6 +129,27 @@ describe("Telegram presentation and notification helpers", () => {
   it("uses edit-in-place responses for callback navigation and send responses for commands", () => {
     expect(telegramResponseMethod()).toBe("sendMessage");
     expect(telegramResponseMethod(1234)).toBe("editMessageText");
+    expect(telegramResponseMethod(1234, true)).toBe("sendMessage");
+  });
+
+  it("falls back from a rejected edit to one send with the same content", async () => {
+    const previousToken = process.env.TELEGRAM_BOT_TOKEN;
+    process.env.TELEGRAM_BOT_TOKEN = "test-token";
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
+      const body = JSON.parse(String(init?.body));
+      if (String(input).includes("/editMessageText")) return new Response(JSON.stringify({ ok: false, description: "message cannot be edited" }), { status: 200 });
+      return new Response(JSON.stringify({ ok: true, result: { message_id: 99 } }), { status: 200 });
+    });
+    const markup = { inline_keyboard: [[{ text: "Next", callback_data: "shop:1" }]] };
+    await respond(123, "🛍️ Shop", markup, 88);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(String(fetchMock.mock.calls[0][0])).toContain("/editMessageText");
+    expect(String(fetchMock.mock.calls[1][0])).toContain("/sendMessage");
+    const secondBody = JSON.parse(String(fetchMock.mock.calls[1][1]?.body));
+    expect(secondBody).toMatchObject({ chat_id: 123, text: "🛍️ Shop", reply_markup: markup });
+    fetchMock.mockRestore();
+    if (previousToken === undefined) delete process.env.TELEGRAM_BOT_TOKEN;
+    else process.env.TELEGRAM_BOT_TOKEN = previousToken;
   });
 
   it("assigns Telegram primary and success styles to representative keyboards", () => {

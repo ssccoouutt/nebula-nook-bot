@@ -34,3 +34,6 @@ Observed source: logged-in Telegram Web, Qamify Chat, 2026-08-12.
 ## Latest live Telegram Web audit — 2026-08-12
 
 The current logged-in view confirms Qamify’s visible group patterns: masked buyer/referral announcements, urgency cards with stock and price, and product/deep-link affordances. The latest Nebula Nook responses are bounded single messages: Wallet shows balance and activity; Orders shows the fulfilled order; Profile shows name, tier, referrals, and referral URL; the newest Freebies response shows one compact catalog message with `🎁 Gemini Pro Trial Link` and `📦 Stock: 39`. Telegram Web history still contains older multi-message responses, so newest timestamped messages must be used for verification.
+
+## 2026-08-13 live quantity-flow smoke attempt
+The published Nebula Nook Shop screen rendered six compact product buttons (`Gemini Pro · $0.01`, `ChatGPT Starter Access · $2.99`, `Gemini Pro Trial Link · $0.99`, `Surfshark Trial Coupon · $1.00`, `Canva Creator Access · $2.50`, `CapCut Premium Trial · $2.20`) plus `Next`, `Refresh`, and `Back to home`. Telegram Web clicks on the visible `Gemini Pro Trial Link` button were sent through the client, but no product-detail/quantity prompt became visible during the captured interval; this live transition remains unverified and must not be claimed as successful.

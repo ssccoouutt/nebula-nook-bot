@@ -113,3 +113,5 @@
 - [x] Wrap confirmed multi-unit order, wallet, stock, and ledger mutations in one database transaction; the handler re-reads state and performs all four mutations inside `db.transaction(...)`.
 - [x] Add deterministic callback-route coverage for buyconfirm and buycancel; the real callback dispatcher uses the tested purchase-route seam, while mutation safety is covered by the confirmed-purchase plan assertions.
 - [x] Add stale/concurrent quantity validation coverage so insufficient stock or balance cannot create partial updates; fresh transactional reads reject insufficient balance or stock before mutations.
+- [x] Add a safe callback response fallback: if Telegram rejects editMessageText, send the intended product or quantity view once and log the edit failure instead of leaving the user with no response.
+- [x] Add regression coverage for edit-failure fallback; the real mocked `respond()` test now rejects `editMessageText` and asserts exactly one fallback `sendMessage` with the same content and keyboard. Live product-to-quantity verification remains pending.

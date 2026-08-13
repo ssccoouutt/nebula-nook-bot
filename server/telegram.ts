@@ -51,12 +51,18 @@ async function editMessage(chatId: number, messageId: number, text: string, repl
   return telegramCall("editMessageText", { chat_id: chatId, message_id: messageId, text, parse_mode: "HTML", reply_markup: replyMarkup });
 }
 
-export function telegramResponseMethod(messageId?: number) {
-  return messageId === undefined ? "sendMessage" as const : "editMessageText" as const;
+export function telegramResponseMethod(messageId?: number, editFailed = false) {
+  return messageId === undefined || editFailed ? "sendMessage" as const : "editMessageText" as const;
 }
 
-async function respond(chatId: number, text: string, replyMarkup?: unknown, messageId?: number) {
-  return telegramResponseMethod(messageId) === "editMessageText" ? editMessage(chatId, messageId as number, text, replyMarkup) : sendMessage(chatId, text, replyMarkup);
+export async function respond(chatId: number, text: string, replyMarkup?: unknown, messageId?: number) {
+  if (telegramResponseMethod(messageId) === "sendMessage") return sendMessage(chatId, text, replyMarkup);
+  try {
+    return await editMessage(chatId, messageId as number, text, replyMarkup);
+  } catch (error) {
+    console.error("[Telegram] editMessageText failed; falling back to one sendMessage", error);
+    return sendMessage(chatId, text, replyMarkup);
+  }
 }
 
 export async function sendTelegramMessage(chatId: number, text: string) {
