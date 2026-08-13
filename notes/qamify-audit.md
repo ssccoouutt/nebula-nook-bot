@@ -72,3 +72,9 @@ Qamify payment-flow evidence remains limited: the logged-in Telegram session exp
 ## Post-checkpoint Wallet prompt smoke test — 2026-08-13
 
 After checkpoint `4e710e5b` went live, Telegram Web was reopened against the persisted Nebula Nook chat. Clicking the visible Wallet controls produced refreshed Wallet messages, but the rendered page continued to mix historical inline keyboards and did not expose a trustworthy new `➕ Add funds with Binance Pay` control. Source inspection confirms that the published `wallet` callback calls `showWallet`, which attaches `buildWalletKeyboard`, and that `walletadd` creates a ten-minute force-reply prompt. Because Telegram Web’s persisted history did not provide a clean current callback/rendering trace, this non-payment smoke test remains inconclusive; no transaction ID was entered and no funds were credited.
+
+## 2026-08-13 authorized live purchase confirmation
+
+After explicit authorization, the current 3× review’s `Confirm purchase` control was clicked. The fresh production result is database-confirmed: order `210001` for bot user `1`, product `30002`, amount `297` cents, status `fulfilled`; the wallet ledger contains the corresponding `-297` purchase debit with note `Automatic purchase (3×): Gemini Pro Trial Link`; and the Nebula Nook Community feed displayed `M*** just bought 3× 🔋 Gemini Pro Trial Link!`. This was a wallet-funded commerce test, not a Binance Pay deposit test.
+
+The current Wallet interaction also rendered a fresh `Add funds with Binance Pay` response: `Send the Binance Pay transaction ID after you have paid the merchant account. I will verify it server-side and credit the positive received amount in USDT, USDC, or BUSD...`. No transaction ID was entered and no Binance Pay funds were credited. The implementation remains the supplied script’s transaction-ID polling flow, not Merchant invoice creation or webhook reconciliation.
