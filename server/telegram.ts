@@ -20,6 +20,11 @@ const recentRequests = new Map<number, number>();
 const pendingCustomQuantities = new Map<number, { productId: number; expiresAt: number }>();
 const pendingBinancePayTopups = new Map<number, { expiresAt: number }>();
 const pendingBinancePayPurchases = new Map<number, { intentId: number; expiresAt: number }>();
+export const BINANCE_PAY_PURCHASE_WINDOW_MS = 20 * 60 * 1000;
+
+export function isLikelyBinancePayTransactionId(value: string) {
+  return /^\d{8,32}$/.test(value.trim());
+}
 
 /** Testing-mode bootstrap credit; remove or disable before real-money launch. */
 export const TESTING_WALLET_CREDIT_CENTS = 1000;
@@ -523,8 +528,8 @@ async function createBinancePayPurchaseIntent(chatId: number, userId: number, pr
   const inserted = await db.insert(paymentIntents).values({ botUserId: user.id, productId: product.id, quantity: safeQuantity, amountCents, method: "binance_pay", status: "pending" });
   const intentId = Number(inserted[0]?.insertId ?? 0);
   if (!intentId) throw new Error("Failed to create Binance Pay payment intent");
-  pendingBinancePayPurchases.set(userId, { intentId, expiresAt: Date.now() + 15 * 60 * 1000 });
-  return respond(chatId, `🟡 <b>Pay with Binance Pay</b>\\n\\n📦 <b>${product.name.replace(/[<&>]/g, "")}</b>\\n🔢 Quantity: <b>${safeQuantity}</b>\\n💰 <b>Amount to pay: $${(amountCents / 100).toFixed(2)}</b>\\n\\nPay exactly <b>$${(amountCents / 100).toFixed(2)}</b> to the configured Binance Pay merchant account. After payment, reply to this message with the Binance Pay transaction/order ID.\\n\\nYour order will remain pending until the transaction is verified. No stock will be deducted before successful verification.`, { force_reply: true, selective: true }, messageId);
+  pendingBinancePayPurchases.set(userId, { intentId, expiresAt: Date.now() + BINANCE_PAY_PURCHASE_WINDOW_MS });
+  return respond(chatId, `🟡 <b>Pay with Binance Pay</b>\\n\\n📦 <b>${product.name.replace(/[<&>]/g, "")}</b>\\n🔢 Quantity: <b>${safeQuantity}</b>\\n💰 <b>Amount to pay: $${(amountCents / 100).toFixed(2)}</b>\\n\\nPay exactly <b>$${(amountCents / 100).toFixed(2)}</b> to the configured Binance Pay merchant account. After payment, send the Binance Pay transaction/order ID as a normal message within <b>20 minutes</b>. It does not need to be a reply to this prompt. You can still use commands and buttons normally while waiting.\\n\\nYour order will remain pending until the transaction is verified. No stock will be deducted before successful verification.`, { force_reply: true, selective: true }, messageId);
 }
 
 export type TelegramCallbackAction =
@@ -661,7 +666,8 @@ async function restorePendingBinancePurchase(userId: number) {
   if (!user) return null;
   const intent = (await db.select().from(paymentIntents).where(eq(paymentIntents.botUserId, user.id)).limit(20)).find((row) => row.status === "pending");
   if (!intent) return null;
-  const pending = { intentId: intent.id, expiresAt: Date.now() + 15 * 60 * 1000 };
+  const createdAtMs = intent.createdAt instanceof Date ? intent.createdAt.getTime() : new Date(intent.createdAt).getTime();
+  const pending = { intentId: intent.id, expiresAt: createdAtMs + BINANCE_PAY_PURCHASE_WINDOW_MS };
   pendingBinancePayPurchases.set(userId, pending);
   return pending;
 }
@@ -671,8 +677,9 @@ export async function handleMessage(message: TelegramMessage) {
   if (!user || !message.text) return;
   const messageText = message.text;
   const pendingPurchase = pendingBinancePayPurchases.get(user.id) ?? await restorePendingBinancePurchase(user.id);
-  if (pendingPurchase) {
-    if (pendingPurchase.expiresAt <= Date.now()) {
+  const pendingPurchaseExpired = pendingPurchase?.expiresAt !== undefined && pendingPurchase.expiresAt <= Date.now();
+  if (pendingPurchase && isLikelyBinancePayTransactionId(messageText)) {
+    if (pendingPurchaseExpired) {
       pendingBinancePayPurchases.delete(user.id);
       return respond(message.chat.id, "⌛ <b>Binance Pay order expired</b>\n\nOpen Shop and start again.", buildHomeKeyboard());
     }
