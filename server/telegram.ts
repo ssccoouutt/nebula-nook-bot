@@ -1,5 +1,5 @@
 import type { Request, Response } from "express";
-import { and, desc, eq, sql } from "drizzle-orm";
+import { and, desc, eq, gt, sql } from "drizzle-orm";
 import { getDb } from "./db";
 import { binancePayDeposits, botSettings, botUsers, freeClaims, notificationDeliveries, orders, priceAlerts, products, referrals, supportTickets, walletLedger } from "../drizzle/schema";
 import { findBinancePayTransaction } from "./binancePay";
@@ -377,6 +377,10 @@ async function showHome(chatId: number, userId: number, messageId?: number) {
   }), buildHomeKeyboard(), messageId);
 }
 
+export function isPurchasableProduct(product: { active: number | boolean; stock: number } | undefined) {
+  return Boolean(product && (product.active === 1 || product.active === true) && product.stock > 0);
+}
+
 async function showFreebies(chatId: number, messageId?: number) {
   const db = await getDb();
   if (!db) throw new Error("Database is unavailable");
@@ -388,7 +392,7 @@ async function showFreebies(chatId: number, messageId?: number) {
 async function showShop(chatId: number, page = 0, messageId?: number) {
   const db = await getDb();
   if (!db) throw new Error("Database is unavailable");
-  const items = await db.select().from(products).where(eq(products.active, 1)).limit(60);
+  const items = await db.select().from(products).where(and(eq(products.active, 1), gt(products.stock, 0))).limit(60);
   if (!items.length) return respond(chatId, "🛍️ <b>Shop</b>\n\nThe catalog is empty right now. Please check back soon.", undefined, messageId);
   const pageCount = Math.max(1, Math.ceil(items.length / SHOP_PAGE_SIZE));
   const safePage = Math.min(Math.max(page, 0), pageCount - 1);
@@ -400,7 +404,7 @@ async function showProduct(chatId: number, productId: number, messageId?: number
   const db = await getDb();
   if (!db) throw new Error("Database is unavailable");
   const item = (await db.select().from(products).where(eq(products.id, productId)).limit(1))[0];
-  if (!item || !item.active || item.stock <= 0) return respond(chatId, "⚠️ This product is currently unavailable.", undefined, messageId);
+  if (!isPurchasableProduct(item)) return respond(chatId, "⚠️ This product is currently unavailable.", undefined, messageId);
   const safeName = item.name.replace(/[<&>]/g, "");
   const safeDescription = item.description.replace(/[<&>]/g, "");
   await respond(chatId, `✨ <b>${safeName}</b>\n\n${safeDescription}\n\n━━━━━━━━━━━━━━\n💵 <b>$${(item.priceCents / 100).toFixed(2)}</b> per unit\n📦 <b>${item.stock}</b> available\n⚡ <b>Instant digital delivery</b>\n🛡️ <b>Quality checked</b>\n\nChoose an action below:`, buildProductKeyboard(item.id), messageId);
@@ -452,7 +456,7 @@ async function showQuantityPrompt(chatId: number, productId: number, messageId?:
   const db = await getDb();
   if (!db) throw new Error("Database is unavailable");
   const product = (await db.select().from(products).where(eq(products.id, productId)).limit(1))[0];
-  if (!product || !product.active || product.stock <= 0) return respond(chatId, "⚠️ This product is currently unavailable.", undefined, messageId);
+  if (!isPurchasableProduct(product)) return respond(chatId, "⚠️ This product is currently unavailable.", undefined, messageId);
   return respond(chatId, formatQuantityPrompt(product.name, product.priceCents, product.stock), buildQuantityKeyboard(product.id, product.stock), messageId);
 }
 
@@ -562,7 +566,7 @@ export async function handleCallback(query: TelegramCallbackQuery, options: { sk
     const db = await getDb();
     if (!db) throw new Error("Database is unavailable");
     const product = (await db.select().from(products).where(eq(products.id, action.id)).limit(1))[0];
-    if (!product || !product.active || product.stock <= 0) return respond(chatId, "⚠️ This product is currently unavailable.", undefined, messageId);
+    if (!isPurchasableProduct(product)) return respond(chatId, "⚠️ This product is currently unavailable.", undefined, messageId);
     pendingCustomQuantities.set(userId, { productId: action.id, expiresAt: Date.now() + 5 * 60 * 1000 });
     return respond(chatId, formatCustomQuantityPrompt(product.name, product.stock), { force_reply: true, selective: true }, messageId);
   }

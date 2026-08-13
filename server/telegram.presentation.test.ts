@@ -35,9 +35,17 @@ import {
   respond,
   parseTelegramCallbackAction,
   resolvePurchaseCallbackRoute,
+  isPurchasableProduct,
 } from "./telegram";
 
 describe("Telegram presentation and notification helpers", () => {
+  it("rejects unavailable products consistently without rejecting stocked active items", () => {
+    expect(isPurchasableProduct({ active: 1, stock: 12 })).toBe(true);
+    expect(isPurchasableProduct({ active: 1, stock: 0 })).toBe(false);
+    expect(isPurchasableProduct({ active: 0, stock: 12 })).toBe(false);
+    expect(isPurchasableProduct(undefined)).toBe(false);
+  });
+
   it("resolves the configured operations group before runtime and fallback targets", () => {
     expect(resolveNotificationChatId("-100123", "-200456", "-300789")).toBe(-100123);
     expect(resolveNotificationChatId(undefined, "-200456", "-300789")).toBe(-200456);

@@ -148,3 +148,8 @@
 - [x] Run the complete regression suite after the Binance Pay wallet changes; 12 files and 35 tests pass.
 - [x] Perform a live non-payment wallet prompt smoke test; the current published Wallet flow rendered `Add funds with Binance Pay`, and no transaction ID was entered or credited.
 - [ ] Confirm the Binance account credentials are Merchant/Pay-capable rather than Spot-only before enabling production top-ups broadly.
+
+- [x] Diagnose why live Telegram product purchases return “Product unavailable” for every product: legacy Gemini Pro row ID 1 had stock 0 but remained active and Shop advertised it.
+- [x] Fix product availability without weakening safeguards: Shop now filters active positive-stock products, and product/detail/quantity/custom-quantity paths share the same guard.
+- [x] Add regression coverage for live product availability and run the full verification suite; TypeScript and all 36 tests pass.
+- [ ] Publish the availability fix with evidence from the live Telegram flow or clearly document any remaining delivery limitation.
