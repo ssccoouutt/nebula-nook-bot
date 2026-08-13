@@ -9,7 +9,7 @@ type TelegramUser = { id: number; username?: string; first_name?: string; last_n
 type TelegramChat = { id: number; type: string };
 type TelegramMessage = { message_id: number; from?: TelegramUser; chat: TelegramChat; text?: string; reply_to_message?: TelegramMessage };
 type TelegramCallbackQuery = { id: string; from: TelegramUser; message?: TelegramMessage; data?: string };
-type TelegramUpdate = { update_id: number; message?: TelegramMessage; callback_query?: TelegramCallbackQuery };
+type TelegramUpdate = { update_id: number; message?: TelegramMessage; callback_query?: TelegramCallbackQuery; channel_post?: TelegramMessage };
 
 const TELEGRAM_API = "https://api.telegram.org/bot";
 const DEFAULT_CHANNEL_ID = process.env.TELEGRAM_MEMBERSHIP_CHANNEL_ID ?? "-1004462190741";
@@ -863,7 +863,7 @@ export async function telegramWebhookHandler(req: Request, res: Response) {
     const configuredSecret = validTelegramWebhookSecret(process.env.TELEGRAM_WEBHOOK_SECRET);
     if (configuredSecret && req.header("x-telegram-bot-api-secret-token") !== configuredSecret) return res.status(401).json({ error: "invalid webhook secret" });
     const update = req.body as TelegramUpdate;
-    if (!update || typeof update.update_id !== "number" || (!update.message && !update.callback_query)) return res.status(400).json({ ok: false, error: "invalid Telegram update" });
+    if (!update || typeof update.update_id !== "number") return res.status(400).json({ ok: false, error: "invalid Telegram update" });
 
     // A Telegram webhook must be acknowledged quickly. Database access, Binance Pay
     // verification, and outbound notifications run after the 200 response so a slow

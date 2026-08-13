@@ -260,11 +260,12 @@
 - [x] Fix the active runtime error and add regression coverage.
 - [x] Publish and verify the corrected Koyeb deployment and health response.
 
-- [ ] Diagnose the current live Telegram non-response on Koyeb, including webhook metadata, delivery logs, and secret/config alignment.
-- [ ] Reproduce and fix the live Telegram delivery failure without reintroducing webhook read timeouts.
+- [x] Diagnose the current live Telegram non-response on Koyeb, including webhook metadata, delivery logs, and secret/config alignment.
+- [x] Reproduce and fix the live Telegram delivery failure without reintroducing webhook read timeouts.
 - [ ] Test and publish the response fix, then verify the Koyeb webhook and Telegram delivery state.
 
-- [ ] Prevent a synthetic or corrupt future `last_update_id` from permanently suppressing real Telegram updates.
-- [ ] Reset/recover the live update cursor and verify a real-range webhook update is processed after the fix.
+- [x] Prevent a synthetic or corrupt future `last_update_id` from permanently suppressing real Telegram updates.
+- [x] Reset/recover the live update cursor and verify a real-range webhook update is processed after the fix.
 
 - [x] Fix Koyeb first-contact failure: corrected the SQLite proxy row mapping so ensureBotUser receives a numeric ID and walletLedger no longer receives null.
+- [x] Accept and acknowledge unsupported but valid Telegram update types such as channel_post so one channel update cannot hold the webhook queue and block real bot messages.
