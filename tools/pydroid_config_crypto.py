@@ -35,7 +35,7 @@ KEY_BYTES = 64
 TAG_BYTES = 32
 PBKDF2_ROUNDS = 390_000
 
-TEMPLATE = """# Nebula Nook configuration template\n# Replace every placeholder locally. Never commit this plaintext file.\n\nDATABASE_URL=\nJWT_SECRET=\nTELEGRAM_BOT_TOKEN=\nTELEGRAM_WEBHOOK_SECRET=\nTELEGRAM_ADMIN_CHAT_ID=\nBINANCE_PAY_API_KEY=\nBINANCE_PAY_SECRET_KEY=\nOWNER_OPEN_ID=\nOWNER_NAME=\nVITE_APP_ID=\nVITE_APP_TITLE=Nebula Nook Bot\nVITE_APP_LOGO=\nOAUTH_SERVER_URL=\nVITE_OAUTH_PORTAL_URL=\nBUILT_IN_FORGE_API_URL=\nBUILT_IN_FORGE_API_KEY=\nVITE_FRONTEND_FORGE_API_URL=\nVITE_FRONTEND_FORGE_API_KEY=\nVITE_ANALYTICS_ENDPOINT=\nVITE_ANALYTICS_WEBSITE_ID=\nNODE_ENV=production\n"""
+TEMPLATE = """# Nebula Nook essential configuration\n# Fill only the blank values locally. Never commit this plaintext file.\n\n# Required private values\nTELEGRAM_BOT_TOKEN=\nTELEGRAM_ADMIN_CHAT_ID=-5036785892\nBINANCE_PAY_API_KEY=\nBINANCE_PAY_SECRET_KEY=\n\n# Membership settings already configured for this bot\nTELEGRAM_MEMBERSHIP_CHANNEL_ID=-1004462190741\nTELEGRAM_MEMBERSHIP_GROUP_ID=-5036785892\nTELEGRAM_CHANNEL_JOIN_URL=https://t.me/+hwT_8FtgDU85Mzlk\nTELEGRAM_GROUP_JOIN_URL=https://t.me/+4I-HIdE73NIyMzI8\n\n# Runtime\nNODE_ENV=production\n"""
 
 
 def derive_key(password: str, salt: bytes) -> tuple[bytes, bytes]:

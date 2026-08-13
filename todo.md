@@ -225,3 +225,7 @@
 - [x] Replace the failing Android `cryptography` installation path with a dependency-free fallback and document its security limitations.
 
 - [x] Make the Pydroid utility show a guided menu when launched without a command.
+
+- [x] Simplify the configuration template to essential bot, admin, Binance Pay, and membership settings, with the verified administration chat ID populated.
+
+- [x] Remove DATABASE_URL, JWT_SECRET, and TELEGRAM_WEBHOOK_SECRET from the user-facing copyable configuration template.
