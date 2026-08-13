@@ -28,6 +28,10 @@ export function normalizeSqliteParams(params: unknown[]): SqliteParam[] {
     return value as SqliteParam;
   });
 }
+
+export function normalizeSqliteRow(row: Record<string, unknown> | undefined) {
+  return row ? Object.values(row) : undefined;
+}
 let _ready: Promise<AppDb | null> | null = null;
 
 const storageDir = process.env.KOYEB_DATA_DIR || path.resolve(process.cwd(), "data", "nebula-nook");
@@ -63,12 +67,13 @@ async function initialize(): Promise<AppDb> {
       const result = statement.run(...normalizedParams);
       return { rows: [], changes: Number(result.changes), lastInsertRowid: Number(result.lastInsertRowid) };
     }
-    if (method === "get") return { rows: (statement.get(...normalizedParams) ?? undefined) as any };
-    if (method === "values") {
-      const rows = statement.all(...normalizedParams) as Record<string, unknown>[];
-      return { rows: rows.map((row) => Object.values(row)) };
+    if (method === "get") {
+      const row = statement.get(...normalizedParams) as Record<string, unknown> | undefined;
+      return { rows: normalizeSqliteRow(row) as any };
     }
-    return { rows: statement.all(...normalizedParams) };
+    const rows = statement.all(...normalizedParams) as Record<string, unknown>[];
+    if (method === "values") return { rows: rows.map((row) => normalizeSqliteRow(row)) as any };
+    return { rows: rows.map((row) => normalizeSqliteRow(row)) as any };
   }, { schema });
   _db = db;
   console.warn(`[Storage] Using Koyeb-local Node SQLite data at ${storageFile}. Data is lost if this filesystem is recycled.`);

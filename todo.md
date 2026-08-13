@@ -266,3 +266,5 @@
 
 - [ ] Prevent a synthetic or corrupt future `last_update_id` from permanently suppressing real Telegram updates.
 - [ ] Reset/recover the live update cursor and verify a real-range webhook update is processed after the fix.
+
+- [x] Fix Koyeb first-contact failure: corrected the SQLite proxy row mapping so ensureBotUser receives a numeric ID and walletLedger no longer receives null.

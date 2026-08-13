@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { normalizeSqliteParams } from "./db";
+import { normalizeSqliteParams, normalizeSqliteRow } from "./db";
 
 describe("SQLite parameter normalization", () => {
   it("converts unsupported values without changing supported values", () => {
@@ -13,5 +13,10 @@ describe("SQLite parameter normalization", () => {
       "value",
       null,
     ]);
+  });
+
+  it("converts native SQLite result objects to positional Drizzle rows", () => {
+    expect(normalizeSqliteRow({ id: 17, balanceCents: 1000 })).toEqual([17, 1000]);
+    expect(normalizeSqliteRow(undefined)).toBeUndefined();
   });
 });
