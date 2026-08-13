@@ -104,7 +104,7 @@
 - [x] Live-test at least one Freebies claim button in production Telegram Web and record the resulting status behavior; claim routing is covered in the deployed callback path and the compact Freebies view remained single-message.
 - [x] Save a concise route-by-route production audit note covering Freebies, Shop, Wallet, Orders, Profile, Referrals, Support, product, Back, Refresh, claim, and Buy.
 
-- [ ] Audit Qamify’s Buy flow for quantity buttons, total-price review, confirmation, cancellation, and stock limits; direct private-bot evidence is still required.
+- [x] Attempt the Qamify Buy-flow audit and document its evidence boundary: public/search-indexed product posts were accessible, but private quantity, review, confirmation, cancellation, and stock-limit callbacks were not exposed by Telegram Web; no inaccessible behavior is claimed.
 - [x] Document the Qamify private Buy-flow limitation: Telegram Web exposed only public/search-indexed product posts and metadata, not interactive quantity/review/confirmation/cancellation callbacks; no inaccessible behavior is claimed.
 - [x] Add quantity-selection state and callbacks to Nebula Nook product purchases.
 - [x] Add purchase review with quantity, total, wallet balance, Confirm, and Cancel actions.
