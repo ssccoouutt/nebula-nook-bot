@@ -181,4 +181,4 @@
 
 - [x] Replace the verbose Binance Pay pending prompt with concise payment instructions and remove Telegram force-reply metadata/keyboard.
 - [x] Add regression coverage proving the concise prompt remains standalone-message compatible and commands stay responsive.
-- [ ] Publish and smoke-test the revised prompt in Telegram.
+- [x] Publish and smoke-test the revised prompt in Telegram.
