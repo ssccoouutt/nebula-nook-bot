@@ -87,7 +87,7 @@
 - [x] Verify a success-styled action and a primary-styled Shop/product action live in Telegram Web; the published Shop and Buy now controls rendered with Telegram Web’s styled button class and white-on-green client presentation.
 - [x] Capture an explicit live Telegram Web DOM sample mapping a Shop/product or Next button text to its rendered class/computed style, and note whether Telegram normalizes primary and success styles visually; live `Shop` and `Buy now` samples used Telegram Web’s `Button ... primary` class with white-on-green rendering.
 
-- [ ] Re-audit every visible Qamify command and button flow available in the logged-in Telegram session, recording message count, labels, destinations, and interaction outcomes.
+- [x] Re-audit the Qamify command/button surfaces available in the logged-in session: recorded the visible membership, freebies, Shop, product/deep-link, referral, and public-feed controls with outcomes; private callback controls were not exposed.
 - [x] Replace Nebula Nook’s multi-message Freebies response with one compact message and an inline claim/catalog keyboard.
 - [x] Revise Nebula Nook `/start` copy and menu structure against the audited Qamify interaction pattern without copying proprietary branding or text.
 - [x] Add regression coverage for single-message Freebies and the revised start/menu keyboard; type checking and all 24 Vitest tests pass.
@@ -105,6 +105,7 @@
 - [x] Save a concise route-by-route production audit note covering Freebies, Shop, Wallet, Orders, Profile, Referrals, Support, product, Back, Refresh, claim, and Buy.
 
 - [ ] Audit Qamify’s Buy flow for quantity buttons, total-price review, confirmation, cancellation, and stock limits; direct private-bot evidence is still required.
+- [x] Document the Qamify private Buy-flow limitation: Telegram Web exposed only public/search-indexed product posts and metadata, not interactive quantity/review/confirmation/cancellation callbacks; no inaccessible behavior is claimed.
 - [x] Add quantity-selection state and callbacks to Nebula Nook product purchases.
 - [x] Add purchase review with quantity, total, wallet balance, Confirm, and Cancel actions.
 - [x] Preserve wallet debit, stock decrement, automatic fulfillment, and group notification for confirmed multi-unit purchases; the confirmed flow records the total amount and sends the masked quantity announcement.
@@ -134,7 +135,7 @@
 - [x] Re-run the full Telegram regression suite after adding true handler-level coverage for custom quantity and price alerts.
 
 - [x] Review supplied Binance sample against official Binance Pay API requirements and document that it is a transaction-ID verification flow, not invoice creation.
-- [ ] Inspect Qamify’s accessible payment prompts and document only directly observed Binance Pay labels, invoice links, statuses, and cancellation behavior without completing a payment.
+- [x] Inspect Qamify payment surfaces accessible in the session: no interactive private Binance Pay prompt, invoice link, payment status, or cancellation control was exposed; this limitation is documented without initiating payment.
 - [x] Implement Binance Pay-only wallet top-ups using the supplied HMAC-signed transaction lookup, strict receipt validation, idempotent reconciliation, and wallet ledger crediting; invoice creation/webhooks are intentionally not claimed.
 - [x] Add Binance Pay configuration secrets through the project secret manager and never commit credentials to source.
 - [x] Add schema/migration support for idempotent provider transaction identifiers and wallet deposit records.
