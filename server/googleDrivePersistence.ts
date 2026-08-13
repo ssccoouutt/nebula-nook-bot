@@ -3,10 +3,13 @@ import { createReadStream, createWriteStream } from "node:fs";
 import { mkdir, readFile, rename, stat, unlink, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { pipeline } from "node:stream/promises";
+import { Readable } from "node:stream";
+import { buildReadableExports } from "./googleDriveExports";
 
 const ROOT_FOLDER_NAME = "Nebula Nook Bot";
 const SNAPSHOTS_FOLDER_NAME = "snapshots";
 const METADATA_FOLDER_NAME = "metadata";
+const EXPORTS_FOLDER_NAME = "exports";
 const LATEST_SNAPSHOT_NAME = "latest.sqlite";
 const MANIFEST_NAME = "latest.json";
 const DRIVE_SCOPE = "https://www.googleapis.com/auth/drive";
@@ -16,7 +19,7 @@ let initPromise: Promise<void> | null = null;
 let syncTimer: NodeJS.Timeout | null = null;
 let syncInFlight: Promise<void> | null = null;
 let syncRequested = false;
-let folderIds: { root: string; snapshots: string; metadata: string } | null = null;
+let folderIds: { root: string; snapshots: string; metadata: string; exports: string } | null = null;
 
 export async function withRetry<T>(operation: () => Promise<T>, label: string, attempts = 3): Promise<T> {
   let lastError: unknown;
@@ -98,7 +101,8 @@ async function ensureFolders() {
   const root = await findOrCreateFolder(drive, ROOT_FOLDER_NAME);
   const snapshots = await findOrCreateFolder(drive, SNAPSHOTS_FOLDER_NAME, root);
   const metadata = await findOrCreateFolder(drive, METADATA_FOLDER_NAME, root);
-  folderIds = { root, snapshots, metadata };
+  const exports = await findOrCreateFolder(drive, EXPORTS_FOLDER_NAME, root);
+  folderIds = { root, snapshots, metadata, exports };
   return { drive, ids: folderIds };
 }
 
@@ -155,6 +159,21 @@ async function uploadOrUpdate(drive: ReturnType<typeof google.drive>, name: stri
   return created.data.id || null;
 }
 
+async function uploadTextOrUpdate(drive: ReturnType<typeof google.drive>, name: string, parentId: string, content: string, mimeType: string) {
+  const existing = await findFile(drive, name, parentId);
+  const media = { mimeType, body: Readable.from([content]) };
+  if (existing?.id) {
+    await withRetry(() => drive.files.update({ fileId: existing.id!, media }), `Drive update ${name}`);
+    return existing.id;
+  }
+  const created = await withRetry(() => drive.files.create({
+    requestBody: { name, mimeType, parents: [parentId] },
+    media,
+    fields: "id",
+  }), `Drive create ${name}`);
+  return created.data.id || null;
+}
+
 async function syncNow() {
   if (!configured() || !folderIds) return;
   if (syncInFlight) {
@@ -168,6 +187,10 @@ async function syncNow() {
     try {
       const info = await stat(databasePath);
       if (info.size < 4096) return;
+      const readableExports = buildReadableExports();
+      for (const [fileName, content] of Object.entries(readableExports)) {
+        await uploadTextOrUpdate(setup.drive, fileName, setup.ids.exports, content, fileName.endsWith(".txt") ? "text/plain" : "application/json");
+      }
       const versionedSnapshotName = `snapshot-${new Date().toISOString().replaceAll(/[-:.TZ]/g, "")}-${Math.random().toString(36).slice(2, 8)}.sqlite`;
       await uploadOrUpdate(setup.drive, versionedSnapshotName, setup.ids.snapshots, databasePath, "application/x-sqlite3");
       await uploadOrUpdate(setup.drive, LATEST_SNAPSHOT_NAME, setup.ids.snapshots, databasePath, "application/x-sqlite3");

@@ -279,3 +279,7 @@
 - [x] Restore the latest valid Drive snapshot into local SQLite before Telegram webhook processing begins.
 - [x] Synchronize every successful bot and dashboard data operation to Drive without blocking Telegram webhook acknowledgements.
 - [x] Preserve complete users, wallets, ledger entries, products, orders, and order history across redeployments with versioned snapshots and recovery safeguards.
+
+- [x] Export all bot data into human-readable Drive files, including users, orders, deposits, wallet ledger, products, referrals, claims, payment intents, alerts, support tickets, broadcasts, notifications, settings, and a manifest.
+- [x] Format orders with complete buyer/product/payment/status details and two newlines between records; keep full history from the first record through the latest.
+- [x] Synchronize readable exports after successful data operations and test export completeness, formatting, and Drive upload behavior.
