@@ -163,4 +163,4 @@
 - [x] Change Binance Pay checkout to show the exact amount, request payment and transaction/order ID, verify exact amount/asset/transaction idempotency, and only then fulfill the order.
 - [x] Preserve the existing wallet branch and prevent payment-method auto-completion: Wallet is the only direct debit branch; Binance Pay creates a durable pending intent and fulfills only after verification.
 - [x] Add regression coverage for payment-method routing, exact-amount mismatch rejection, supported/unsupported receipts, idempotent paths, and dispatcher behavior; TypeScript and all 38 tests pass.
-- [ ] Verify and publish the corrected checkout flow with precise live-evidence and Qamify-access limitations documented.
+- [x] Verify and publish the corrected checkout flow with precise live evidence: Wallet/Binance Pay choices appeared, Binance Pay produced the exact `$2.97` pending transaction-ID prompt without fulfillment, and Qamify private-flow limitations remain documented.
