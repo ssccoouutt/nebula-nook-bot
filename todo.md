@@ -200,3 +200,8 @@
 - [x] Handle persistent gateway routing decision: no persistent gateway was provided, so no production Binance routing was attempted; the temporary VMess tunnel was tested and cleaned up.
 - [x] Attempt a temporary read-only Binance lookup through the supplied VMess tunnel; the VMess endpoint reset the connection, so no egress or Binance eligibility result was obtained and no funds were credited.
 - [x] Install only a temporary official Xray-compatible client for the authorized VMess read-only test, then remove or stop it after testing.
+
+- [x] Review external-hosting requirements and Koyeb compatibility for the Express/Drizzle/Telegram webhook runtime.
+- [x] Prepare Koyeb deployment configuration, start command, health behavior, and non-secret environment-variable documentation.
+- [ ] Export the project to a GitHub repository without committing secrets or local credentials.
+- [ ] Deploy or provide the Koyeb deployment handoff, configure secrets and Telegram webhook migration, and verify runtime health.
