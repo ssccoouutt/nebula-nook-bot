@@ -26,7 +26,7 @@ export function buildBinanceSignedQuery(params: Record<string, string | number>,
   return `${query}&signature=${signature}`;
 }
 
-export async function findBinancePayTransaction(transactionId: string, fetcher: typeof fetch = fetch) {
+export async function findBinancePayTransaction(transactionId: string, expectedAmountCents?: number, fetcher: typeof fetch = fetch) {
   const normalizedId = transactionId.trim();
   if (!/^[A-Za-z0-9_-]{6,128}$/.test(normalizedId)) return { ok: false as const, reason: "invalid_id" as const };
   const { apiKey, secretKey } = requireCredentials();
@@ -40,5 +40,7 @@ export async function findBinancePayTransaction(transactionId: string, fetcher: 
   const asset = String(tx.asset ?? "").toUpperCase();
   if (!Number.isFinite(amount) || amount <= 0) return { ok: false as const, reason: "not_received" as const, transaction: tx };
   if (!new Set(["USDT", "USDC", "BUSD"]).has(asset)) return { ok: false as const, reason: "unsupported_asset" as const, transaction: tx };
-  return { ok: true as const, transaction: tx, amountCents: Math.round(amount * 100), asset };
+  const amountCents = Math.round(amount * 100);
+  if (expectedAmountCents !== undefined && amountCents !== expectedAmountCents) return { ok: false as const, reason: "amount_mismatch" as const, transaction: tx, amountCents, asset };
+  return { ok: true as const, transaction: tx, amountCents, asset };
 }

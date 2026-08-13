@@ -21,7 +21,7 @@ import {
   buildShopKeyboard,
   buildProductKeyboard,
   buildQuantityKeyboard,
-  buildPurchaseReviewKeyboard,
+  buildPaymentMethodKeyboard,
   buildUnavailableProductKeyboard,
   formatQuantityPrompt,
   formatCustomQuantityPrompt,
@@ -128,7 +128,9 @@ describe("Telegram presentation and notification helpers", () => {
     expect(resolvePurchaseCallbackRoute({ kind: "buy", id: 7 })).toBe("quantity_prompt");
     expect(resolvePurchaseCallbackRoute({ kind: "buyqty", id: 7, quantity: 0 })).toBe("quantity_prompt");
     expect(resolvePurchaseCallbackRoute({ kind: "buyqty", id: 7, quantity: 3 })).toBe("purchase_review");
-    expect(resolvePurchaseCallbackRoute({ kind: "buyconfirm", id: 7, quantity: 3 })).toBe("purchase_confirm");
+    expect(resolvePurchaseCallbackRoute({ kind: "buyconfirm", id: 7, quantity: 3 })).toBe("payment_method");
+    expect(resolvePurchaseCallbackRoute({ kind: "paywallet", id: 7, quantity: 3 })).toBe("purchase_confirm");
+    expect(resolvePurchaseCallbackRoute({ kind: "paybinance", id: 7, quantity: 3 })).toBe("binance_pay_pending");
     expect(resolvePurchaseCallbackRoute({ kind: "buycancel", id: 7 })).toBe("product_view");
     expect(resolvePurchaseCallbackRoute({ kind: "customqty", id: 7 })).toBe("custom_quantity");
     expect(resolvePurchaseCallbackRoute({ kind: "pricealert", id: 7 })).toBe("price_alert");
@@ -157,11 +159,13 @@ describe("Telegram presentation and notification helpers", () => {
     ]));
     expect(quantityRows.at(-2)?.[0]).toMatchObject({ text: "✏️ Custom quantity", callback_data: "customqty:7", style: "primary" });
     expect(quantityRows.at(-1)?.[0]).toMatchObject({ text: "↩️ Back to product", callback_data: "product:7" });
-    expect(formatPurchaseReview("Gemini Pro", 299, 3, 1000)).toContain("💰 Total: <b>$8.97</b>");
-    const reviewRows = buildPurchaseReviewKeyboard(7, 3).inline_keyboard;
-    expect(reviewRows[0][0]).toMatchObject({ callback_data: "buyconfirm:7:3", style: "success" });
-    expect(reviewRows[1][0]).toMatchObject({ callback_data: "buycancel:7" });
-    expect(reviewRows[1][0]).not.toHaveProperty("style");
+    expect(formatPurchaseReview("Gemini Pro", 299, 3, 1000)).toContain("💰 Total to pay: <b>$8.97</b>");
+    expect(formatPurchaseReview("Gemini Pro", 299, 3, 1000)).toContain("Choose a payment method");
+    const reviewRows = buildPaymentMethodKeyboard(7, 3).inline_keyboard;
+    expect(reviewRows[0][0]).toMatchObject({ text: "💳 Pay with Wallet", callback_data: "paywallet:7:3", style: "success" });
+    expect(reviewRows[1][0]).toMatchObject({ text: "🟡 Pay with Binance Pay", callback_data: "paybinance:7:3", style: "primary" });
+    expect(reviewRows[2][0]).toMatchObject({ callback_data: "buycancel:7" });
+    expect(reviewRows[2][0]).not.toHaveProperty("style");
   });
 
   it("uses edit-in-place responses for callback navigation and send responses for commands", () => {

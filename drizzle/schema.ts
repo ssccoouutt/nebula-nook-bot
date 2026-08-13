@@ -88,6 +88,19 @@ export const binancePayDeposits = mysqlTable("binancePayDeposits", {
   createdAt: timestamp("createdAt").defaultNow().notNull(),
 });
 
+export const paymentIntents = mysqlTable("paymentIntents", {
+  id: int("id").autoincrement().primaryKey(),
+  botUserId: int("botUserId").notNull(),
+  productId: int("productId").notNull(),
+  quantity: int("quantity").notNull(),
+  amountCents: int("amountCents").notNull(),
+  method: mysqlEnum("method", ["binance_pay"]).notNull(),
+  status: mysqlEnum("status", ["pending", "paid", "fulfilled", "cancelled", "expired"]).default("pending").notNull(),
+  transactionId: varchar("transactionId", { length: 128 }).unique(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
 export const referrals = mysqlTable("referrals", {
   id: int("id").autoincrement().primaryKey(),
   referrerId: int("referrerId").notNull(),

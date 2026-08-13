@@ -158,3 +158,9 @@
 - [x] Reproduce the logged-in Telegram error: the chat showed a stale `This product is currently unavailable` message while current stocked product buttons were also present; database rows confirmed legacy product ID 1 stock 0 and IDs 30001–30006 stocked.
 - [x] Fix the stale-button purchase path without weakening safeguards: unavailable responses now offer `Open current Shop`, and the shared active/positive-stock guard remains enforced; TypeScript and all 37 tests pass.
 - [x] Publish the verified availability correction and document the delivery limitation: checkpoint `ab555e2a` contains the stock filter, and the current recovery change is ready for the next checkpoint; old Telegram messages cannot be rewritten.
+
+- [x] Add explicit checkout payment-method selection: Pay with Wallet versus Pay with Binance Pay; the review keyboard now exposes separate payment callbacks.
+- [x] Change Binance Pay checkout to show the exact amount, request payment and transaction/order ID, verify exact amount/asset/transaction idempotency, and only then fulfill the order.
+- [x] Preserve the existing wallet branch and prevent payment-method auto-completion: Wallet is the only direct debit branch; Binance Pay creates a durable pending intent and fulfills only after verification.
+- [x] Add regression coverage for payment-method routing, exact-amount mismatch rejection, supported/unsupported receipts, idempotent paths, and dispatcher behavior; TypeScript and all 38 tests pass.
+- [ ] Verify and publish the corrected checkout flow with precise live-evidence and Qamify-access limitations documented.

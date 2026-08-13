@@ -36,6 +36,13 @@
       "when": 1786590597615,
       "tag": "0004_big_mesmero",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "5",
+      "when": 1786598104763,
+      "tag": "0005_lean_maginty",
+      "breakpoints": true
     }
   ]
 }

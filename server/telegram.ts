@@ -1,7 +1,7 @@
 import type { Request, Response } from "express";
 import { and, desc, eq, gt, sql } from "drizzle-orm";
 import { getDb } from "./db";
-import { binancePayDeposits, botSettings, botUsers, freeClaims, notificationDeliveries, orders, priceAlerts, products, referrals, supportTickets, walletLedger } from "../drizzle/schema";
+import { binancePayDeposits, botSettings, botUsers, freeClaims, notificationDeliveries, orders, paymentIntents, priceAlerts, products, referrals, supportTickets, walletLedger } from "../drizzle/schema";
 import { findBinancePayTransaction } from "./binancePay";
 import { canClaimFreeItem, freeWindowStart, hasAccess, referralCodeForTelegramId, tierForReferralCount } from "../shared/botLogic";
 
@@ -19,6 +19,7 @@ const DEFAULT_GROUP_URL = process.env.TELEGRAM_GROUP_JOIN_URL ?? "https://t.me/+
 const recentRequests = new Map<number, number>();
 const pendingCustomQuantities = new Map<number, { productId: number; expiresAt: number }>();
 const pendingBinancePayTopups = new Map<number, { expiresAt: number }>();
+const pendingBinancePayPurchases = new Map<number, { intentId: number; expiresAt: number }>();
 
 /** Testing-mode bootstrap credit; remove or disable before real-money launch. */
 export const TESTING_WALLET_CREDIT_CENTS = 1000;
@@ -258,9 +259,10 @@ export function buildQuantityKeyboard(productId: number, stock: number) {
   return keyboard(rows);
 }
 
-export function buildPurchaseReviewKeyboard(productId: number, quantity: number) {
+export function buildPaymentMethodKeyboard(productId: number, quantity: number) {
   return keyboard([
-    [{ text: "✅ Confirm purchase", callback_data: `buyconfirm:${productId}:${quantity}`, style: "success" }],
+    [{ text: "💳 Pay with Wallet", callback_data: `paywallet:${productId}:${quantity}`, style: "success" }],
+    [{ text: "🟡 Pay with Binance Pay", callback_data: `paybinance:${productId}:${quantity}`, style: "primary" }],
     [{ text: "✖️ Cancel", callback_data: `buycancel:${productId}` }],
   ]);
 }
@@ -307,7 +309,7 @@ export function resolvePriceAlertToggle(existingActive: boolean | null) {
 
 export function formatPurchaseReview(productName: string, priceCents: number, quantity: number, balanceCents: number) {
   const totalCents = priceCents * quantity;
-  return `🧾 <b>Review your purchase</b>\n\n📦 <b>${productName.replace(/[<&>]/g, "")}</b>\n🔢 Quantity: <b>${quantity}</b>\n💵 Unit price: <b>$${(priceCents / 100).toFixed(2)}</b>\n💰 Total: <b>$${(totalCents / 100).toFixed(2)}</b>\n\nWallet balance: <b>$${(balanceCents / 100).toFixed(2)}</b>\nConfirm to complete automatic delivery.`;
+  return `🧾 <b>Review your purchase</b>\n\n📦 <b>${productName.replace(/[<&>]/g, "")}</b>\n🔢 Quantity: <b>${quantity}</b>\n💵 Unit price: <b>$${(priceCents / 100).toFixed(2)}</b>\n💰 Total to pay: <b>$${(totalCents / 100).toFixed(2)}</b>\n\nWallet balance: <b>$${(balanceCents / 100).toFixed(2)}</b>\n\nChoose a payment method below. Your order is not completed until the selected payment is verified.`;
 }
 
 async function runtimeGate() {
@@ -475,9 +477,7 @@ async function showPurchaseReview(chatId: number, userId: number, productId: num
   const safeQuantity = Math.max(1, Math.min(10, Math.floor(quantity)));
   if (!user || !isPurchasableProduct(product)) return respond(chatId, "⚠️ This product is currently unavailable.\n\nOpen the current Shop to choose an in-stock product.", buildUnavailableProductKeyboard(), messageId);
   if (product.stock < safeQuantity) return respond(chatId, `⚠️ Only <b>${product.stock}</b> unit${product.stock === 1 ? "" : "s"} remain. Choose a smaller quantity.`, buildQuantityKeyboard(product.id, product.stock), messageId);
-  const purchase = buildAutoPurchaseResult(user.balanceCents, product.priceCents, product.stock, safeQuantity);
-  if (purchase.status === "insufficient_balance") return respond(chatId, `💳 <b>Insufficient balance</b>\n\nYour balance is <b>$${(user.balanceCents / 100).toFixed(2)}</b>, but this quantity costs <b>$${(purchase.totalCents / 100).toFixed(2)}</b>.`, buildQuantityKeyboard(product.id, product.stock), messageId);
-  return respond(chatId, formatPurchaseReview(product.name, product.priceCents, safeQuantity, user.balanceCents), buildPurchaseReviewKeyboard(product.id, safeQuantity), messageId);
+  return respond(chatId, formatPurchaseReview(product.name, product.priceCents, safeQuantity, user.balanceCents), buildPaymentMethodKeyboard(productId, safeQuantity), messageId);
 }
 
 async function cancelPurchase(chatId: number, productId: number, messageId?: number) {
@@ -508,20 +508,36 @@ async function createPurchase(chatId: number, userId: number, productId: number,
   }
   const announcement = buildPurchaseAnnouncement(outcome.productId, outcome.productName, outcome.quantity, outcome.buyerName, outcome.telegramUserId);
   await respond(chatId, formatPurchaseConfirmation(outcome.orderId, `${outcome.quantity}× ${outcome.productName}`, outcome.totalCents), buildHomeKeyboard(), messageId);
-  await notifyAdmin("order_fulfilled", outcome.orderId, announcement.text, announcement.replyMarkup);
+  await notifyAdmin("order_fulfilled", String(outcome.orderId), announcement.text, announcement.replyMarkup);
+}
+
+async function createBinancePayPurchaseIntent(chatId: number, userId: number, productId: number, quantity: number, messageId?: number) {
+  const db = await getDb();
+  if (!db) throw new Error("Database is unavailable");
+  const user = (await db.select().from(botUsers).where(eq(botUsers.telegramUserId, userId)).limit(1))[0];
+  const product = (await db.select().from(products).where(eq(products.id, productId)).limit(1))[0];
+  const safeQuantity = Math.max(1, Math.min(10, Math.floor(quantity)));
+  if (!user || !isPurchasableProduct(product)) return respond(chatId, "⚠️ This product is currently unavailable.\\n\\nOpen the current Shop to choose an in-stock product.", buildUnavailableProductKeyboard(), messageId);
+  if (product.stock < safeQuantity) return respond(chatId, `⚠️ Only <b>${product.stock}</b> unit${product.stock === 1 ? "" : "s"} remain. Choose a smaller quantity.`, buildQuantityKeyboard(product.id, product.stock), messageId);
+  const amountCents = product.priceCents * safeQuantity;
+  const inserted = await db.insert(paymentIntents).values({ botUserId: user.id, productId: product.id, quantity: safeQuantity, amountCents, method: "binance_pay", status: "pending" });
+  const intentId = Number(inserted[0]?.insertId ?? 0);
+  if (!intentId) throw new Error("Failed to create Binance Pay payment intent");
+  pendingBinancePayPurchases.set(userId, { intentId, expiresAt: Date.now() + 15 * 60 * 1000 });
+  return respond(chatId, `🟡 <b>Pay with Binance Pay</b>\\n\\n📦 <b>${product.name.replace(/[<&>]/g, "")}</b>\\n🔢 Quantity: <b>${safeQuantity}</b>\\n💰 <b>Amount to pay: $${(amountCents / 100).toFixed(2)}</b>\\n\\nPay exactly <b>$${(amountCents / 100).toFixed(2)}</b> to the configured Binance Pay merchant account. After payment, reply to this message with the Binance Pay transaction/order ID.\\n\\nYour order will remain pending until the transaction is verified. No stock will be deducted before successful verification.`, { force_reply: true, selective: true }, messageId);
 }
 
 export type TelegramCallbackAction =
   | { kind: "verify_membership" | "home" | "freebies" | "wallet" | "walletadd" | "orders" | "profile" | "support" }
   | { kind: "shop" | "product" | "claim" | "buy" | "customqty" | "pricealert"; id: number }
-  | { kind: "buyqty" | "buyconfirm"; id: number; quantity: number }
+  | { kind: "buyqty" | "buyconfirm" | "paywallet" | "paybinance"; id: number; quantity: number }
   | { kind: "buycancel"; id: number };
 
 export function parseTelegramCallbackAction(data?: string): TelegramCallbackAction | null {
   const value = data ?? "";
   if (["verify_membership", "home", "freebies", "wallet", "walletadd", "orders", "profile", "support"].includes(value)) return { kind: value as TelegramCallbackAction["kind"] } as TelegramCallbackAction;
-  const quantityMatch = value.match(/^(buyqty|buyconfirm):([0-9]+):([0-9]+)$/);
-  if (quantityMatch) return { kind: quantityMatch[1] as "buyqty" | "buyconfirm", id: Number(quantityMatch[2]), quantity: Number(quantityMatch[3]) };
+  const quantityMatch = value.match(/^(buyqty|buyconfirm|paywallet|paybinance):([0-9]+):([0-9]+)$/);
+  if (quantityMatch) return { kind: quantityMatch[1] as "buyqty" | "buyconfirm" | "paywallet" | "paybinance", id: Number(quantityMatch[2]), quantity: Number(quantityMatch[3]) };
   const cancelMatch = value.match(/^buycancel:([0-9]+)$/);
   if (cancelMatch) return { kind: "buycancel", id: Number(cancelMatch[1]) };
   const match = value.match(/^(shop|product|claim|buy|customqty|pricealert)(?::(\d+))?$/);
@@ -534,7 +550,9 @@ export function parseTelegramCallbackAction(data?: string): TelegramCallbackActi
 export function resolvePurchaseCallbackRoute(action: TelegramCallbackAction) {
   if (action.kind === "buy") return "quantity_prompt" as const;
   if (action.kind === "buyqty") return action.quantity > 0 ? "purchase_review" as const : "quantity_prompt" as const;
-  if (action.kind === "buyconfirm") return "purchase_confirm" as const;
+  if (action.kind === "buyconfirm") return "payment_method" as const;
+  if (action.kind === "paywallet") return "purchase_confirm" as const;
+  if (action.kind === "paybinance") return "binance_pay_pending" as const;
   if (action.kind === "buycancel") return "product_view" as const;
   if (action.kind === "customqty") return "custom_quantity" as const;
   if (action.kind === "pricealert") return "price_alert" as const;
@@ -567,7 +585,9 @@ export async function handleCallback(query: TelegramCallbackQuery, options: { sk
   const purchaseRoute = resolvePurchaseCallbackRoute(action);
   if (purchaseRoute === "quantity_prompt" && (action.kind === "buy" || (action.kind === "buyqty" && action.quantity === 0))) return showQuantityPrompt(chatId, action.id, messageId);
   if (purchaseRoute === "purchase_review" && action.kind === "buyqty") return showPurchaseReview(chatId, userId, action.id, action.quantity, messageId);
-  if (purchaseRoute === "purchase_confirm" && action.kind === "buyconfirm") return createPurchase(chatId, userId, action.id, action.quantity, messageId);
+  if (purchaseRoute === "payment_method" && action.kind === "buyconfirm") return showPurchaseReview(chatId, userId, action.id, action.quantity, messageId);
+  if (purchaseRoute === "purchase_confirm" && action.kind === "paywallet") return createPurchase(chatId, userId, action.id, action.quantity, messageId);
+  if (purchaseRoute === "binance_pay_pending" && action.kind === "paybinance") return createBinancePayPurchaseIntent(chatId, userId, action.id, action.quantity, messageId);
   if (purchaseRoute === "product_view" && action.kind === "buycancel") return cancelPurchase(chatId, action.id, messageId);
   if (purchaseRoute === "custom_quantity" && action.kind === "customqty") {
     const db = await getDb();
@@ -594,10 +614,72 @@ export async function handleCallback(query: TelegramCallbackQuery, options: { sk
   }
 }
 
+async function verifyAndFulfillBinancePurchase(chatId: number, userId: number, intentId: number, transactionId: string) {
+  const db = await getDb();
+  if (!db) throw new Error("Database is unavailable");
+  const intent = (await db.select().from(paymentIntents).where(eq(paymentIntents.id, intentId)).limit(1))[0];
+  if (!intent || intent.status !== "pending") { await respond(chatId, "ℹ️ This Binance Pay order is no longer pending. Open Shop to start a new purchase.", buildHomeKeyboard()); return false; }
+  const result = await findBinancePayTransaction(transactionId, intent.amountCents);
+  if (!result.ok) {
+    const reason = result.reason === "invalid_id" ? "That does not look like a valid transaction/order ID." : result.reason === "not_found" ? "I could not find that Binance Pay payment yet." : result.reason === "amount_mismatch" ? `The payment amount does not match the required $${(intent.amountCents / 100).toFixed(2)}.` : result.reason === "unsupported_asset" ? "Only USDT, USDC, or BUSD payments can be verified." : "That payment is not a positive received transaction.";
+    await respond(chatId, `❌ <b>Payment not verified</b>\n\n${reason}\n\nPlease send the correct Binance Pay transaction/order ID.`, { force_reply: true, selective: true });
+    return false;
+  }
+  const transactionRef = result.transaction.transactionId ?? transactionId.trim();
+  const outcome = await db.transaction(async (tx) => {
+    const current = (await tx.select().from(paymentIntents).where(eq(paymentIntents.id, intentId)).limit(1))[0];
+    if (!current || current.status !== "pending") return { ok: false as const, reason: "already_processed" as const };
+    const reusedIntent = (await tx.select().from(paymentIntents).where(eq(paymentIntents.transactionId, transactionRef)).limit(1))[0];
+    const reusedTopup = (await tx.select().from(binancePayDeposits).where(eq(binancePayDeposits.transactionId, transactionRef)).limit(1))[0];
+    if (reusedIntent || reusedTopup) return { ok: false as const, reason: "already_used" as const };
+    const account = (await tx.select().from(botUsers).where(eq(botUsers.id, current.botUserId)).limit(1))[0];
+    const product = (await tx.select().from(products).where(eq(products.id, current.productId)).limit(1))[0];
+    if (!account || account.id !== (await tx.select({ id: botUsers.id }).from(botUsers).where(eq(botUsers.telegramUserId, userId)).limit(1))[0]?.id) return { ok: false as const, reason: "user_mismatch" as const };
+    if (!product || !isPurchasableProduct(product) || product.stock < current.quantity) return { ok: false as const, reason: "unavailable" as const };
+    const inserted = await tx.insert(orders).values({ botUserId: account.id, productId: product.id, kind: "purchase", amountCents: current.amountCents, status: "fulfilled" });
+    const orderId = Number(inserted[0]?.insertId ?? 0);
+    await tx.update(products).set({ stock: sql`${products.stock} - ${current.quantity}` }).where(eq(products.id, product.id));
+    await tx.update(paymentIntents).set({ status: "fulfilled", transactionId: transactionRef }).where(eq(paymentIntents.id, current.id));
+    return { ok: true as const, orderId, product, quantity: current.quantity, amountCents: current.amountCents };
+  });
+  if (!outcome.ok) {
+    const text = outcome.reason === "already_used" ? "ℹ️ This Binance Pay transaction was already used." : outcome.reason === "unavailable" ? "⚠️ The product sold out before payment verification. Contact support with your transaction ID." : outcome.reason === "user_mismatch" ? "⚠️ This payment intent belongs to a different account." : "ℹ️ This payment order was already processed.";
+    await respond(chatId, text, buildHomeKeyboard());
+    return false;
+  }
+  const buyer = (await db.select().from(botUsers).where(eq(botUsers.telegramUserId, userId)).limit(1))[0];
+  const announcement = buildPurchaseAnnouncement(outcome.product.id, outcome.product.name, outcome.quantity, buyer?.firstName ?? "User", userId);
+  await respond(chatId, formatPurchaseConfirmation(outcome.orderId, `${outcome.quantity}× ${outcome.product.name}`, outcome.amountCents), buildHomeKeyboard());
+  await notifyAdmin("order_fulfilled", String(outcome.orderId), announcement.text, announcement.replyMarkup);
+  return true;
+}
+
+async function restorePendingBinancePurchase(userId: number) {
+  const db = await getDb();
+  if (!db) return null;
+  const user = (await db.select().from(botUsers).where(eq(botUsers.telegramUserId, userId)).limit(1))[0];
+  if (!user) return null;
+  const intent = (await db.select().from(paymentIntents).where(eq(paymentIntents.botUserId, user.id)).limit(20)).find((row) => row.status === "pending");
+  if (!intent) return null;
+  const pending = { intentId: intent.id, expiresAt: Date.now() + 15 * 60 * 1000 };
+  pendingBinancePayPurchases.set(userId, pending);
+  return pending;
+}
+
 export async function handleMessage(message: TelegramMessage) {
   const user = message.from;
   if (!user || !message.text) return;
   const messageText = message.text;
+  const pendingPurchase = pendingBinancePayPurchases.get(user.id) ?? await restorePendingBinancePurchase(user.id);
+  if (pendingPurchase) {
+    if (pendingPurchase.expiresAt <= Date.now()) {
+      pendingBinancePayPurchases.delete(user.id);
+      return respond(message.chat.id, "⌛ <b>Binance Pay order expired</b>\n\nOpen Shop and start again.", buildHomeKeyboard());
+    }
+    const completed = await verifyAndFulfillBinancePurchase(message.chat.id, user.id, pendingPurchase.intentId, messageText);
+    if (completed) pendingBinancePayPurchases.delete(user.id);
+    return;
+  }
   const pendingTopup = pendingBinancePayTopups.get(user.id);
   if (pendingTopup) {
     if (pendingTopup.expiresAt <= Date.now()) {
