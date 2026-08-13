@@ -39,3 +39,7 @@ The public URL returned Koyeb `404 No active service` because no replica was act
 Koyeb tracker reload now renders only the `You're almost done` overview and the manage-service link; deployment detail remains absent in the hydrated view. The service URL is still inactive, so deployment cannot yet be health-checked.
 
 Koyeb deployment succeeded: service `nebula-nook-bot` is healthy in Frankfurt with `1 of 1 running` on the Free instance. Public domain: `https://cognitive-quintilla-techzone3228-89a97258.koyeb.app/`. Latest deployment is marked Healthy from commit `aceec24c`.
+
+Monitoring update (2026-08-13): Frankfurt Koyeb health endpoint responds `ok:true`, but Telegram `getWebhookInfo` still reports the old Manus URL `https://nebulabot-easgvwoj.manus.space/api/telegram/webhook` and the historical error `Wrong response from the webhook: 500 Internal Server Error`; pending updates are 0. Koyeb dashboard services page intermittently renders a blank SPA shell, so the public health endpoint remains the reliable check.
+
+45. Monitoring update: Koyeb was still running the older aceec24c image, whose healthy logs showed missing OAUTH_SERVER_URL but a running server and old webhook state. A fresh redeploy was triggered from commit f0fea6ba; Koyeb now shows deployment 15f3c7e9 provisioning in Frankfurt with 0/1 replicas while the build runs. Continue checking build logs, startup output, replica health, and Telegram webhook health before declaring migration complete.

@@ -793,8 +793,12 @@ export async function configureTelegramWebhook(webhookUrl: string) {
  * additional public configuration variable is required. The PORT guard keeps
  * the Manus deployment from redirecting Telegram back to Koyeb.
  */
+export function isKoyebRuntime() {
+  return process.env.NODE_ENV === "production" && process.env.PORT === "8000" && Boolean(process.env.PASS);
+}
+
 export async function configureKoyebWebhookOnStartup() {
-  if (process.env.NODE_ENV !== "production" || process.env.PORT !== "8000" || !process.env.PASS) return null;
+  if (!isKoyebRuntime()) return null;
   const webhookUrl = "https://cognitive-quintilla-techzone3228-89a97258.koyeb.app/api/telegram/webhook";
   return configureTelegramWebhook(webhookUrl);
 }
@@ -812,15 +816,17 @@ export async function telegramWebhookConfigure(req: Request, res: Response) {
 }
 
 export async function telegramWebhookHealth(_req: Request, res: Response) {
+  if (!isKoyebRuntime()) return res.json({ ok: true, active: false, runtime: "manus-dashboard-only" });
   try {
     const info = await telegramCall<{ url: string; pending_update_count: number; last_error_message?: string }>("getWebhookInfo", {});
-    return res.json({ ok: true, webhook: info });
+    return res.json({ ok: true, active: true, runtime: "koyeb", webhook: info });
   } catch (error) {
     return res.status(503).json({ ok: false, error: error instanceof Error ? error.message : "Telegram unavailable" });
   }
 }
 
 export async function telegramWebhookHandler(req: Request, res: Response) {
+  if (!isKoyebRuntime()) return res.status(410).json({ ok: false, error: "Telegram runtime moved to Koyeb" });
   try {
     const configuredSecret = validTelegramWebhookSecret(process.env.TELEGRAM_WEBHOOK_SECRET);
     if (configuredSecret && req.header("x-telegram-bot-api-secret-token") !== configuredSecret) return res.status(401).json({ error: "invalid webhook secret" });

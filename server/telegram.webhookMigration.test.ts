@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { telegramWebhookConfigure } from "./telegram";
+import { telegramWebhookConfigure, telegramWebhookHandler, telegramWebhookHealth } from "./telegram";
 
 function responseMock() {
   const response = {
@@ -25,6 +25,39 @@ describe("protected Koyeb webhook migration", () => {
     expect(res.json).toHaveBeenCalledWith({ ok: false, error: "unauthorized" });
     if (originalPass === undefined) delete process.env.PASS;
     else process.env.PASS = originalPass;
+  });
+
+  it("rejects Telegram updates on the non-Koyeb Manus runtime", async () => {
+    const originalNodeEnv = process.env.NODE_ENV;
+    const originalPort = process.env.PORT;
+    process.env.NODE_ENV = "production";
+    process.env.PORT = "3000";
+    const res = responseMock();
+
+    await telegramWebhookHandler({ body: {} } as never, res as never);
+
+    expect(res.status).toHaveBeenCalledWith(410);
+    expect(res.json).toHaveBeenCalledWith({ ok: false, error: "Telegram runtime moved to Koyeb" });
+    if (originalNodeEnv === undefined) delete process.env.NODE_ENV;
+    else process.env.NODE_ENV = originalNodeEnv;
+    if (originalPort === undefined) delete process.env.PORT;
+    else process.env.PORT = originalPort;
+  });
+
+  it("reports the non-Koyeb runtime as dashboard-only without calling Telegram", async () => {
+    const originalNodeEnv = process.env.NODE_ENV;
+    const originalPort = process.env.PORT;
+    process.env.NODE_ENV = "production";
+    process.env.PORT = "3000";
+    const res = responseMock();
+
+    await telegramWebhookHealth({} as never, res as never);
+
+    expect(res.json).toHaveBeenCalledWith({ ok: true, active: false, runtime: "manus-dashboard-only" });
+    if (originalNodeEnv === undefined) delete process.env.NODE_ENV;
+    else process.env.NODE_ENV = originalNodeEnv;
+    if (originalPort === undefined) delete process.env.PORT;
+    else process.env.PORT = originalPort;
   });
 
   it("does not enable the migration route in a non-Koyeb runtime", async () => {

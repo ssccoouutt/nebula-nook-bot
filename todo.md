@@ -239,3 +239,9 @@
 - [x] Rename the encrypted-config password variable from CONFIG_DECRYPTION_PASSWORD to PASS in code and documentation.
 
 - [x] Add a protected webhook-registration action so the healthy Koyeb service can switch Telegram from Manus when direct Telegram API access is unavailable from the sandbox.
+
+- [ ] Monitor Koyeb deployment/runtime logs and repeatedly verify the Frankfurt service and Telegram webhook after migration.
+
+- [x] Disable Telegram update handling on the Manus-hosted runtime while preserving its public dashboard, so Koyeb is the sole bot runtime.
+
+- [ ] Run authenticated Telegram smoke tests directly through the existing logged-in session after Manus is disabled and Koyeb is active.
