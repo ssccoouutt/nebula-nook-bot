@@ -26,6 +26,10 @@ export function isLikelyBinancePayTransactionId(value: string) {
   return /^\d{8,32}$/.test(value.trim());
 }
 
+export function shouldRoutePendingBinancePurchase(messageText: string, isCommandMessage: boolean, hasPendingTopup: boolean, hasPendingPurchase: boolean) {
+  return !isCommandMessage && !hasPendingTopup && hasPendingPurchase && isLikelyBinancePayTransactionId(messageText);
+}
+
 /** Testing-mode bootstrap credit; remove or disable before real-money launch. */
 export const TESTING_WALLET_CREDIT_CENTS = 1000;
 export const TESTING_WALLET_CREDIT_REFERENCE = "testing-wallet-credit-v1";
@@ -680,9 +684,11 @@ export async function handleMessage(message: TelegramMessage) {
   const user = message.from;
   if (!user || !message.text) return;
   const messageText = message.text;
+  const isCommandMessage = messageText.trim().startsWith("/");
+  const pendingTopup = pendingBinancePayTopups.get(user.id);
   const pendingPurchase = pendingBinancePayPurchases.get(user.id) ?? await restorePendingBinancePurchase(user.id);
   const pendingPurchaseExpired = pendingPurchase?.expiresAt !== undefined && pendingPurchase.expiresAt <= Date.now();
-  if (pendingPurchase && isLikelyBinancePayTransactionId(messageText)) {
+  if (pendingPurchase && shouldRoutePendingBinancePurchase(messageText, isCommandMessage, Boolean(pendingTopup), true)) {
     if (pendingPurchaseExpired) {
       pendingBinancePayPurchases.delete(user.id);
       return respond(message.chat.id, "⌛ <b>Binance Pay order expired</b>\n\nOpen Shop and start again.", buildHomeKeyboard());
@@ -691,8 +697,7 @@ export async function handleMessage(message: TelegramMessage) {
     if (completed) pendingBinancePayPurchases.delete(user.id);
     return;
   }
-  const pendingTopup = pendingBinancePayTopups.get(user.id);
-  if (pendingTopup) {
+  if (!isCommandMessage && pendingTopup) {
     if (pendingTopup.expiresAt <= Date.now()) {
       pendingBinancePayTopups.delete(user.id);
       return respond(message.chat.id, "⌛ <b>Top-up prompt expired</b>\n\nOpen Wallet and tap Add funds with Binance Pay to try again.", buildWalletKeyboard());

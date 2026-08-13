@@ -91,3 +91,8 @@ A fresh published Nebula Nook checkout review exposed separate `Pay with Wallet`
 ## Final Binance Pay routing smoke test — 2026-08-13
 
 After publishing the pending-payment refinement, Telegram Web was used against the Nebula Nook chat. A standalone `/shop` message produced the compact shop navigation while the payment workflow remained active, confirming that command handling is not swallowed by transaction-ID routing. The standalone test value `448035041403518976` was then delivered as an ordinary message rather than a reply; it reached the Binance Pay verification branch and returned a non-verification response. No order was fulfilled and no payment was claimed because the provider response did not establish a valid receipt. This confirms message routing, not successful payment verification for that test value.
+
+
+## 2026-08-13 live Binance Pay wallet verification diagnosis
+
+A live Telegram test opened Wallet → Add funds with Binance Pay and submitted order ID `448035041403518976` as a standalone message. The bot returned `Binance Pay order expired` before reaching the wallet top-up verifier. The cause was dispatcher ordering: a stale pending purchase intent was checked before the newly opened wallet top-up state, so the expired purchase branch intercepted the numeric ID. The fix gives the explicit wallet top-up state precedence, preserves slash-command passthrough, and adds regression coverage. The provider receipt was not credited during this run because the stale-state routing failure occurred before provider lookup.

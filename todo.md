@@ -182,3 +182,6 @@
 - [x] Replace the verbose Binance Pay pending prompt with concise payment instructions and remove Telegram force-reply metadata/keyboard.
 - [x] Add regression coverage proving the concise prompt remains standalone-message compatible and commands stay responsive.
 - [x] Publish and smoke-test the revised prompt in Telegram.
+
+- [ ] Live-test Wallet → Add funds with Binance Pay using order ID `448035041403518976` and capture the exact provider/verifier outcome.
+- [ ] If the live lookup fails, diagnose and fix the confirmed mismatch, add regression coverage, and publish the correction.
