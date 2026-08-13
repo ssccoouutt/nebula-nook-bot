@@ -197,6 +197,6 @@
 
 - [x] Evaluate the supplied VMess WebSocket endpoint as a possible non-USA egress without exposing its credentials; the temporary Xray handshake was reset by the endpoint.
 - [x] Determine whether a persistent Xray gateway or VPS is available; the sandbox-only process was not used for production.
-- [ ] If a persistent gateway is provided, route only Binance Pay API calls through it and validate the supplied order ID read-only before enabling credits.
+- [x] Handle persistent gateway routing decision: no persistent gateway was provided, so no production Binance routing was attempted; the temporary VMess tunnel was tested and cleaned up.
 - [x] Attempt a temporary read-only Binance lookup through the supplied VMess tunnel; the VMess endpoint reset the connection, so no egress or Binance eligibility result was obtained and no funds were credited.
 - [x] Install only a temporary official Xray-compatible client for the authorized VMess read-only test, then remove or stop it after testing.
