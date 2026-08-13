@@ -152,4 +152,4 @@
 - [x] Diagnose why live Telegram product purchases return “Product unavailable” for every product: legacy Gemini Pro row ID 1 had stock 0 but remained active and Shop advertised it.
 - [x] Fix product availability without weakening safeguards: Shop now filters active positive-stock products, and product/detail/quantity/custom-quantity paths share the same guard.
 - [x] Add regression coverage for live product availability and run the full verification suite; TypeScript and all 36 tests pass.
-- [ ] Publish the availability fix with evidence from the live Telegram flow or clearly document any remaining delivery limitation.
+- [x] Publish the availability fix with evidence from the production database/test suite and document the remaining stale Telegram-history delivery limitation; checkpoint `ab555e2a`.
