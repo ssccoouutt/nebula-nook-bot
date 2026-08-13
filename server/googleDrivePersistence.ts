@@ -1,6 +1,6 @@
 import { google } from "googleapis";
 import { createReadStream, createWriteStream } from "node:fs";
-import { mkdir, rename, stat, unlink, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rename, stat, unlink, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { pipeline } from "node:stream/promises";
 
@@ -17,6 +17,24 @@ let syncTimer: NodeJS.Timeout | null = null;
 let syncInFlight: Promise<void> | null = null;
 let syncRequested = false;
 let folderIds: { root: string; snapshots: string; metadata: string } | null = null;
+
+export async function withRetry<T>(operation: () => Promise<T>, label: string, attempts = 3): Promise<T> {
+  let lastError: unknown;
+  for (let attempt = 1; attempt <= attempts; attempt += 1) {
+    try {
+      return await operation();
+    } catch (error) {
+      lastError = error;
+      if (attempt < attempts) await new Promise(resolve => setTimeout(resolve, 250 * attempt));
+    }
+  }
+  throw new Error(`${label} failed after ${attempts} attempts: ${lastError instanceof Error ? lastError.message : String(lastError)}`);
+}
+
+export function isValidSqliteSnapshot(bytes: Uint8Array) {
+  const header = Buffer.from(bytes.subarray(0, 16));
+  return header.subarray(0, 15).toString("ascii") === "SQLite format 3" && header[15] === 0;
+}
 
 function driveTokenUrl() {
   return process.env.DRIVE?.trim() || "";
@@ -95,8 +113,10 @@ async function findFile(drive: ReturnType<typeof google.drive>, name: string, pa
 }
 
 async function downloadSnapshot(drive: ReturnType<typeof google.drive>, fileId: string, destination: string) {
-  const response = await drive.files.get({ fileId, alt: "media" }, { responseType: "stream" });
+  const response = await withRetry(() => drive.files.get({ fileId, alt: "media" }, { responseType: "stream" }), "Drive snapshot download");
   await pipeline(response.data as NodeJS.ReadableStream, createWriteStream(destination));
+  const bytes = await readFile(destination);
+  if (!isValidSqliteSnapshot(bytes)) throw new Error("Downloaded Drive snapshot is not a valid SQLite database");
 }
 
 async function restoreLatestSnapshot() {
@@ -124,14 +144,14 @@ async function uploadOrUpdate(drive: ReturnType<typeof google.drive>, name: stri
   const existing = await findFile(drive, name, parentId);
   const media = { mimeType, body: createReadStream(filePath) };
   if (existing?.id) {
-    await drive.files.update({ fileId: existing.id, media });
+    await withRetry(() => drive.files.update({ fileId: existing.id!, media }), `Drive update ${name}`);
     return existing.id;
   }
-  const created = await drive.files.create({
+  const created = await withRetry(() => drive.files.create({
     requestBody: { name, mimeType, parents: [parentId] },
     media,
     fields: "id",
-  });
+  }), `Drive create ${name}`);
   return created.data.id || null;
 }
 
