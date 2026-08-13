@@ -165,11 +165,11 @@
 - [x] Add regression coverage for payment-method routing, exact-amount mismatch rejection, supported/unsupported receipts, idempotent paths, and dispatcher behavior; TypeScript and all 38 tests pass.
 - [x] Verify and publish the corrected checkout flow with precise live evidence: Wallet/Binance Pay choices appeared, Binance Pay produced the exact `$2.97` pending transaction-ID prompt without fulfillment, and Qamify private-flow limitations remain documented.
 
-- [ ] Fix Binance Pay pending checkout so a normal transaction-ID message is accepted within 20 minutes without requiring reply-to-message metadata.
-- [ ] Keep normal commands and inline buttons responsive during the 20-minute Binance Pay transaction-ID window.
-- [ ] Add regression coverage for valid/invalid/expired non-reply transaction IDs and pending-order idempotency, including safe handling of test ID `448035041403518976`.
-- [ ] Perform and document a live Telegram verification of the corrected pending-payment flow, then publish the fix.
+- [x] Fix Binance Pay pending checkout so a normal transaction-ID message is accepted within 20 minutes without requiring reply-to-message metadata.
+- [x] Keep normal commands and inline buttons responsive during the 20-minute Binance Pay transaction-ID window.
+- [x] Add regression coverage for valid/invalid/expired non-reply transaction IDs and pending-order idempotency, including safe handling of test ID `448035041403518976`.
+- [x] Perform and document a live Telegram verification of the corrected pending-payment flow, then publish the fix.
 
 - [x] Accept Binance Pay transaction IDs as plain messages within a durable 20-minute purchase window while allowing commands and menu navigation to continue normally.
 - [x] Add regression coverage for the user-provided transaction ID shape, command passthrough, and 20-minute expiry semantics.
-- [ ] Complete final Telegram smoke verification of the Binance Pay checkout flow and document any provider-verification limitation honestly.
+- [x] Complete final Telegram smoke verification of the Binance Pay checkout flow and document any provider-verification limitation honestly.

@@ -87,3 +87,7 @@ The live verification limitation is that this code-path fix was validated agains
 ## 2026-08-13 fresh payment-method checkout smoke test
 
 A fresh published Nebula Nook checkout review exposed separate `Pay with Wallet` and `Pay with Binance Pay` controls. Selecting `Pay with Binance Pay` produced a pending message for `Gemini Pro Trial Link`, quantity `3`, exact amount `$2.97`, instructing the user to pay the configured Binance Pay merchant account and reply with the transaction/order ID. No order was completed and no transaction ID was submitted during this smoke test. Older historical `Confirm purchase` controls remained visible elsewhere in Telegram Web and were not treated as evidence for the fresh flow.
+
+## Final Binance Pay routing smoke test — 2026-08-13
+
+After publishing the pending-payment refinement, Telegram Web was used against the Nebula Nook chat. A standalone `/shop` message produced the compact shop navigation while the payment workflow remained active, confirming that command handling is not swallowed by transaction-ID routing. The standalone test value `448035041403518976` was then delivered as an ordinary message rather than a reply; it reached the Binance Pay verification branch and returned a non-verification response. No order was fulfilled and no payment was claimed because the provider response did not establish a valid receipt. This confirms message routing, not successful payment verification for that test value.
