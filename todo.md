@@ -139,7 +139,7 @@
 - [x] Add Binance Pay configuration secrets through the project secret manager and never commit credentials to source.
 - [x] Add schema/migration support for idempotent provider transaction identifiers and wallet deposit records.
 - [x] Add focused Binance Pay provider, idempotency, and handler-dispatch regression tests; webhook tests are not applicable to the implemented polling flow.
-- [ ] Verify type checking and the full test suite, document live-payment limitations, and publish a checkpoint.
+- [x] Verify type checking and the full test suite, document live-payment limitations, and publish checkpoint `4e710e5b`; 12 files and 35 tests pass.
 
 - [x] Review supplied read-only Binance script and document that it verifies `/sapi/v1/pay/transactions` by transaction ID rather than creating invoices.
 - [x] Add Binance Pay transaction verification with HMAC-signed server-side lookup, supported-asset and positive-receipt validation, and no secret logging.

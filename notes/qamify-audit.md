@@ -58,3 +58,17 @@ After the fresh quantity keyboard appeared, selecting `3×` reached a live revie
 
 ## 2026-08-13 Qamify direct-search result
 Searching Telegram Web for `Qamify_bot` found a Qamify account and indexed its store/product posts, including `/start`, product-detail text, membership-required notices, stock-limit announcements, and product metadata. Opening the result led to the account’s message-search view rather than an interactive private bot chat; no Qamify quantity/review callback controls were exposed. The direct private Buy-flow audit therefore remains pending and should not be inferred from the public/search-indexed posts.
+
+
+## Binance Pay integration boundary — 2026-08-13
+
+The supplied Python sample performs a signed lookup against Binance’s `/sapi/v1/pay/transactions` endpoint by transaction ID. It is not an invoice-creation implementation and does not provide webhook reconciliation. Nebula Nook therefore uses server-side transaction-ID polling with strict positive-value and supported-asset checks, unique deposit persistence, and wallet-ledger crediting. It intentionally does not claim Binance Pay Merchant invoice or webhook support.
+
+Official references reviewed: [Binance Pay Merchant introduction](https://developers.binance.com/en/docs/products/binance-pay-merchant/introduction), [authentication](https://developers.binance.com/en/docs/products/binance-pay-merchant/authentication), and [create order](https://developers.binance.com/en/docs/products/binance-pay-merchant/api-order-create-v3). The Merchant API is a separate integration path; the current implementation follows the user-supplied transaction-verification script instead.
+
+Qamify payment-flow evidence remains limited: the logged-in Telegram session exposed public Qamify product/feed posts but did not expose a directly interactive private payment prompt. No payment was initiated or completed during the audit.
+
+
+## Post-checkpoint Wallet prompt smoke test — 2026-08-13
+
+After checkpoint `4e710e5b` went live, Telegram Web was reopened against the persisted Nebula Nook chat. Clicking the visible Wallet controls produced refreshed Wallet messages, but the rendered page continued to mix historical inline keyboards and did not expose a trustworthy new `➕ Add funds with Binance Pay` control. Source inspection confirms that the published `wallet` callback calls `showWallet`, which attaches `buildWalletKeyboard`, and that `walletadd` creates a ten-minute force-reply prompt. Because Telegram Web’s persisted history did not provide a clean current callback/rendering trace, this non-payment smoke test remains inconclusive; no transaction ID was entered and no funds were credited.
