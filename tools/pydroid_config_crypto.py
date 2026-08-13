@@ -19,16 +19,30 @@ import argparse
 import base64
 import getpass
 import hashlib
-import os
 import secrets
+import subprocess
 import sys
 from pathlib import Path
 
-try:
-    from cryptography.hazmat.primitives.ciphers.aead import AESGCM
-except ImportError:
-    print("Missing dependency. In Pydroid 3, install it with: pip install cryptography")
-    raise SystemExit(2)
+
+def load_aesgcm():
+    try:
+        from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+        return AESGCM
+    except ImportError:
+        print("The cryptography package is not installed. Installing it now...")
+        try:
+            subprocess.check_call([sys.executable, "-m", "pip", "install", "cryptography"])
+            from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+            print("cryptography installed successfully.")
+            return AESGCM
+        except Exception as exc:
+            print("Automatic installation failed.")
+            print("In Pydroid 3, open Pip and run: pip install cryptography")
+            raise SystemExit(2) from exc
+
+
+AESGCM = load_aesgcm()
 
 MAGIC = b"NEBULA-NOOK-CONFIG-v1\n"
 SALT_BYTES = 16

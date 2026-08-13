@@ -4,13 +4,15 @@ The utility `tools/pydroid_config_crypto.py` encrypts a local `.env`-style file 
 
 ## Install in Pydroid 3
 
-Open Pydroid 3, open its **Pip** terminal, and run:
+Copy `pydroid_config_crypto.py` to a directory accessible from Pydroid, such as `Download/nebula-nook/`. Use Pydroid’s terminal and change into that directory. The script automatically checks for the `cryptography` package and attempts to install it with Pydroid’s Python if it is missing.
+
+If automatic installation is blocked, open Pydroid’s **Pip** terminal and run:
 
 ```bash
 pip install cryptography
 ```
 
-Copy `pydroid_config_crypto.py` to a directory accessible from Pydroid, such as `Download/nebula-nook/`. Use Pydroid’s terminal and change into that directory.
+Then run the script again.
 
 ## Create and fill the template
 
