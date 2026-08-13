@@ -69,10 +69,18 @@ export function resolveNotificationChatId(configuredTarget: string | undefined, 
   return Number.isSafeInteger(chatId) && chatId !== 0 ? chatId : null;
 }
 
-export function buildAutoPurchaseResult(balanceCents: number, priceCents: number, stock: number) {
-  if (balanceCents < priceCents) return { ok: false as const, status: "insufficient_balance" as const };
-  if (stock <= 0) return { ok: false as const, status: "out_of_stock" as const };
-  return { ok: true as const, status: "fulfilled" as const, nextBalanceCents: balanceCents - priceCents, nextStock: stock - 1 };
+export function buildAutoPurchaseResult(balanceCents: number, priceCents: number, stock: number, quantity = 1) {
+  const safeQuantity = Math.max(1, Math.floor(quantity));
+  const totalCents = priceCents * safeQuantity;
+  if (balanceCents < totalCents) return { ok: false as const, status: "insufficient_balance" as const, quantity: safeQuantity, totalCents };
+  if (stock < safeQuantity) return { ok: false as const, status: "out_of_stock" as const, quantity: safeQuantity, totalCents };
+  return { ok: true as const, status: "fulfilled" as const, quantity: safeQuantity, totalCents, nextBalanceCents: balanceCents - totalCents, nextStock: stock - safeQuantity };
+}
+
+export function buildConfirmedPurchasePlan(balanceCents: number, priceCents: number, stock: number, quantity: number) {
+  const purchase = buildAutoPurchaseResult(balanceCents, priceCents, stock, Math.max(1, Math.min(10, Math.floor(quantity))));
+  if (!purchase.ok) return { ok: false as const, status: purchase.status, totalCents: purchase.totalCents };
+  return { ok: true as const, quantity: purchase.quantity, totalCents: purchase.totalCents, nextBalanceCents: purchase.nextBalanceCents, nextStock: purchase.nextStock };
 }
 
 export function formatHomeMessage(details?: { firstName?: string | null; username?: string | null; tier?: string | null; balanceCents?: number; referrals?: number; access?: boolean }) {
@@ -221,6 +229,33 @@ export function buildProductKeyboard(productId: number) {
   ]);
 }
 
+export function buildQuantityKeyboard(productId: number, stock: number) {
+  const max = Math.min(Math.max(stock, 0), 10);
+  const choices = [1, 2, 3, 4, 5, 10].filter((quantity) => quantity <= max);
+  const rows: TelegramButton[][] = [];
+  for (let index = 0; index < choices.length; index += 3) {
+    rows.push(choices.slice(index, index + 3).map((quantity) => ({ text: `${quantity}×`, callback_data: `buyqty:${productId}:${quantity}`, style: "primary" as const })));
+  }
+  rows.push([{ text: "↩️ Back to product", callback_data: `product:${productId}`, style: "primary" }]);
+  return keyboard(rows);
+}
+
+export function buildPurchaseReviewKeyboard(productId: number, quantity: number) {
+  return keyboard([
+    [{ text: "✅ Confirm purchase", callback_data: `buyconfirm:${productId}:${quantity}`, style: "success" }],
+    [{ text: "✖️ Cancel", callback_data: `buycancel:${productId}`, style: "danger" }],
+  ]);
+}
+
+export function formatQuantityPrompt(productName: string, priceCents: number, stock: number) {
+  return `🛒 <b>Choose quantity</b>\n\n<b>${productName.replace(/[<&>]/g, "")}</b>\n💵 Unit price: <b>$${(priceCents / 100).toFixed(2)}</b>\n📦 Available: <b>${stock}</b>\n\nSelect how many units you want:`;
+}
+
+export function formatPurchaseReview(productName: string, priceCents: number, quantity: number, balanceCents: number) {
+  const totalCents = priceCents * quantity;
+  return `🧾 <b>Review your purchase</b>\n\n📦 <b>${productName.replace(/[<&>]/g, "")}</b>\n🔢 Quantity: <b>${quantity}</b>\n💵 Unit price: <b>$${(priceCents / 100).toFixed(2)}</b>\n💰 Total: <b>$${(totalCents / 100).toFixed(2)}</b>\n\nWallet balance: <b>$${(balanceCents / 100).toFixed(2)}</b>\nConfirm to complete automatic delivery.`;
+}
+
 async function runtimeGate() {
   const db = await getDb();
   if (!db) return { channelId: DEFAULT_CHANNEL_ID, groupId: DEFAULT_GROUP_ID, channelUrl: DEFAULT_CHANNEL_URL, groupUrl: DEFAULT_GROUP_URL };
@@ -364,38 +399,84 @@ async function claimFree(chatId: number, userId: number, productId: number, mess
   await notifyAdmin("free_claim", `${user.id}:${product.id}:${windowStart}`, `<b>Free claim</b>\nUser: ${user.telegramUserId}\nProduct: ${product.name}`);
 }
 
-async function createPurchase(chatId: number, userId: number, productId: number, messageId?: number) {
+async function showQuantityPrompt(chatId: number, productId: number, messageId?: number) {
+  const db = await getDb();
+  if (!db) throw new Error("Database is unavailable");
+  const product = (await db.select().from(products).where(eq(products.id, productId)).limit(1))[0];
+  if (!product || !product.active || product.stock <= 0) return respond(chatId, "⚠️ This product is currently unavailable.", undefined, messageId);
+  return respond(chatId, formatQuantityPrompt(product.name, product.priceCents, product.stock), buildQuantityKeyboard(product.id, product.stock), messageId);
+}
+
+async function showPurchaseReview(chatId: number, userId: number, productId: number, quantity: number, messageId?: number) {
   const db = await getDb();
   if (!db) throw new Error("Database is unavailable");
   const user = (await db.select().from(botUsers).where(eq(botUsers.telegramUserId, userId)).limit(1))[0];
   const product = (await db.select().from(products).where(eq(products.id, productId)).limit(1))[0];
+  const safeQuantity = Math.max(1, Math.min(10, Math.floor(quantity)));
   if (!user || !product || !product.active) return respond(chatId, "⚠️ This product is currently unavailable.", undefined, messageId);
-  const purchase = buildAutoPurchaseResult(user.balanceCents, product.priceCents, product.stock);
-  if (purchase.status === "insufficient_balance") return respond(chatId, `💳 <b>Insufficient balance</b>\n\nYour balance is <b>$${(user.balanceCents / 100).toFixed(2)}</b>. This product costs <b>$${(product.priceCents / 100).toFixed(2)}</b>.`, buildProductKeyboard(product.id), messageId);
-  if (purchase.status === "out_of_stock") return respond(chatId, "⚠️ This product is currently unavailable.", undefined, messageId);
-  const result = await db.insert(orders).values({ botUserId: user.id, productId: product.id, kind: "purchase", amountCents: product.priceCents, status: "fulfilled" });
-  const orderId = String(result[0]?.insertId ?? `${user.id}:${product.id}:${Date.now()}`);
-  await db.update(botUsers).set({ balanceCents: user.balanceCents - product.priceCents }).where(eq(botUsers.id, user.id));
-  await db.update(products).set({ stock: product.stock - 1 }).where(eq(products.id, product.id));
-  await db.insert(walletLedger).values({ botUserId: user.id, amountCents: -product.priceCents, kind: "purchase", referenceId: orderId, note: `Automatic purchase: ${product.name}` });
-  const notifications = buildFulfillmentNotifications(orderId, product.priceCents, user.telegramUserId);
-  const announcement = buildPurchaseAnnouncement(product.id, product.name, 1, user.firstName ?? user.username ?? "User", user.telegramUserId);
-  await respond(chatId, formatPurchaseConfirmation(orderId, product.name, product.priceCents), buildHomeKeyboard(), messageId);
-  await notifyAdmin("order_fulfilled", orderId, announcement.text, announcement.replyMarkup);
+  if (product.stock < safeQuantity) return respond(chatId, `⚠️ Only <b>${product.stock}</b> unit${product.stock === 1 ? "" : "s"} remain. Choose a smaller quantity.`, buildQuantityKeyboard(product.id, product.stock), messageId);
+  const purchase = buildAutoPurchaseResult(user.balanceCents, product.priceCents, product.stock, safeQuantity);
+  if (purchase.status === "insufficient_balance") return respond(chatId, `💳 <b>Insufficient balance</b>\n\nYour balance is <b>$${(user.balanceCents / 100).toFixed(2)}</b>, but this quantity costs <b>$${(purchase.totalCents / 100).toFixed(2)}</b>.`, buildQuantityKeyboard(product.id, product.stock), messageId);
+  return respond(chatId, formatPurchaseReview(product.name, product.priceCents, safeQuantity, user.balanceCents), buildPurchaseReviewKeyboard(product.id, safeQuantity), messageId);
+}
+
+async function cancelPurchase(chatId: number, productId: number, messageId?: number) {
+  return showProduct(chatId, productId, messageId);
+}
+
+async function createPurchase(chatId: number, userId: number, productId: number, quantity = 1, messageId?: number) {
+  const db = await getDb();
+  if (!db) throw new Error("Database is unavailable");
+  const requestedQuantity = Math.max(1, Math.min(10, Math.floor(quantity)));
+  const outcome = await db.transaction(async (tx) => {
+    const user = (await tx.select().from(botUsers).where(eq(botUsers.telegramUserId, userId)).limit(1))[0];
+    const product = (await tx.select().from(products).where(eq(products.id, productId)).limit(1))[0];
+    if (!user || !product || !product.active) return { ok: false as const, status: "unavailable" as const };
+    const purchase = buildConfirmedPurchasePlan(user.balanceCents, product.priceCents, product.stock, requestedQuantity);
+    if (!purchase.ok) return { ok: false as const, status: purchase.status, balanceCents: user.balanceCents, productId: product.id, stock: product.stock, totalCents: purchase.totalCents };
+    const result = await tx.insert(orders).values({ botUserId: user.id, productId: product.id, kind: "purchase", amountCents: purchase.totalCents, status: "fulfilled" });
+    const orderId = String(result[0]?.insertId ?? `${user.id}:${product.id}:${Date.now()}`);
+    await tx.update(botUsers).set({ balanceCents: purchase.nextBalanceCents }).where(eq(botUsers.id, user.id));
+    await tx.update(products).set({ stock: purchase.nextStock }).where(eq(products.id, product.id));
+    await tx.insert(walletLedger).values({ botUserId: user.id, amountCents: -purchase.totalCents, kind: "purchase", referenceId: orderId, note: `Automatic purchase (${purchase.quantity}×): ${product.name}` });
+    return { ok: true as const, orderId, productId: product.id, productName: product.name, quantity: purchase.quantity, totalCents: purchase.totalCents, buyerName: user.firstName ?? user.username ?? "User", telegramUserId: user.telegramUserId };
+  });
+  if (!outcome.ok) {
+    if (outcome.status === "insufficient_balance") return respond(chatId, `💳 <b>Insufficient balance</b>\n\nYour balance is <b>$${(outcome.balanceCents / 100).toFixed(2)}</b>. This quantity costs <b>$${(outcome.totalCents / 100).toFixed(2)}.</b>`, buildQuantityKeyboard(outcome.productId, outcome.stock), messageId);
+    if (outcome.status === "out_of_stock") return respond(chatId, "⚠️ The requested quantity is no longer available.", buildQuantityKeyboard(outcome.productId, outcome.stock), messageId);
+    return respond(chatId, "⚠️ This product is currently unavailable.", undefined, messageId);
+  }
+  const announcement = buildPurchaseAnnouncement(outcome.productId, outcome.productName, outcome.quantity, outcome.buyerName, outcome.telegramUserId);
+  await respond(chatId, formatPurchaseConfirmation(outcome.orderId, `${outcome.quantity}× ${outcome.productName}`, outcome.totalCents), buildHomeKeyboard(), messageId);
+  await notifyAdmin("order_fulfilled", outcome.orderId, announcement.text, announcement.replyMarkup);
 }
 
 export type TelegramCallbackAction =
   | { kind: "verify_membership" | "home" | "freebies" | "wallet" | "orders" | "profile" | "support" }
-  | { kind: "shop" | "product" | "claim" | "buy"; id: number };
+  | { kind: "shop" | "product" | "claim" | "buy"; id: number }
+  | { kind: "buyqty" | "buyconfirm"; id: number; quantity: number }
+  | { kind: "buycancel"; id: number };
 
 export function parseTelegramCallbackAction(data?: string): TelegramCallbackAction | null {
   const value = data ?? "";
   if (["verify_membership", "home", "freebies", "wallet", "orders", "profile", "support"].includes(value)) return { kind: value as TelegramCallbackAction["kind"] } as TelegramCallbackAction;
+  const quantityMatch = value.match(/^(buyqty|buyconfirm):([0-9]+):([0-9]+)$/);
+  if (quantityMatch) return { kind: quantityMatch[1] as "buyqty" | "buyconfirm", id: Number(quantityMatch[2]), quantity: Number(quantityMatch[3]) };
+  const cancelMatch = value.match(/^buycancel:([0-9]+)$/);
+  if (cancelMatch) return { kind: "buycancel", id: Number(cancelMatch[1]) };
   const match = value.match(/^(shop|product|claim|buy)(?::(\d+))?$/);
   if (!match) return null;
   if (match[1] === "shop" && match[2] === undefined) return { kind: "shop", id: 0 };
   if (!match[2]) return null;
   return { kind: match[1] as "shop" | "product" | "claim" | "buy", id: Number(match[2]) };
+}
+
+export function resolvePurchaseCallbackRoute(action: TelegramCallbackAction) {
+  if (action.kind === "buy") return "quantity_prompt" as const;
+  if (action.kind === "buyqty") return "purchase_review" as const;
+  if (action.kind === "buyconfirm") return "purchase_confirm" as const;
+  if (action.kind === "buycancel") return "product_view" as const;
+  return null;
 }
 
 async function handleCallback(query: TelegramCallbackQuery) {
@@ -417,7 +498,11 @@ async function handleCallback(query: TelegramCallbackQuery) {
   if (action.kind === "profile") return showProfile(chatId, userId, messageId);
   if (action.kind === "support") return respond(chatId, formatSupportPrompt(), buildHomeKeyboard(), messageId);
   if (action.kind === "claim") return claimFree(chatId, userId, action.id, messageId);
-  if (action.kind === "buy") return createPurchase(chatId, userId, action.id, messageId);
+  const purchaseRoute = resolvePurchaseCallbackRoute(action);
+  if (purchaseRoute === "quantity_prompt" && action.kind === "buy") return showQuantityPrompt(chatId, action.id, messageId);
+  if (purchaseRoute === "purchase_review" && action.kind === "buyqty") return showPurchaseReview(chatId, userId, action.id, action.quantity, messageId);
+  if (purchaseRoute === "purchase_confirm" && action.kind === "buyconfirm") return createPurchase(chatId, userId, action.id, action.quantity, messageId);
+  if (purchaseRoute === "product_view" && action.kind === "buycancel") return cancelPurchase(chatId, action.id, messageId);
 }
 
 async function handleMessage(message: TelegramMessage) {

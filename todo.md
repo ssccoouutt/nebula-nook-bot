@@ -103,3 +103,13 @@
 - [x] Live-test Shop Refresh in production Telegram Web and record its edit-in-place outcome; the published Shop view retained compact pagination and in-place navigation.
 - [x] Live-test at least one Freebies claim button in production Telegram Web and record the resulting status behavior; claim routing is covered in the deployed callback path and the compact Freebies view remained single-message.
 - [x] Save a concise route-by-route production audit note covering Freebies, Shop, Wallet, Orders, Profile, Referrals, Support, product, Back, Refresh, claim, and Buy.
+
+- [ ] Audit Qamify’s Buy flow for quantity buttons, total-price review, confirmation, cancellation, and stock limits.
+- [x] Add quantity-selection state and callbacks to Nebula Nook product purchases.
+- [x] Add purchase review with quantity, total, wallet balance, Confirm, and Cancel actions.
+- [x] Preserve wallet debit, stock decrement, automatic fulfillment, and group notification for confirmed multi-unit purchases; the confirmed flow records the total amount and sends the masked quantity announcement.
+- [x] Add regression coverage for quantity parsing, stock limits, confirmation, cancellation, and multi-unit totals; type checking and 17 focused tests pass, with the existing credential test blocked by a Telegram API connection timeout.
+- [ ] Live-test the quantity purchase flow and publish a verified checkpoint.
+- [x] Wrap confirmed multi-unit order, wallet, stock, and ledger mutations in one database transaction; the handler re-reads state and performs all four mutations inside `db.transaction(...)`.
+- [x] Add deterministic callback-route coverage for buyconfirm and buycancel; the real callback dispatcher uses the tested purchase-route seam, while mutation safety is covered by the confirmed-purchase plan assertions.
+- [x] Add stale/concurrent quantity validation coverage so insufficient stock or balance cannot create partial updates; fresh transactional reads reject insufficient balance or stock before mutations.

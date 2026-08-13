@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   buildAutoPurchaseResult,
+  buildConfirmedPurchasePlan,
   buildFulfillmentNotifications,
   buildPurchaseAnnouncement,
   maskPurchaseName,
@@ -19,10 +20,15 @@ import {
   buildMembershipKeyboard,
   buildShopKeyboard,
   buildProductKeyboard,
+  buildQuantityKeyboard,
+  buildPurchaseReviewKeyboard,
+  formatQuantityPrompt,
+  formatPurchaseReview,
   formatFreebiesMessage,
   buildFreebiesKeyboard,
   telegramResponseMethod,
   parseTelegramCallbackAction,
+  resolvePurchaseCallbackRoute,
 } from "./telegram";
 
 describe("Telegram presentation and notification helpers", () => {
@@ -88,8 +94,35 @@ describe("Telegram presentation and notification helpers", () => {
     expect(parseTelegramCallbackAction("product:7")).toEqual({ kind: "product", id: 7 });
     expect(parseTelegramCallbackAction("claim:7")).toEqual({ kind: "claim", id: 7 });
     expect(parseTelegramCallbackAction("buy:7")).toEqual({ kind: "buy", id: 7 });
+    expect(parseTelegramCallbackAction("buyqty:7:3")).toEqual({ kind: "buyqty", id: 7, quantity: 3 });
+    expect(parseTelegramCallbackAction("buyconfirm:7:3")).toEqual({ kind: "buyconfirm", id: 7, quantity: 3 });
+    expect(parseTelegramCallbackAction("buycancel:7")).toEqual({ kind: "buycancel", id: 7 });
     expect(parseTelegramCallbackAction("unknown:7")).toBeNull();
     expect(parseTelegramCallbackAction("product:nope")).toBeNull();
+  });
+
+  it("routes the quantity purchase state machine through the real callback dispatcher seam", () => {
+    expect(resolvePurchaseCallbackRoute({ kind: "buy", id: 7 })).toBe("quantity_prompt");
+    expect(resolvePurchaseCallbackRoute({ kind: "buyqty", id: 7, quantity: 3 })).toBe("purchase_review");
+    expect(resolvePurchaseCallbackRoute({ kind: "buyconfirm", id: 7, quantity: 3 })).toBe("purchase_confirm");
+    expect(resolvePurchaseCallbackRoute({ kind: "buycancel", id: 7 })).toBe("product_view");
+    expect(resolvePurchaseCallbackRoute({ kind: "home" })).toBeNull();
+  });
+
+  it("renders the Qamify-style quantity and confirmation steps", () => {
+    expect(formatQuantityPrompt("Gemini Pro", 299, 25)).toContain("🛒 <b>Choose quantity</b>");
+    expect(formatQuantityPrompt("Gemini Pro", 299, 25)).toContain("📦 Available: <b>25</b>");
+    const quantityRows = buildQuantityKeyboard(7, 25).inline_keyboard;
+    expect(quantityRows[0]).toEqual(expect.arrayContaining([
+      expect.objectContaining({ text: "1×", callback_data: "buyqty:7:1", style: "primary" }),
+      expect.objectContaining({ text: "2×", callback_data: "buyqty:7:2", style: "primary" }),
+      expect.objectContaining({ text: "3×", callback_data: "buyqty:7:3", style: "primary" }),
+    ]));
+    expect(quantityRows.at(-1)?.[0]).toMatchObject({ text: "↩️ Back to product", callback_data: "product:7" });
+    expect(formatPurchaseReview("Gemini Pro", 299, 3, 1000)).toContain("💰 Total: <b>$8.97</b>");
+    const reviewRows = buildPurchaseReviewKeyboard(7, 3).inline_keyboard;
+    expect(reviewRows[0][0]).toMatchObject({ callback_data: "buyconfirm:7:3", style: "success" });
+    expect(reviewRows[1][0]).toMatchObject({ callback_data: "buycancel:7", style: "danger" });
   });
 
   it("uses edit-in-place responses for callback navigation and send responses for commands", () => {
@@ -127,9 +160,13 @@ describe("Telegram presentation and notification helpers", () => {
   });
 
   it("computes an automatically fulfilled wallet purchase without dashboard intervention", () => {
-    expect(buildAutoPurchaseResult(1000, 299, 25)).toEqual({ ok: true, status: "fulfilled", nextBalanceCents: 701, nextStock: 24 });
-    expect(buildAutoPurchaseResult(100, 299, 25).status).toBe("insufficient_balance");
-    expect(buildAutoPurchaseResult(1000, 299, 0).status).toBe("out_of_stock");
+    expect(buildAutoPurchaseResult(1000, 299, 25)).toMatchObject({ ok: true, status: "fulfilled", quantity: 1, totalCents: 299, nextBalanceCents: 701, nextStock: 24 });
+    expect(buildAutoPurchaseResult(1000, 299, 25, 3)).toMatchObject({ ok: true, status: "fulfilled", quantity: 3, totalCents: 897, nextBalanceCents: 103, nextStock: 22 });
+    expect(buildAutoPurchaseResult(100, 299, 25, 3).status).toBe("insufficient_balance");
+    expect(buildAutoPurchaseResult(1000, 299, 2, 3).status).toBe("out_of_stock");
+    expect(buildConfirmedPurchasePlan(1000, 299, 25, 3)).toEqual({ ok: true, quantity: 3, totalCents: 897, nextBalanceCents: 103, nextStock: 22 });
+    expect(buildConfirmedPurchasePlan(100, 299, 25, 3)).toEqual({ ok: false, status: "insufficient_balance", totalCents: 897 });
+    expect(buildConfirmedPurchasePlan(1000, 299, 2, 3)).toEqual({ ok: false, status: "out_of_stock", totalCents: 897 });
   });
 
   it("builds a group completion notice without requiring a customer DM", () => {
