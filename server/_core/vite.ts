@@ -48,13 +48,19 @@ export async function setupVite(app: Express, server: Server) {
 }
 
 export function serveStatic(app: Express) {
-  const distPath =
+  const candidates =
     process.env.NODE_ENV === "development"
-      ? path.resolve(import.meta.dirname, "../..", "dist", "public")
-      : path.resolve(import.meta.dirname, "public");
-  if (!fs.existsSync(distPath)) {
+      ? [path.resolve(import.meta.dirname, "../..", "dist", "public")]
+      : [
+          path.resolve(import.meta.dirname, "public"),
+          path.resolve(import.meta.dirname, "..", "dist", "public"),
+          path.resolve(process.cwd(), "dist", "public"),
+        ];
+  const distPath = candidates.find(candidate => fs.existsSync(path.join(candidate, "index.html"))) ?? candidates[candidates.length - 1];
+
+  if (!fs.existsSync(path.join(distPath, "index.html"))) {
     console.error(
-      `Could not find the build directory: ${distPath}, make sure to build the client first`
+      `Could not find the built dashboard at any of: ${candidates.join(", ")}`
     );
   }
 
@@ -62,6 +68,6 @@ export function serveStatic(app: Express) {
 
   // fall through to index.html if the file doesn't exist
   app.use("*", (_req, res) => {
-    res.sendFile(path.resolve(distPath, "index.html"));
+    res.sendFile(path.join(distPath, "index.html"));
   });
 }
