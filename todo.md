@@ -237,3 +237,5 @@
 - [x] Use only PASS as the user-entered Koyeb variable for cfg.enc decryption, keeping platform-provided infrastructure values separate.
 
 - [x] Rename the encrypted-config password variable from CONFIG_DECRYPTION_PASSWORD to PASS in code and documentation.
+
+- [x] Add a protected webhook-registration action so the healthy Koyeb service can switch Telegram from Manus when direct Telegram API access is unavailable from the sandbox.

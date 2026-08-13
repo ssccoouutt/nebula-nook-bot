@@ -6,7 +6,7 @@ import { createExpressMiddleware } from "@trpc/server/adapters/express";
 import { registerOAuthRoutes } from "./oauth";
 import { registerStorageProxy } from "./storageProxy";
 import { appRouter } from "../routers";
-import { telegramWebhookHandler, telegramWebhookHealth } from "../telegram";
+import { configureKoyebWebhookOnStartup, telegramWebhookConfigure, telegramWebhookHandler, telegramWebhookHealth } from "../telegram";
 import { createContext } from "./context";
 import { serveStatic, setupVite } from "./vite";
 
@@ -38,6 +38,7 @@ async function startServer() {
   registerStorageProxy(app);
   registerOAuthRoutes(app);
   app.get("/api/telegram/webhook/health", telegramWebhookHealth);
+  app.post("/api/telegram/webhook/configure", telegramWebhookConfigure);
   app.post("/api/telegram/webhook", telegramWebhookHandler);
   // tRPC API
   app.use(
@@ -63,6 +64,11 @@ async function startServer() {
 
   server.listen(port, () => {
     console.log(`Server running on http://localhost:${port}/`);
+    void configureKoyebWebhookOnStartup()
+      .then(info => {
+        if (info) console.log(`[Telegram] Koyeb webhook configured: ${info.url}`);
+      })
+      .catch(error => console.error("[Telegram] Koyeb webhook configuration failed", error));
   });
 }
 

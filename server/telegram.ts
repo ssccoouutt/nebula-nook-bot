@@ -787,6 +787,30 @@ export async function configureTelegramWebhook(webhookUrl: string) {
   return telegramCall<{ url: string; has_custom_certificate: boolean; pending_update_count: number; last_error_message?: string }>("getWebhookInfo", {});
 }
 
+/**
+ * Koyeb performs the one-time webhook migration from its non-USA runtime.
+ * The hostname is intentionally fixed to the current Koyeb service so no
+ * additional public configuration variable is required. The PORT guard keeps
+ * the Manus deployment from redirecting Telegram back to Koyeb.
+ */
+export async function configureKoyebWebhookOnStartup() {
+  if (process.env.NODE_ENV !== "production" || process.env.PORT !== "8000" || !process.env.PASS) return null;
+  const webhookUrl = "https://cognitive-quintilla-techzone3228-89a97258.koyeb.app/api/telegram/webhook";
+  return configureTelegramWebhook(webhookUrl);
+}
+
+export async function telegramWebhookConfigure(req: Request, res: Response) {
+  const expected = process.env.PASS;
+  if (!expected || req.header("x-nebula-config-pass") !== expected) return res.status(401).json({ ok: false, error: "unauthorized" });
+  try {
+    const info = await configureKoyebWebhookOnStartup();
+    if (!info) return res.status(409).json({ ok: false, error: "Koyeb startup registration is not enabled in this runtime" });
+    return res.json({ ok: true, webhook: info });
+  } catch (error) {
+    return res.status(503).json({ ok: false, error: error instanceof Error ? error.message : "Telegram unavailable" });
+  }
+}
+
 export async function telegramWebhookHealth(_req: Request, res: Response) {
   try {
     const info = await telegramCall<{ url: string; pending_update_count: number; last_error_message?: string }>("getWebhookInfo", {});

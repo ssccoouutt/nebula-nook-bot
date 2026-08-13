@@ -23,3 +23,19 @@ GitHub confirmed “Okay, Koyeb was updated for the @ssccoouutt account.” Retu
 
 ## Repository visibility change
 At the user's request, `ssccoouutt/nebula-nook-bot` was changed from private to public using the authorized GitHub repository connection. GitHub verification returned `isPrivate: false` and `visibility: PUBLIC`. No source code or secret files were changed.
+
+## 2026-08-13 Public import resumed
+Koyeb authenticated workspace `techzone3228` accepted the public repository `https://github.com/ssccoouutt/nebula-nook-bot`. Buildpack was selected, and the free instance region was changed from the default Washington, D.C. to Frankfurt (`fra`) for non-USA egress. The current flow is at the final review step after the region selection. Koyeb notes that public-repository imports do not provide auto-deploy.
+
+## 2026-08-13 Service created
+Koyeb accepted deployment of `nebula-nook-bot` from the public GitHub repository in Frankfurt using the free instance and the single protected `PASS` variable. Initial deployment service ID: `61830950-d33b-406f-8e3a-5f4cfae2bc4c`. Tracking URL: https://app.koyeb.com/services/new?serviceId=61830950-d33b-406f-8e3a-5f4cfae2bc4c&step=initialDeployment. Koyeb displays “You're almost done” with a manage-service link at https://app.koyeb.com/services/61830950-d33b-406f-8e3a-5f4cfae2bc4c.
+
+Koyeb build status update: repository clone, runtime detection, cache restore, and runnable container build completed successfully from commit `aceec24c`. Deployment remains `Not started`; scaling shows `0 of 1 running`, and the Frankfurt replica reports no instance currently running. Continue monitoring the initial deployment page.
+
+Koyeb deployment update: final OCI image push reached 27 seconds and completed the build pipeline, but the deployment panel still says `Not started`; scaling remains `0 of 1 running` and Frankfurt has no active instance. The public URL is `https://cognitive-quintilla-techzone3228-89a97258.koyeb.app/`, forwarded to port 8000.
+
+The public URL returned Koyeb `404 No active service` because no replica was active yet. Navigating directly to the service-management URL produced a blank Koyeb SPA shell even after waiting; continue using the initial-deployment tracking URL for status monitoring.
+
+Koyeb tracker reload now renders only the `You're almost done` overview and the manage-service link; deployment detail remains absent in the hydrated view. The service URL is still inactive, so deployment cannot yet be health-checked.
+
+Koyeb deployment succeeded: service `nebula-nook-bot` is healthy in Frankfurt with `1 of 1 running` on the Free instance. Public domain: `https://cognitive-quintilla-techzone3228-89a97258.koyeb.app/`. Latest deployment is marked Healthy from commit `aceec24c`.
