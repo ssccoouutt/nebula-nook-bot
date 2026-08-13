@@ -16,6 +16,18 @@ type AppDb = ReturnType<typeof drizzle<AppSchema>>;
 let _db: AppDb | null = null;
 type DatabaseClient = InstanceType<typeof DatabaseSync>;
 let _client: DatabaseClient | null = null;
+
+type SqliteParam = null | number | string | Uint8Array;
+
+export function normalizeSqliteParams(params: unknown[]): SqliteParam[] {
+  return params.map(value => {
+    if (value === undefined) return null;
+    if (value instanceof Date) return value.getTime();
+    if (typeof value === "boolean") return value ? 1 : 0;
+    if (typeof value === "bigint") return Number(value);
+    return value as SqliteParam;
+  });
+}
 let _ready: Promise<AppDb | null> | null = null;
 
 const storageDir = process.env.KOYEB_DATA_DIR || path.resolve(process.cwd(), "data", "nebula-nook");
@@ -46,16 +58,17 @@ async function initialize(): Promise<AppDb> {
   const client = _client;
   const db = drizzle<AppSchema>(async (sql, params, method) => {
     const statement = client.prepare(sql);
+    const normalizedParams = normalizeSqliteParams(params);
     if (method === "run") {
-      const result = statement.run(...params);
+      const result = statement.run(...normalizedParams);
       return { rows: [], changes: Number(result.changes), lastInsertRowid: Number(result.lastInsertRowid) };
     }
-    if (method === "get") return { rows: (statement.get(...params) ?? undefined) as any };
+    if (method === "get") return { rows: (statement.get(...normalizedParams) ?? undefined) as any };
     if (method === "values") {
-      const rows = statement.all(...params) as Record<string, unknown>[];
+      const rows = statement.all(...normalizedParams) as Record<string, unknown>[];
       return { rows: rows.map((row) => Object.values(row)) };
     }
-    return { rows: statement.all(...params) };
+    return { rows: statement.all(...normalizedParams) };
   }, { schema });
   _db = db;
   console.warn(`[Storage] Using Koyeb-local Node SQLite data at ${storageFile}. Data is lost if this filesystem is recycled.`);
