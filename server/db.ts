@@ -1,47 +1,70 @@
 import { mkdir } from "node:fs/promises";
 import path from "node:path";
-import { PGlite } from "@electric-sql/pglite";
-import { drizzle } from "drizzle-orm/pglite";
+import { createRequire } from "node:module";
+
+const require = createRequire(import.meta.url);
+const { DatabaseSync } = require("node:sqlite") as typeof import("node:sqlite");
+import { drizzle } from "drizzle-orm/sqlite-proxy";
 import { eq } from "drizzle-orm";
 import { InsertUser, users } from "../drizzle/schema";
+import * as schema from "../drizzle/schema";
 import { ENV } from "./_core/env";
 
-let _db: ReturnType<typeof drizzle> | null = null;
-let _client: PGlite | null = null;
-let _ready: Promise<ReturnType<typeof drizzle> | null> | null = null;
+type AppSchema = typeof schema;
+type AppDb = ReturnType<typeof drizzle<AppSchema>>;
+
+let _db: AppDb | null = null;
+type DatabaseClient = InstanceType<typeof DatabaseSync>;
+let _client: DatabaseClient | null = null;
+let _ready: Promise<AppDb | null> | null = null;
 
 const storageDir = process.env.KOYEB_DATA_DIR || path.resolve(process.cwd(), "data", "nebula-nook");
+const storageFile = path.join(storageDir, "nebula-nook.sqlite");
 
 const schemaSql = `
-CREATE TABLE IF NOT EXISTS users (id serial PRIMARY KEY, "openId" varchar(64) NOT NULL UNIQUE, name text, email varchar(320), "loginMethod" varchar(64), role text NOT NULL DEFAULT 'user', "createdAt" timestamptz NOT NULL DEFAULT now(), "updatedAt" timestamptz NOT NULL DEFAULT now(), "lastSignedIn" timestamptz NOT NULL DEFAULT now());
-CREATE TABLE IF NOT EXISTS "botUsers" (id serial PRIMARY KEY, "telegramUserId" bigint NOT NULL UNIQUE, username varchar(255), "firstName" varchar(255), "lastName" varchar(255), "referralCode" varchar(32) NOT NULL UNIQUE, "referredById" integer, tier text NOT NULL DEFAULT 'Bronze', "balanceCents" integer NOT NULL DEFAULT 0, "accessGranted" integer NOT NULL DEFAULT 0, "createdAt" timestamptz NOT NULL DEFAULT now(), "updatedAt" timestamptz NOT NULL DEFAULT now());
-CREATE TABLE IF NOT EXISTS "botSettings" (id serial PRIMARY KEY, key varchar(128) NOT NULL UNIQUE, value text NOT NULL, "updatedAt" timestamptz NOT NULL DEFAULT now());
-CREATE TABLE IF NOT EXISTS products (id serial PRIMARY KEY, name varchar(255) NOT NULL, description text NOT NULL, "priceCents" integer NOT NULL, stock integer NOT NULL DEFAULT 0, active integer NOT NULL DEFAULT 1, "freeEligible" integer NOT NULL DEFAULT 0, "freeWindowMs" bigint, "createdAt" timestamptz NOT NULL DEFAULT now(), "updatedAt" timestamptz NOT NULL DEFAULT now());
-CREATE TABLE IF NOT EXISTS "freeClaims" (id serial PRIMARY KEY, "botUserId" integer NOT NULL, "productId" integer NOT NULL, "windowStartMs" bigint NOT NULL, status text NOT NULL DEFAULT 'claimed', "createdAt" timestamptz NOT NULL DEFAULT now(), UNIQUE ("botUserId", "productId", "windowStartMs"));
-CREATE TABLE IF NOT EXISTS orders (id serial PRIMARY KEY, "botUserId" integer NOT NULL, "productId" integer NOT NULL, kind text NOT NULL, "amountCents" integer NOT NULL, status text NOT NULL DEFAULT 'pending', "createdAt" timestamptz NOT NULL DEFAULT now(), "updatedAt" timestamptz NOT NULL DEFAULT now());
-CREATE TABLE IF NOT EXISTS "walletLedger" (id serial PRIMARY KEY, "botUserId" integer NOT NULL, "amountCents" integer NOT NULL, kind text NOT NULL, "referenceId" varchar(128), note text, "createdAt" timestamptz NOT NULL DEFAULT now());
-CREATE TABLE IF NOT EXISTS "binancePayDeposits" (id serial PRIMARY KEY, "botUserId" integer NOT NULL, "transactionId" varchar(128) NOT NULL UNIQUE, "amountCents" integer NOT NULL, asset varchar(16) NOT NULL, status text NOT NULL DEFAULT 'verified', "rawStatus" varchar(64), "createdAt" timestamptz NOT NULL DEFAULT now());
-CREATE TABLE IF NOT EXISTS "paymentIntents" (id serial PRIMARY KEY, "botUserId" integer NOT NULL, "productId" integer NOT NULL, quantity integer NOT NULL, "amountCents" integer NOT NULL, method text NOT NULL, status text NOT NULL DEFAULT 'pending', "transactionId" varchar(128) UNIQUE, "createdAt" timestamptz NOT NULL DEFAULT now(), "updatedAt" timestamptz NOT NULL DEFAULT now());
-CREATE TABLE IF NOT EXISTS referrals (id serial PRIMARY KEY, "referrerId" integer NOT NULL, "referredUserId" integer NOT NULL UNIQUE, "bonusCents" integer NOT NULL DEFAULT 0, "createdAt" timestamptz NOT NULL DEFAULT now());
-CREATE TABLE IF NOT EXISTS "priceAlerts" (id serial PRIMARY KEY, "botUserId" integer NOT NULL, "productId" integer NOT NULL, active integer NOT NULL DEFAULT 1, "createdAt" timestamptz NOT NULL DEFAULT now(), "updatedAt" timestamptz NOT NULL DEFAULT now(), UNIQUE ("botUserId", "productId"));
-CREATE TABLE IF NOT EXISTS "supportTickets" (id serial PRIMARY KEY, "botUserId" integer NOT NULL, message text NOT NULL, status text NOT NULL DEFAULT 'open', "createdAt" timestamptz NOT NULL DEFAULT now(), "updatedAt" timestamptz NOT NULL DEFAULT now());
-CREATE TABLE IF NOT EXISTS broadcasts (id serial PRIMARY KEY, message text NOT NULL, status text NOT NULL DEFAULT 'queued', "sentCount" integer NOT NULL DEFAULT 0, "failedCount" integer NOT NULL DEFAULT 0, "createdAt" timestamptz NOT NULL DEFAULT now(), "completedAt" timestamptz, "scheduleCronTaskUid" varchar(65));
-CREATE TABLE IF NOT EXISTS "notificationDeliveries" (id serial PRIMARY KEY, "botUserId" integer, "adminChatId" bigint, "eventType" varchar(64) NOT NULL, "referenceId" varchar(128) NOT NULL, status text NOT NULL DEFAULT 'queued', error text, "createdAt" timestamptz NOT NULL DEFAULT now(), "sentAt" timestamptz, UNIQUE ("eventType", "referenceId"));
+PRAGMA journal_mode = WAL;
+CREATE TABLE IF NOT EXISTS users (id INTEGER PRIMARY KEY AUTOINCREMENT, openId TEXT NOT NULL UNIQUE, name TEXT, email TEXT, loginMethod TEXT, role TEXT NOT NULL DEFAULT 'user', createdAt INTEGER NOT NULL DEFAULT (strftime('%s','now') * 1000), updatedAt INTEGER NOT NULL DEFAULT (strftime('%s','now') * 1000), lastSignedIn INTEGER NOT NULL DEFAULT (strftime('%s','now') * 1000));
+CREATE TABLE IF NOT EXISTS botUsers (id INTEGER PRIMARY KEY AUTOINCREMENT, telegramUserId INTEGER NOT NULL UNIQUE, username TEXT, firstName TEXT, lastName TEXT, referralCode TEXT NOT NULL UNIQUE, referredById INTEGER, tier TEXT NOT NULL DEFAULT 'Bronze', balanceCents INTEGER NOT NULL DEFAULT 0, accessGranted INTEGER NOT NULL DEFAULT 0, createdAt INTEGER NOT NULL DEFAULT (strftime('%s','now') * 1000), updatedAt INTEGER NOT NULL DEFAULT (strftime('%s','now') * 1000));
+CREATE TABLE IF NOT EXISTS botSettings (id INTEGER PRIMARY KEY AUTOINCREMENT, key TEXT NOT NULL UNIQUE, value TEXT NOT NULL, updatedAt INTEGER NOT NULL DEFAULT (strftime('%s','now') * 1000));
+CREATE TABLE IF NOT EXISTS products (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, description TEXT NOT NULL, priceCents INTEGER NOT NULL, stock INTEGER NOT NULL DEFAULT 0, active INTEGER NOT NULL DEFAULT 1, freeEligible INTEGER NOT NULL DEFAULT 0, freeWindowMs INTEGER, createdAt INTEGER NOT NULL DEFAULT (strftime('%s','now') * 1000), updatedAt INTEGER NOT NULL DEFAULT (strftime('%s','now') * 1000));
+CREATE TABLE IF NOT EXISTS freeClaims (id INTEGER PRIMARY KEY AUTOINCREMENT, botUserId INTEGER NOT NULL, productId INTEGER NOT NULL, windowStartMs INTEGER NOT NULL, status TEXT NOT NULL DEFAULT 'claimed', createdAt INTEGER NOT NULL DEFAULT (strftime('%s','now') * 1000), UNIQUE (botUserId, productId, windowStartMs));
+CREATE TABLE IF NOT EXISTS orders (id INTEGER PRIMARY KEY AUTOINCREMENT, botUserId INTEGER NOT NULL, productId INTEGER NOT NULL, kind TEXT NOT NULL, amountCents INTEGER NOT NULL, status TEXT NOT NULL DEFAULT 'pending', createdAt INTEGER NOT NULL DEFAULT (strftime('%s','now') * 1000), updatedAt INTEGER NOT NULL DEFAULT (strftime('%s','now') * 1000));
+CREATE TABLE IF NOT EXISTS walletLedger (id INTEGER PRIMARY KEY AUTOINCREMENT, botUserId INTEGER NOT NULL, amountCents INTEGER NOT NULL, kind TEXT NOT NULL, referenceId TEXT, note TEXT, createdAt INTEGER NOT NULL DEFAULT (strftime('%s','now') * 1000));
+CREATE TABLE IF NOT EXISTS binancePayDeposits (id INTEGER PRIMARY KEY AUTOINCREMENT, botUserId INTEGER NOT NULL, transactionId TEXT NOT NULL UNIQUE, amountCents INTEGER NOT NULL, asset TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'verified', rawStatus TEXT, createdAt INTEGER NOT NULL DEFAULT (strftime('%s','now') * 1000));
+CREATE TABLE IF NOT EXISTS paymentIntents (id INTEGER PRIMARY KEY AUTOINCREMENT, botUserId INTEGER NOT NULL, productId INTEGER NOT NULL, quantity INTEGER NOT NULL, amountCents INTEGER NOT NULL, method TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'pending', transactionId TEXT UNIQUE, createdAt INTEGER NOT NULL DEFAULT (strftime('%s','now') * 1000), updatedAt INTEGER NOT NULL DEFAULT (strftime('%s','now') * 1000));
+CREATE TABLE IF NOT EXISTS referrals (id INTEGER PRIMARY KEY AUTOINCREMENT, referrerId INTEGER NOT NULL, referredUserId INTEGER NOT NULL UNIQUE, bonusCents INTEGER NOT NULL DEFAULT 0, createdAt INTEGER NOT NULL DEFAULT (strftime('%s','now') * 1000));
+CREATE TABLE IF NOT EXISTS priceAlerts (id INTEGER PRIMARY KEY AUTOINCREMENT, botUserId INTEGER NOT NULL, productId INTEGER NOT NULL, active INTEGER NOT NULL DEFAULT 1, createdAt INTEGER NOT NULL DEFAULT (strftime('%s','now') * 1000), updatedAt INTEGER NOT NULL DEFAULT (strftime('%s','now') * 1000), UNIQUE (botUserId, productId));
+CREATE TABLE IF NOT EXISTS supportTickets (id INTEGER PRIMARY KEY AUTOINCREMENT, botUserId INTEGER NOT NULL, message TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'open', createdAt INTEGER NOT NULL DEFAULT (strftime('%s','now') * 1000), updatedAt INTEGER NOT NULL DEFAULT (strftime('%s','now') * 1000));
+CREATE TABLE IF NOT EXISTS broadcasts (id INTEGER PRIMARY KEY AUTOINCREMENT, message TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'queued', sentCount INTEGER NOT NULL DEFAULT 0, failedCount INTEGER NOT NULL DEFAULT 0, createdAt INTEGER NOT NULL DEFAULT (strftime('%s','now') * 1000), completedAt INTEGER, scheduleCronTaskUid TEXT);
+CREATE TABLE IF NOT EXISTS notificationDeliveries (id INTEGER PRIMARY KEY AUTOINCREMENT, botUserId INTEGER, adminChatId INTEGER, eventType TEXT NOT NULL, referenceId TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'queued', error TEXT, createdAt INTEGER NOT NULL DEFAULT (strftime('%s','now') * 1000), sentAt INTEGER, UNIQUE (eventType, referenceId));
 `;
 
-async function initialize() {
+async function initialize(): Promise<AppDb> {
   await mkdir(storageDir, { recursive: true });
-  _client = new PGlite(storageDir);
-  await _client.waitReady;
-  await _client.exec(schemaSql);
-  _db = drizzle(_client);
-  console.warn(`[Storage] Using Koyeb-local PGlite data at ${storageDir}. Data is lost if this filesystem is recycled.`);
-  return _db;
+  _client = new DatabaseSync(storageFile);
+  _client.exec(schemaSql);
+  const client = _client;
+  const db = drizzle<AppSchema>(async (sql, params, method) => {
+    const statement = client.prepare(sql);
+    if (method === "run") {
+      const result = statement.run(...params);
+      return { rows: [], changes: Number(result.changes), lastInsertRowid: Number(result.lastInsertRowid) };
+    }
+    if (method === "get") return { rows: (statement.get(...params) ?? undefined) as any };
+    if (method === "values") {
+      const rows = statement.all(...params) as Record<string, unknown>[];
+      return { rows: rows.map((row) => Object.values(row)) };
+    }
+    return { rows: statement.all(...params) };
+  }, { schema });
+  _db = db;
+  console.warn(`[Storage] Using Koyeb-local Node SQLite data at ${storageFile}. Data is lost if this filesystem is recycled.`);
+  return db;
 }
 
 export async function getDb() {
   if (_db) return _db;
-  if (!_ready) _ready = initialize().catch((error) => { console.error("[Storage] Failed to initialize local PGlite:", error); _db = null; return null; });
+  if (!_ready) _ready = initialize().catch((error) => { console.error("[Storage] Failed to initialize local SQLite:", error); _db = null; return null; });
   return _ready;
 }
 
