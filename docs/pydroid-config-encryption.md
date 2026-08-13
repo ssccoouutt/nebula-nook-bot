@@ -51,6 +51,6 @@ Delete `config.decrypted.env` immediately after use. Never commit it.
 
 ## Koyeb limitation
 
-Koyeb cannot start the application from `config.enc` unless the application is explicitly changed to decrypt it at startup. The passphrase would still need to be stored as one protected Koyeb secret, for example `CONFIG_DECRYPTION_PASSWORD`. Therefore encryption protects the public GitHub repository, but it does not eliminate the need for one private runtime secret.
+Koyeb starts the application from `config.enc` after the bot decrypts it at startup. Store the same encryption password as one protected Koyeb secret named `PASS`. Therefore encryption protects the public GitHub repository, while `PASS` remains the only private runtime value required for the encrypted configuration.
 
-The encrypted file alone is not enough for Koyeb to recover the configuration. If the goal is the most reliable deployment, enter the individual values into Koyeb’s encrypted environment settings. If the goal is one public GitHub file, the application must be extended with startup decryption and the passphrase must remain outside GitHub.
+The bot now loads `cfg.enc` during startup and applies its non-empty settings before Telegram and database modules initialize. The encrypted file may be public, but the `PASS` value must remain private in Koyeb. Do not add the plaintext configuration or the password to GitHub.

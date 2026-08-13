@@ -229,3 +229,11 @@
 - [x] Simplify the configuration template to essential bot, admin, Binance Pay, and membership settings, with the verified administration chat ID populated.
 
 - [x] Remove DATABASE_URL, JWT_SECRET, and TELEGRAM_WEBHOOK_SECRET from the user-facing copyable configuration template.
+
+- [x] Add the supplied cfg.enc as a public-repository artifact without adding plaintext credentials.
+- [x] Add startup decryption using a protected PASS runtime secret.
+- [x] Test encrypted-config startup loading and document the required private PASS variable.
+
+- [x] Use only PASS as the user-entered Koyeb variable for cfg.enc decryption, keeping platform-provided infrastructure values separate.
+
+- [x] Rename the encrypted-config password variable from CONFIG_DECRYPTION_PASSWORD to PASS in code and documentation.
