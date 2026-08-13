@@ -104,6 +104,7 @@ describe("Telegram presentation and notification helpers", () => {
 
   it("routes the quantity purchase state machine through the real callback dispatcher seam", () => {
     expect(resolvePurchaseCallbackRoute({ kind: "buy", id: 7 })).toBe("quantity_prompt");
+    expect(resolvePurchaseCallbackRoute({ kind: "buyqty", id: 7, quantity: 0 })).toBe("quantity_prompt");
     expect(resolvePurchaseCallbackRoute({ kind: "buyqty", id: 7, quantity: 3 })).toBe("purchase_review");
     expect(resolvePurchaseCallbackRoute({ kind: "buyconfirm", id: 7, quantity: 3 })).toBe("purchase_confirm");
     expect(resolvePurchaseCallbackRoute({ kind: "buycancel", id: 7 })).toBe("product_view");
@@ -178,7 +179,7 @@ describe("Telegram presentation and notification helpers", () => {
     expect(shop[1][0]).toMatchObject({ callback_data: "shop:1", style: "primary" });
 
     const product = buildProductKeyboard(7).inline_keyboard;
-    expect(product[0][0]).toMatchObject({ callback_data: "buy:7", style: "success" });
+    expect(product[0][0]).toMatchObject({ callback_data: "buyqty:7:0", style: "success" });
   });
 
   it("computes an automatically fulfilled wallet purchase without dashboard intervention", () => {

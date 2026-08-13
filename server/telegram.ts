@@ -230,7 +230,7 @@ export function buildShopKeyboard(items: Array<{ id: number; name: string; price
 
 export function buildProductKeyboard(productId: number) {
   return keyboard([
-    [{ text: "🛒 Buy now", callback_data: `buy:${productId}`, style: "success" }],
+    [{ text: "🛒 Buy now", callback_data: `buyqty:${productId}:0`, style: "success" }],
     [{ text: "↩️ Back to shop", callback_data: "shop", style: "primary" }, { text: "🏠 Home", callback_data: "home", style: "primary" }],
   ]);
 }
@@ -479,7 +479,7 @@ export function parseTelegramCallbackAction(data?: string): TelegramCallbackActi
 
 export function resolvePurchaseCallbackRoute(action: TelegramCallbackAction) {
   if (action.kind === "buy") return "quantity_prompt" as const;
-  if (action.kind === "buyqty") return "purchase_review" as const;
+  if (action.kind === "buyqty") return action.quantity > 0 ? "purchase_review" as const : "quantity_prompt" as const;
   if (action.kind === "buyconfirm") return "purchase_confirm" as const;
   if (action.kind === "buycancel") return "product_view" as const;
   return null;
@@ -505,7 +505,7 @@ async function handleCallback(query: TelegramCallbackQuery) {
   if (action.kind === "support") return respond(chatId, formatSupportPrompt(), buildHomeKeyboard(), messageId);
   if (action.kind === "claim") return claimFree(chatId, userId, action.id, messageId);
   const purchaseRoute = resolvePurchaseCallbackRoute(action);
-  if (purchaseRoute === "quantity_prompt" && action.kind === "buy") return showQuantityPrompt(chatId, action.id, messageId);
+  if (purchaseRoute === "quantity_prompt" && (action.kind === "buy" || (action.kind === "buyqty" && action.quantity === 0))) return showQuantityPrompt(chatId, action.id, messageId);
   if (purchaseRoute === "purchase_review" && action.kind === "buyqty") return showPurchaseReview(chatId, userId, action.id, action.quantity, messageId);
   if (purchaseRoute === "purchase_confirm" && action.kind === "buyconfirm") return createPurchase(chatId, userId, action.id, action.quantity, messageId);
   if (purchaseRoute === "product_view" && action.kind === "buycancel") return cancelPurchase(chatId, action.id, messageId);

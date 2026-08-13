@@ -115,3 +115,5 @@
 - [x] Add stale/concurrent quantity validation coverage so insufficient stock or balance cannot create partial updates; fresh transactional reads reject insufficient balance or stock before mutations.
 - [x] Add a safe callback response fallback: if Telegram rejects editMessageText, send the intended product or quantity view once and log the edit failure instead of leaving the user with no response.
 - [x] Add regression coverage for edit-failure fallback; the real mocked `respond()` test now rejects `editMessageText` and asserts exactly one fallback `sendMessage` with the same content and keyboard. Live product-to-quantity verification remains pending.
+- [x] Fix the Product Buy now keyboard callback from legacy `buy:<productId>` to the quantity-prompt route `buyqty:<productId>:0` so live purchases show quantity buttons.
+- [x] Add regression coverage asserting Buy now emits the quantity-prompt entry route; TypeScript and 13 focused Telegram presentation tests pass. Live production verification remains pending.
