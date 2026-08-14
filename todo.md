@@ -354,3 +354,9 @@
 - [x] Add regression coverage for tolerance boundaries and suppressed top-up group notifications.
 
 - [x] Require Binance Pay transactions to be no older than 12 hours at verification time, with clear stale-transaction messaging and regression coverage.
+
+- [x] Add sortable user list with Telegram identity, wallet balance, join date, last activity, order count, and referral metrics.
+- [x] Add safe admin wallet balance adjustments with exact amount validation and an auditable wallet-ledger entry.
+- [x] Add user activity filters for a selected day and the last 30 days.
+- [x] Add a specific-user activity timeline covering wallet, deposits, orders, referrals, support, and profile events.
+- [x] Add dashboard tests, authorization coverage, and responsive UI verification for the new controls.

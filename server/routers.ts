@@ -5,7 +5,7 @@ import { getSessionCookieOptions } from "./_core/cookies";
 import { systemRouter } from "./_core/systemRouter";
 import { publicProcedure, router } from "./_core/trpc";
 import { getDb } from "./db";
-import { botSettings, botUsers, broadcasts, orders, products, supportTickets, walletLedger } from "../drizzle/schema";
+import { binancePayDeposits, botSettings, botUsers, broadcasts, orders, paymentIntents, referrals, products, supportTickets, walletLedger } from "../drizzle/schema";
 import { TRPCError } from "@trpc/server";
 
 function inventoryLines(value: string) {
@@ -82,7 +82,86 @@ export const appRouter = router({
       await db.insert(botSettings).values({ key: input.key, value: input.value.trim() }).onConflictDoUpdate({ target: botSettings.key, set: { value: input.value.trim() } });
       return { success: true };
     }),
-    users: adminProcedure.query(async () => (await database()).select().from(botUsers).orderBy(desc(botUsers.createdAt)).limit(200)),
+    users: adminProcedure.input(z.object({ sort: z.enum(["lastActivity", "balance", "createdAt", "orders", "referrals"]).default("lastActivity"), direction: z.enum(["asc", "desc"]).default("desc"), limit: z.number().int().min(1).max(500).default(200) }).optional()).query(async ({ input }) => {
+      const db = await database();
+      const limit = input?.limit ?? 200;
+      const [rows, orderRows, ledgerRows, referralRows, ticketRows, paymentRows] = await Promise.all([
+        db.select().from(botUsers).limit(limit),
+        db.select({ botUserId: orders.botUserId, count: sql<number>`count(*)`, lastAt: sql<number>`max(${orders.updatedAt})` }).from(orders).groupBy(orders.botUserId),
+        db.select({ botUserId: walletLedger.botUserId, count: sql<number>`count(*)`, lastAt: sql<number>`max(${walletLedger.createdAt})` }).from(walletLedger).groupBy(walletLedger.botUserId),
+        db.select({ referrerId: referrals.referrerId, count: sql<number>`count(*)`, lastAt: sql<number>`max(${referrals.createdAt})` }).from(referrals).groupBy(referrals.referrerId),
+        db.select({ botUserId: supportTickets.botUserId, count: sql<number>`count(*)`, lastAt: sql<number>`max(${supportTickets.updatedAt})` }).from(supportTickets).groupBy(supportTickets.botUserId),
+        db.select({ botUserId: paymentIntents.botUserId, lastAt: sql<number>`max(${paymentIntents.updatedAt})` }).from(paymentIntents).groupBy(paymentIntents.botUserId),
+      ]);
+      const byUser = new Map<number, { orders: number; referrals: number; lastActivity: number }>();
+      const touch = (id: number, count: number, lastAt: number | null | undefined, field: "orders" | "referrals") => { const current = byUser.get(id) ?? { orders: 0, referrals: 0, lastActivity: 0 }; current[field] += Number(count ?? 0); current.lastActivity = Math.max(current.lastActivity, Number(lastAt ?? 0)); byUser.set(id, current); };
+      for (const row of orderRows) touch(row.botUserId, row.count, row.lastAt, "orders");
+      for (const row of ledgerRows) { const current = byUser.get(row.botUserId) ?? { orders: 0, referrals: 0, lastActivity: 0 }; current.lastActivity = Math.max(current.lastActivity, Number(row.lastAt ?? 0)); byUser.set(row.botUserId, current); }
+      for (const row of referralRows) touch(row.referrerId, row.count, row.lastAt, "referrals");
+      for (const row of ticketRows) { const current = byUser.get(row.botUserId) ?? { orders: 0, referrals: 0, lastActivity: 0 }; current.lastActivity = Math.max(current.lastActivity, Number(row.lastAt ?? 0)); byUser.set(row.botUserId, current); }
+      for (const row of paymentRows) { const current = byUser.get(row.botUserId) ?? { orders: 0, referrals: 0, lastActivity: 0 }; current.lastActivity = Math.max(current.lastActivity, Number(row.lastAt ?? 0)); byUser.set(row.botUserId, current); }
+      const enriched = rows.map((row) => { const stats = byUser.get(row.id) ?? { orders: 0, referrals: 0, lastActivity: 0 }; return { ...row, orderCount: stats.orders, referralCount: stats.referrals, lastActivity: stats.lastActivity || row.updatedAt.getTime() }; });
+      const direction = input?.direction === "asc" ? 1 : -1;
+      const sort = input?.sort ?? "lastActivity";
+      enriched.sort((a, b) => { const av = sort === "balance" ? a.balanceCents : sort === "createdAt" ? a.createdAt.getTime() : sort === "orders" ? a.orderCount : sort === "referrals" ? a.referralCount : a.lastActivity; const bv = sort === "balance" ? b.balanceCents : sort === "createdAt" ? b.createdAt.getTime() : sort === "orders" ? b.orderCount : sort === "referrals" ? b.referralCount : b.lastActivity; return (av - bv) * direction; });
+      return enriched;
+    }),
+    activitySummary: adminProcedure.input(z.object({ day: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional() }).optional()).query(async ({ input }) => {
+      const db = await database();
+      const now = Date.now();
+      const day = input?.day ?? new Date().toISOString().slice(0, 10);
+      const dayStart = new Date(`${day}T00:00:00.000Z`).getTime();
+      const dayEnd = dayStart + 86_400_000;
+      const thirtyDaysAgo = now - 30 * 86_400_000;
+      const [users, ordersRows, ledgerRows, referralRows, ticketsRows, paymentsRows] = await Promise.all([
+        db.select().from(botUsers),
+        db.select({ botUserId: orders.botUserId, at: orders.updatedAt }).from(orders).where(sql`${orders.updatedAt} >= ${thirtyDaysAgo}`),
+        db.select({ botUserId: walletLedger.botUserId, at: walletLedger.createdAt }).from(walletLedger).where(sql`${walletLedger.createdAt} >= ${thirtyDaysAgo}`),
+        db.select({ botUserId: referrals.referrerId, at: referrals.createdAt }).from(referrals).where(sql`${referrals.createdAt} >= ${thirtyDaysAgo}`),
+        db.select({ botUserId: supportTickets.botUserId, at: supportTickets.updatedAt }).from(supportTickets).where(sql`${supportTickets.updatedAt} >= ${thirtyDaysAgo}`),
+        db.select({ botUserId: paymentIntents.botUserId, at: paymentIntents.updatedAt }).from(paymentIntents).where(sql`${paymentIntents.updatedAt} >= ${thirtyDaysAgo}`),
+      ]);
+      const events = [...ordersRows, ...ledgerRows, ...referralRows, ...ticketsRows, ...paymentsRows];
+      const todayActiveIds = new Set<number>(); const selectedDayIds = new Set<number>(); const last30Ids = new Set<number>();
+      for (const event of events) { const timestamp = event.at instanceof Date ? event.at.getTime() : Number(event.at); if (timestamp >= thirtyDaysAgo) last30Ids.add(event.botUserId); if (timestamp >= dayStart && timestamp < dayEnd) selectedDayIds.add(event.botUserId); }
+      for (const user of users) { const created = user.createdAt.getTime(); if (created >= thirtyDaysAgo) last30Ids.add(user.id); if (created >= dayStart && created < dayEnd) { selectedDayIds.add(user.id); todayActiveIds.add(user.id); } }
+      return { selectedDay: day, selectedDayUserIds: Array.from(selectedDayIds), selectedDayCount: selectedDayIds.size, last30DayUserIds: Array.from(last30Ids), last30DayCount: last30Ids.size, totalUsers: users.length };
+    }),
+    userActivity: adminProcedure.input(z.object({ userId: z.number().int().positive() })).query(async ({ input }) => {
+      const db = await database();
+      const user = (await db.select().from(botUsers).where(eq(botUsers.id, input.userId)).limit(1))[0];
+      if (!user) throw new TRPCError({ code: "NOT_FOUND", message: "Bot user not found" });
+      const [userOrders, userLedger, userDeposits, userReferrals, userTickets, userPayments] = await Promise.all([
+        db.select().from(orders).where(eq(orders.botUserId, input.userId)),
+        db.select().from(walletLedger).where(eq(walletLedger.botUserId, input.userId)),
+        db.select().from(binancePayDeposits).where(eq(binancePayDeposits.botUserId, input.userId)),
+        db.select().from(referrals).where(sql`${referrals.referrerId} = ${input.userId} OR ${referrals.referredUserId} = ${input.userId}`),
+        db.select().from(supportTickets).where(eq(supportTickets.botUserId, input.userId)),
+        db.select().from(paymentIntents).where(eq(paymentIntents.botUserId, input.userId)),
+      ]);
+      const events = [
+        { type: "profile", id: user.id, at: user.createdAt.getTime(), label: "Joined Nebula Nook bot", amountCents: 0 },
+        ...userOrders.map((row) => ({ type: "order", id: row.id, at: row.updatedAt.getTime(), label: `Order #${row.id} · ${row.kind} · ${row.status}`, amountCents: row.amountCents })),
+        ...userLedger.map((row) => ({ type: "wallet", id: row.id, at: row.createdAt.getTime(), label: `${row.kind} · ${row.note ?? "Wallet ledger entry"}`, amountCents: row.amountCents })),
+        ...userDeposits.map((row) => ({ type: "deposit", id: row.id, at: row.createdAt.getTime(), label: `Verified ${row.asset} deposit · ${row.transactionId}`, amountCents: row.amountCents })),
+        ...userReferrals.map((row) => ({ type: "referral", id: row.id, at: row.createdAt.getTime(), label: row.referrerId === input.userId ? `Referral invited user #${row.referredUserId}` : `Joined through referral #${row.referrerId}`, amountCents: row.bonusCents })),
+        ...userTickets.map((row) => ({ type: "support", id: row.id, at: row.updatedAt.getTime(), label: `Support ticket #${row.id} · ${row.status}`, amountCents: 0 })),
+        ...userPayments.map((row) => ({ type: "payment", id: row.id, at: row.updatedAt.getTime(), label: `Payment intent #${row.id} · ${row.method} · ${row.status}`, amountCents: row.amountCents })),
+      ].sort((a, b) => b.at - a.at);
+      return { user, events };
+    }),
+    adjustWallet: adminProcedure.input(z.object({ userId: z.number().int().positive(), amountUsd: z.number().finite().refine((value) => value !== 0, "Adjustment cannot be zero"), note: z.string().trim().min(3).max(500) })).mutation(async ({ input }) => {
+      const db = await database();
+      const amountCents = Math.round(input.amountUsd * 100);
+      if (!Number.isSafeInteger(amountCents) || amountCents === 0) throw new TRPCError({ code: "BAD_REQUEST", message: "Enter a non-zero amount with at most two decimal places" });
+      const user = (await db.select().from(botUsers).where(eq(botUsers.id, input.userId)).limit(1))[0];
+      if (!user) throw new TRPCError({ code: "NOT_FOUND", message: "Bot user not found" });
+      const nextBalance = user.balanceCents + amountCents;
+      if (nextBalance < 0) throw new TRPCError({ code: "BAD_REQUEST", message: "Balance cannot become negative" });
+      await db.update(botUsers).set({ balanceCents: nextBalance, updatedAt: new Date() }).where(eq(botUsers.id, user.id));
+      await db.insert(walletLedger).values({ botUserId: user.id, amountCents, kind: "admin_adjustment", referenceId: `admin-${user.id}-${Date.now()}`, note: input.note });
+      return { success: true, previousBalanceCents: user.balanceCents, balanceCents: nextBalance };
+    }),
     ledger: adminProcedure.query(async () => (await database()).select().from(walletLedger).orderBy(desc(walletLedger.createdAt)).limit(300)),
     orders: adminProcedure.query(async () => (await database()).select().from(orders).orderBy(desc(orders.createdAt)).limit(200)),
     updateOrderStatus: adminProcedure.input(z.object({ id: z.number().int(), status: z.enum(["pending", "paid", "fulfilled", "cancelled"]) })).mutation(async ({ input }) => {
