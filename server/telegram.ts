@@ -23,7 +23,8 @@ const pendingBinancePayPurchases = new Map<number, { intentId: number; expiresAt
 export const BINANCE_PAY_PURCHASE_WINDOW_MS = 20 * 60 * 1000;
 
 export function extractInsertedRowId(result: unknown): number {
-  const row = Array.isArray(result) ? result[0] as Record<string, unknown> | undefined : undefined;
+  const candidate = Array.isArray(result) ? result[0] : result;
+  const row = candidate && typeof candidate === "object" ? candidate as Record<string, unknown> : undefined;
   const value = row?.insertId ?? row?.lastInsertRowid;
   const id = Number(value ?? 0);
   return Number.isSafeInteger(id) && id > 0 ? id : 0;

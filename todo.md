@@ -316,3 +316,6 @@
 
 - [x] Diagnose and fix direct product-payment callbacks so Binance Pay and USDT BEP20 buttons visibly show their payment invoices.
 - [x] Add regression coverage for product Binance Pay/BEP20 callback responses and publish the validated repair.
+
+- [x] Trace and fix the persistent live failure where direct product Binance Pay and USDT BEP20 button clicks produce no visible response after the previous insert-ID repair.
+- [x] Add end-to-end callback delivery regression coverage and publish the verified live repair.
