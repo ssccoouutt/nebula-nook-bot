@@ -1,10 +1,15 @@
 import { describe, expect, it } from "vitest";
-import { BINANCE_PAY_PURCHASE_WINDOW_MS, isLikelyBinancePayTransactionId, shouldRoutePendingBinancePurchase } from "./telegram";
+import { BINANCE_PAY_PURCHASE_WINDOW_MS, isLikelyBinancePayTransactionId, isLikelyBep20TransactionHash, shouldRoutePendingBinancePurchase } from "./telegram";
 
 describe("Binance Pay message routing", () => {
   it("accepts the user-provided transaction ID as a plain message candidate", () => {
     expect(isLikelyBinancePayTransactionId("448035041403518976")).toBe(true);
     expect(isLikelyBinancePayTransactionId(" 448035041403518976 ")).toBe(true);
+  });
+
+  it("recognizes a 64-character hexadecimal BEP20 transaction hash", () => {
+    expect(isLikelyBep20TransactionHash("0x70f53418b1515fdad750ac86b5a9898b72f5ac17bb444236152c99494d90edcf")).toBe(true);
+    expect(shouldRoutePendingBinancePurchase("0x70f53418b1515fdad750ac86b5a9898b72f5ac17bb444236152c99494d90edcf", false, false, true)).toBe(true);
   });
 
   it("does not classify commands or ordinary text as transaction IDs", () => {

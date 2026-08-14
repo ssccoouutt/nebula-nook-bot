@@ -319,3 +319,6 @@
 
 - [x] Trace and fix the persistent live failure where direct product Binance Pay and USDT BEP20 button clicks produce no visible response after the previous insert-ID repair.
 - [x] Add end-to-end callback delivery regression coverage and publish the verified live repair.
+
+- [x] Fix pending Binance Pay and USDT BEP20 product transaction IDs being routed to the generic /start welcome response instead of verification.
+- [x] Add regression coverage for pending product verification message precedence and publish the validated repair.

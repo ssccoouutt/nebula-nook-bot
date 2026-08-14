@@ -34,8 +34,16 @@ export function isLikelyBinancePayTransactionId(value: string) {
   return /^\d{8,32}$/.test(value.trim());
 }
 
+export function isLikelyBep20TransactionHash(value: string) {
+  return /^0x[a-fA-F0-9]{64}$/.test(value.trim());
+}
+
+export function isLikelyPaymentTransactionId(value: string) {
+  return isLikelyBinancePayTransactionId(value) || isLikelyBep20TransactionHash(value);
+}
+
 export function shouldRoutePendingBinancePurchase(messageText: string, isCommandMessage: boolean, hasPendingTopup: boolean, hasPendingPurchase: boolean) {
-  return !isCommandMessage && !hasPendingTopup && hasPendingPurchase && isLikelyBinancePayTransactionId(messageText);
+  return !isCommandMessage && !hasPendingTopup && hasPendingPurchase && isLikelyPaymentTransactionId(messageText);
 }
 
 /**
