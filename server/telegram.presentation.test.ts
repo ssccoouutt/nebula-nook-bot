@@ -189,6 +189,12 @@ describe("Telegram presentation and notification helpers", () => {
     ]));
   });
 
+  it("uses the configured BID for wallet and product payment instructions", () => {
+    process.env.BID = "configured-merchant-id";
+    expect(formatBinancePayPurchasePrompt("Test product", 1, 99)).toContain("configured-merchant-id");
+    expect(formatBinancePayTopupPrompt(500)).toContain("configured-merchant-id");
+  });
+
   it("uses edit-in-place responses for callback navigation and send responses for commands", () => {
     expect(telegramResponseMethod()).toBe("sendMessage");
     expect(telegramResponseMethod(1234)).toBe("editMessageText");
