@@ -299,3 +299,10 @@
 - [x] Restrict wallet deposits and product Binance payments to USDT only; reject USDC, BUSD, and other assets.
 - [x] Add BEP20 address instructions from the `BEP20` Koyeb variable, including copy-address and cancel actions.
 - [x] Require exact amount, USDT asset, and BEP20 network/address match for transaction-hash verification, with regression coverage.
+
+- [x] Fix BEP20 top-up verification failure messages so they reference the transaction hash, USDT BEP20 network, and BEP20 retry instructions instead of Binance Pay transaction IDs.
+- [x] Add regression coverage proving Binance Pay and BEP20 pending-payment failures use separate verification terminology and retry routes.
+
+- [x] Guarantee that every historical user and all bot data restored from Google Drive reappear in the dashboard after redeploy, without initializing or overwriting with a fresh empty SQLite database.
+- [ ] Verify Drive restore completes before dashboard requests, Telegram processing, or any SQLite write can occur, and add continuity regression coverage.
+- [x] Complete method-specific payment error-message regression coverage for Binance Pay versus USDT BEP20.

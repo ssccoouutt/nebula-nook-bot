@@ -1,10 +1,14 @@
 import { google } from "googleapis";
 import { createReadStream, createWriteStream } from "node:fs";
+import { createRequire } from "node:module";
 import { mkdir, readFile, rename, stat, unlink, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { pipeline } from "node:stream/promises";
 import { Readable } from "node:stream";
 import { buildReadableExports } from "./googleDriveExports";
+
+const require = createRequire(import.meta.url);
+const { DatabaseSync } = require("node:sqlite") as typeof import("node:sqlite");
 
 const ROOT_FOLDER_NAME = "Nebula Nook Bot";
 const SNAPSHOTS_FOLDER_NAME = "snapshots";
@@ -12,6 +16,13 @@ const METADATA_FOLDER_NAME = "metadata";
 const EXPORTS_FOLDER_NAME = "exports";
 const LATEST_SNAPSHOT_NAME = "latest.sqlite";
 const MANIFEST_NAME = "latest.json";
+const READABLE_EXPORTS: Array<[string, string]> = [
+  ["users", "users.json"], ["botUsers", "bot_users.json"], ["products", "products.json"],
+  ["orders", "orders.json"], ["walletLedger", "wallet_ledger.json"], ["binancePayDeposits", "deposits.json"],
+  ["paymentIntents", "payment_intents.json"], ["referrals", "referrals.json"], ["freeClaims", "free_claims.json"],
+  ["priceAlerts", "price_alerts.json"], ["supportTickets", "support_tickets.json"], ["broadcasts", "broadcasts.json"],
+  ["notificationDeliveries", "notification_deliveries.json"], ["botSettings", "settings.json"],
+];
 const DRIVE_SCOPE = "https://www.googleapis.com/auth/drive";
 
 let initialized = false;
@@ -123,12 +134,78 @@ async function downloadSnapshot(drive: ReturnType<typeof google.drive>, fileId: 
   if (!isValidSqliteSnapshot(bytes)) throw new Error("Downloaded Drive snapshot is not a valid SQLite database");
 }
 
+async function downloadText(drive: ReturnType<typeof google.drive>, fileId: string) {
+  const response = await withRetry(() => drive.files.get({ fileId, alt: "media" }, { responseType: "text" }), "Drive export download");
+  return String(response.data ?? "");
+}
+
+function databaseHasUserData(databasePath: string) {
+  try {
+    const client = new DatabaseSync(databasePath, { readOnly: true });
+    const tables = client.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name IN ('botUsers','orders','walletLedger')").all() as Array<{ name: string }>;
+    const count = tables.reduce((total, table) => total + Number((client.prepare(`SELECT COUNT(*) AS count FROM "${table.name}"`).get() as { count: number }).count), 0);
+    client.close();
+    return count > 0;
+  } catch {
+    return false;
+  }
+}
+
+async function restoreReadableExports(setup: { drive: ReturnType<typeof google.drive>; ids: { exports: string } }, databasePath: string) {
+  const downloaded: Array<[string, unknown[]]> = [];
+  for (const [table, fileName] of READABLE_EXPORTS) {
+    const file = await findFile(setup.drive, fileName, setup.ids.exports);
+    if (!file?.id) continue;
+    const content = await downloadText(setup.drive, file.id);
+    try {
+      const rows = JSON.parse(content);
+      if (Array.isArray(rows) && rows.length) downloaded.push([table, rows]);
+    } catch {
+      console.warn(`[Drive] Ignoring invalid readable export ${fileName}.`);
+    }
+  }
+  if (!downloaded.length) return 0;
+  await mkdir(path.dirname(databasePath), { recursive: true });
+  const client = new DatabaseSync(databasePath);
+  let inserted = 0;
+  try {
+    const tableNames = new Set(downloaded.map(([table]) => table));
+    for (const table of ["users", "botUsers", "botSettings", "products", "orders", "walletLedger", "binancePayDeposits", "paymentIntents", "referrals", "freeClaims", "priceAlerts", "supportTickets", "broadcasts", "notificationDeliveries"]) {
+      if (!tableNames.has(table)) continue;
+      const columns = (client.prepare(`PRAGMA table_info("${table}")`).all() as Array<{ name: string }>).map(column => column.name);
+      for (const row of downloaded.find(([name]) => name === table)?.[1] as Array<Record<string, unknown>>) {
+        const keys = Object.keys(row).filter(key => columns.includes(key));
+        if (!keys.length) continue;
+        const placeholders = keys.map(() => "?").join(",");
+        const values = keys.map(key => row[key] === undefined ? null : row[key]);
+        client.prepare(`INSERT OR IGNORE INTO "${table}" (${keys.map(key => `"${key}"`).join(",")}) VALUES (${placeholders})`).run(...values as any[]);
+        inserted += 1;
+      }
+    }
+  } finally {
+    client.close();
+  }
+  return inserted;
+}
+
 async function restoreLatestSnapshot() {
   const setup = await ensureFolders();
   if (!setup) return;
   const file = await findFile(setup.drive, LATEST_SNAPSHOT_NAME, setup.ids.snapshots);
   if (!file?.id) {
-    console.log("[Drive] No existing SQLite snapshot found; starting with a new local database.");
+    const databasePath = localDatabasePath();
+    if (databaseHasUserData(databasePath)) {
+      console.log("[Drive] No binary snapshot found; preserving existing local SQLite data.");
+      return;
+    }
+    // Create only the empty schema first; rows are then restored from Drive before the server starts serving requests.
+    await import("./db").then(({ getDb }) => getDb());
+    const restoredRows = await restoreReadableExports(setup, databasePath);
+    if (restoredRows > 0) {
+      console.log(`[Drive] Restored ${restoredRows} records from human-readable exports before SQLite initialization.`);
+      return;
+    }
+    console.log("[Drive] No SQLite snapshot or readable exports found; starting with a new local database.");
     return;
   }
   const databasePath = localDatabasePath();

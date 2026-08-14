@@ -368,6 +368,25 @@ export function formatBep20TopupPrompt(amountCents: number) {
   return `💰 <b>Amount to send:</b> ${amount} USDT\n💳 <b>Deposit address (BEP20):</b> <code>${bep20DepositAddress()}</code>\n━━━━━━━━━━━━━━━━━━\n\n<b>Important:</b>\n• Send the exact amount shown.\n• Use the BEP20 network only — wrong-network funds are unrecoverable.\n• After sending, send the Transaction Hash (TxID) here as your next message.\n\nThis invoice expires in <b>20 minutes</b>.`;
 }
 
+export function formatPaymentVerificationFailure(reason: string, method: "binance_pay" | "bep20", expectedAmountCents?: number) {
+  const isBep20 = method === "bep20";
+  const expected = expectedAmountCents === undefined ? "the exact requested amount" : `$${(expectedAmountCents / 100).toFixed(2)}`;
+  if (reason === "invalid_id") return isBep20 ? "That does not look like a valid transaction hash (TxID)." : "That does not look like a valid Binance Pay order ID.";
+  if (reason === "not_found") return isBep20 ? "I could not find that USDT BEP20 deposit yet. Confirm the TxID and wait a moment for network confirmation." : "I could not find that Binance Pay payment yet.";
+  if (reason === "amount_mismatch") return `The payment amount does not match the required ${expected}.`;
+  if (reason === "unsupported_asset") return isBep20 ? "Only USDT deposits on the BEP20 network can be verified." : "Only the supported Binance Pay USDT payment can be verified.";
+  if (reason === "unsupported_network") return "The deposit was not sent through the BEP20 network.";
+  if (reason === "address_mismatch") return "The deposit was sent to a different address than the configured BEP20 address.";
+  return isBep20 ? "That is not a positive received USDT BEP20 deposit." : "That is not a positive received Binance Pay payment.";
+}
+
+export function formatTopupVerificationFailure(reason: string, method: "binance_pay" | "bep20") {
+  const isBep20 = method === "bep20";
+  const identifierLabel = isBep20 ? "transaction hash (TxID)" : "Binance Pay order ID";
+  const retryLabel = isBep20 ? "Wallet → USDT (BEP20)" : "Wallet → Binance Pay";
+  return `❌ <b>Top-up not credited</b>\n\n${formatPaymentVerificationFailure(reason, method)}\n\nCheck the ${identifierLabel} and try again from ${retryLabel} with the exact requested amount.`;
+}
+
 export function buildWalletDepositInvoiceKeyboard(method: "binance_pay" | "bep20" = "binance_pay") {
   const value = method === "bep20" ? bep20DepositAddress() : merchantBinanceId();
   const label = method === "bep20" ? "📋 Copy BEP20 address" : "📋 Copy Binance Pay ID";
@@ -712,11 +731,14 @@ async function verifyAndFulfillBinancePurchase(chatId: number, userId: number, i
   const db = await getDb();
   if (!db) throw new Error("Database is unavailable");
   const intent = (await db.select().from(paymentIntents).where(eq(paymentIntents.id, intentId)).limit(1))[0];
-  if (!intent || intent.status !== "pending") { await respond(chatId, "ℹ️ This Binance Pay order is no longer pending. Open Shop to start a new purchase.", buildHomeKeyboard()); return false; }
-  const result = await findBinancePayTransaction(transactionId, intent.amountCents, fetch, intent.method === "bep20" ? "bep20" : "binance_pay");
+  const isBep20 = intent?.method === "bep20";
+  const paymentLabel = isBep20 ? "USDT BEP20 payment" : "Binance Pay order";
+  if (!intent || intent.status !== "pending") { await respond(chatId, `ℹ️ This ${paymentLabel} is no longer pending. Open Shop to start a new purchase.`, buildHomeKeyboard()); return false; }
+  const result = await findBinancePayTransaction(transactionId, intent.amountCents, fetch, isBep20 ? "bep20" : "binance_pay");
   if (!result.ok) {
-    const reason = result.reason === "invalid_id" ? "That does not look like a valid transaction/order ID." : result.reason === "not_found" ? "I could not find that Binance Pay payment yet." : result.reason === "amount_mismatch" ? `The payment amount does not match the required $${(intent.amountCents / 100).toFixed(2)}.` : result.reason === "unsupported_asset" ? "Only USDT payments on the BEP20 network can be verified." : "That payment is not a positive received transaction.";
-    await respond(chatId, `❌ <b>Payment not verified</b>\n\n${reason}\n\nSend the correct transaction/order ID within the remaining payment window.`, undefined);
+    const reason = formatPaymentVerificationFailure(result.reason, isBep20 ? "bep20" : "binance_pay", intent.amountCents);
+    const identifierLabel = isBep20 ? "transaction hash (TxID)" : "Binance Pay order ID";
+    await respond(chatId, `❌ <b>Payment not verified</b>\n\n${reason}\n\nSend the correct ${identifierLabel} within the remaining payment window.`, undefined);
     return false;
   }
   const transactionRef = String(result.transaction.transactionId ?? transactionId.trim());
@@ -793,8 +815,8 @@ export async function handleMessage(message: TelegramMessage) {
     pendingBinancePayTopups.delete(user.id);
     const result = await findBinancePayTransaction(messageText, pendingTopup.amountCents, fetch, pendingTopup.method);
     if (!result.ok) {
-      const reason = result.reason === "invalid_id" ? "That does not look like a valid transaction ID." : result.reason === "not_found" ? "I could not find that Binance Pay transaction yet." : result.reason === "unsupported_asset" ? "Only USDT deposits on the BEP20 network can be credited." : "That transaction is not a positive received payment.";
-      return respond(message.chat.id, `❌ <b>Top-up not credited</b>\n\n${reason}\n\nCheck the ID and try again from Wallet with the exact requested amount.`, buildWalletKeyboard());
+      const isBep20 = pendingTopup.method === "bep20";
+      return respond(message.chat.id, formatTopupVerificationFailure(result.reason, isBep20 ? "bep20" : "binance_pay"), buildWalletKeyboard());
     }
     const db = await getDb();
     if (!db) throw new Error("Database is unavailable");
