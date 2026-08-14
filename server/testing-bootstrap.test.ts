@@ -6,9 +6,9 @@ import {
 } from "./telegram";
 
 describe("testing bootstrap", () => {
-  it("uses a ten-dollar wallet credit with a stable idempotency reference", () => {
-    expect(TESTING_WALLET_CREDIT_CENTS).toBe(1000);
-    expect(TESTING_WALLET_CREDIT_REFERENCE).toBe("testing-wallet-credit-v1");
+  it("starts every new wallet at zero with testing credit disabled", () => {
+    expect(TESTING_WALLET_CREDIT_CENTS).toBe(0);
+    expect(TESTING_WALLET_CREDIT_REFERENCE).toBe("testing-wallet-credit-disabled");
     expect(TESTING_WALLET_CREDIT_REFERENCE).toMatch(/^[a-z0-9-]+$/);
   });
 

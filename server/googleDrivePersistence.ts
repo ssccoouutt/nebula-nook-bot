@@ -139,10 +139,10 @@ async function downloadText(drive: ReturnType<typeof google.drive>, fileId: stri
   return String(response.data ?? "");
 }
 
-function databaseHasUserData(databasePath: string) {
+export function databaseHasUserData(databasePath: string) {
   try {
     const client = new DatabaseSync(databasePath, { readOnly: true });
-    const tables = client.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name IN ('botUsers','orders','walletLedger')").all() as Array<{ name: string }>;
+    const tables = client.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name IN ('botUsers','products','orders','walletLedger','binancePayDeposits','paymentIntents')").all() as Array<{ name: string }>;
     const count = tables.reduce((total, table) => total + Number((client.prepare(`SELECT COUNT(*) AS count FROM "${table.name}"`).get() as { count: number }).count), 0);
     client.close();
     return count > 0;
@@ -216,6 +216,17 @@ async function restoreLatestSnapshot() {
   if (downloaded.size < 4096) {
     await unlink(tempPath).catch(() => undefined);
     throw new Error("Drive snapshot is unexpectedly small; refusing to replace local database");
+  }
+  if (!databaseHasUserData(tempPath)) {
+    await unlink(tempPath).catch(() => undefined);
+    await import("./db").then(({ getDb }) => getDb());
+    const restoredRows = await restoreReadableExports(setup, databasePath);
+    if (restoredRows > 0) {
+      console.log(`[Drive] Latest snapshot was empty; restored ${restoredRows} records from human-readable exports.`);
+      return;
+    }
+    console.log("[Drive] Latest snapshot contains no business data and no readable exports were available; starting with an empty database.");
+    return;
   }
   await rename(tempPath, databasePath);
   console.log(`[Drive] Restored ${LATEST_SNAPSHOT_NAME} (${downloaded.size} bytes) before SQLite initialization.`);

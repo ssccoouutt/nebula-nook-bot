@@ -43,9 +43,9 @@ export function shouldIgnoreTelegramUpdate(lastUpdateId: number | undefined, upd
   return updateId <= lastUpdateId;
 }
 
-/** Testing-mode bootstrap credit; remove or disable before real-money launch. */
-export const TESTING_WALLET_CREDIT_CENTS = 1000;
-export const TESTING_WALLET_CREDIT_REFERENCE = "testing-wallet-credit-v1";
+/** New users start with a zero wallet; only verified payments or admin credits change balance. */
+export const TESTING_WALLET_CREDIT_CENTS = 0;
+export const TESTING_WALLET_CREDIT_REFERENCE = "testing-wallet-credit-disabled";
 
 export const DEFAULT_TESTING_PRODUCTS = [
   { name: "ChatGPT Starter Access", description: "Testing catalog item for guided account access delivery.", priceCents: 299, stock: 25, active: 1, freeEligible: 0, freeWindowMs: null },
@@ -447,7 +447,7 @@ async function ensureBotUser(user: TelegramUser, referralCode?: string) {
   await db.insert(botUsers).values({ telegramUserId: user.id, username: user.username ?? null, firstName: user.first_name ?? null, lastName: user.last_name ?? null, referralCode: referralCodeForUser, referredById, balanceCents: TESTING_WALLET_CREDIT_CENTS });
   const created = (await db.select().from(botUsers).where(eq(botUsers.telegramUserId, user.id)).limit(1))[0];
   if (!created) throw new Error("Failed to create Telegram user");
-  await db.insert(walletLedger).values({ botUserId: created.id, amountCents: TESTING_WALLET_CREDIT_CENTS, kind: "adjustment", referenceId: TESTING_WALLET_CREDIT_REFERENCE, note: "Testing-mode bootstrap wallet credit" });
+  // Do not create a synthetic ledger entry: new users start at exactly $0.00.
   if (referredById) {
     await db.insert(referrals).values({ referrerId: referredById, referredUserId: created.id, bonusCents: 0 }).onConflictDoUpdate({ target: referrals.referredUserId, set: { referredUserId: created.id } });
     const referralCount = await db.select({ count: sql<number>`count(*)` }).from(referrals).where(eq(referrals.referrerId, referredById));

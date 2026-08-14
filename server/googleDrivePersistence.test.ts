@@ -1,5 +1,12 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { drivePersistenceStatus, initializeDrivePersistence, isValidSqliteSnapshot, scheduleDriveSync, withRetry } from "./googleDrivePersistence";
+import { mkdtemp, rm } from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
+import { createRequire } from "node:module";
+import { drivePersistenceStatus, databaseHasUserData, initializeDrivePersistence, isValidSqliteSnapshot, scheduleDriveSync, withRetry } from "./googleDrivePersistence";
+
+const require = createRequire(import.meta.url);
+const { DatabaseSync } = require("node:sqlite") as typeof import("node:sqlite");
 
 describe("Google Drive persistence", () => {
   const previousDrive = process.env.DRIVE;
@@ -24,6 +31,26 @@ describe("Google Drive persistence", () => {
     new TextEncoder().encodeInto("SQLite format 3", valid);
     expect(isValidSqliteSnapshot(valid)).toBe(true);
     expect(isValidSqliteSnapshot(new TextEncoder().encode("not sqlite"))).toBe(false);
+  });
+
+  it("does not treat an empty schema as restored historical data", async () => {
+    const directory = await mkdtemp(path.join(os.tmpdir(), "nebula-drive-"));
+    const databasePath = path.join(directory, "empty.sqlite");
+    const client = new DatabaseSync(databasePath);
+    client.exec("CREATE TABLE botUsers (id INTEGER PRIMARY KEY, telegramUserId INTEGER NOT NULL)");
+    client.close();
+    expect(databaseHasUserData(databasePath)).toBe(false);
+    await rm(directory, { recursive: true, force: true });
+  });
+
+  it("recognizes restored user data as durable business data", async () => {
+    const directory = await mkdtemp(path.join(os.tmpdir(), "nebula-drive-"));
+    const databasePath = path.join(directory, "restored.sqlite");
+    const client = new DatabaseSync(databasePath);
+    client.exec("CREATE TABLE botUsers (id INTEGER PRIMARY KEY, telegramUserId INTEGER NOT NULL); INSERT INTO botUsers (id, telegramUserId) VALUES (1, 12345)");
+    client.close();
+    expect(databaseHasUserData(databasePath)).toBe(true);
+    await rm(directory, { recursive: true, force: true });
   });
 
   it("stays a no-op when the single DRIVE setting is absent", async () => {

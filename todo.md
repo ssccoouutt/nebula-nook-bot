@@ -304,5 +304,9 @@
 - [x] Add regression coverage proving Binance Pay and BEP20 pending-payment failures use separate verification terminology and retry routes.
 
 - [x] Guarantee that every historical user and all bot data restored from Google Drive reappear in the dashboard after redeploy, without initializing or overwriting with a fresh empty SQLite database.
-- [ ] Verify Drive restore completes before dashboard requests, Telegram processing, or any SQLite write can occur, and add continuity regression coverage.
+- [x] Verify Drive restore completes before dashboard requests, Telegram processing, or any SQLite write can occur, and add continuity regression coverage; startup awaits the restore gate before Express routes are registered, with Drive persistence regression coverage.
 - [x] Complete method-specific payment error-message regression coverage for Binance Pay versus USDT BEP20.
+
+- [x] Fix redeploy restore so users, orders, deposits, wallet ledger, products/catalog, and all related history are rebuilt from Google Drive before the dashboard serves data.
+- [x] Remove the automatic $10 testing credit for existing and new users; default wallet balance must be zero unless a real credit is recorded.
+- [x] Add regression coverage proving Drive-restored records appear in dashboard queries after startup and new users start at zero.
