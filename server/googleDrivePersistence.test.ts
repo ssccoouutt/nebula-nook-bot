@@ -3,7 +3,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { createRequire } from "node:module";
-import { drivePersistenceStatus, databaseHasUserData, initializeDrivePersistence, isValidSqliteSnapshot, scheduleDriveSync, withRetry } from "./googleDrivePersistence";
+import { drivePersistenceStatus, databaseHasUserData, initializeDrivePersistence, isValidSqliteSnapshot, scheduleDriveSync, shouldRestoreReadableExportRow, withRetry } from "./googleDrivePersistence";
 
 const require = createRequire(import.meta.url);
 const { DatabaseSync } = require("node:sqlite") as typeof import("node:sqlite");
@@ -51,6 +51,12 @@ describe("Google Drive persistence", () => {
     client.close();
     expect(databaseHasUserData(databasePath)).toBe(true);
     await rm(directory, { recursive: true, force: true });
+  });
+
+  it("does not restore a stale Telegram update cursor from readable exports", () => {
+    expect(shouldRestoreReadableExportRow("botSettings", { key: "last_update_id", value: "999999999" })).toBe(false);
+    expect(shouldRestoreReadableExportRow("botSettings", { key: "membership_group_id", value: "-100123" })).toBe(true);
+    expect(shouldRestoreReadableExportRow("products", { key: "last_update_id", value: "999999999" })).toBe(true);
   });
 
   it("stays a no-op when the single DRIVE setting is absent", async () => {

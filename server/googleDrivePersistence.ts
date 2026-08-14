@@ -151,6 +151,12 @@ export function databaseHasUserData(databasePath: string) {
   }
 }
 
+export function shouldRestoreReadableExportRow(table: string, row: Record<string, unknown>) {
+  // A fallback export may contain a cursor from a previous Telegram runtime. Keeping it
+  // can make Telegram redeliveries and fresh updates appear stale after Drive recovery.
+  return !(table === "botSettings" && row.key === "last_update_id");
+}
+
 async function restoreReadableExports(setup: { drive: ReturnType<typeof google.drive>; ids: { exports: string } }, databasePath: string) {
   const downloaded: Array<[string, unknown[]]> = [];
   for (const [table, fileName] of READABLE_EXPORTS) {
@@ -174,6 +180,7 @@ async function restoreReadableExports(setup: { drive: ReturnType<typeof google.d
       if (!tableNames.has(table)) continue;
       const columns = (client.prepare(`PRAGMA table_info("${table}")`).all() as Array<{ name: string }>).map(column => column.name);
       for (const row of downloaded.find(([name]) => name === table)?.[1] as Array<Record<string, unknown>>) {
+        if (!shouldRestoreReadableExportRow(table, row)) continue;
         const keys = Object.keys(row).filter(key => columns.includes(key));
         if (!keys.length) continue;
         const placeholders = keys.map(() => "?").join(",");
