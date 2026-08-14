@@ -49,6 +49,25 @@ function enrichedOrders(client: InstanceType<typeof DatabaseSync>) {
   `).all() as Row[];
 }
 
+function stockFileName(name: string, id: unknown) {
+  const safe = name.trim().replace(/[^a-zA-Z0-9._ -]+/g, "").replace(/\s+/g, " ").trim() || `product-${id}`;
+  return `${safe}.txt`;
+}
+
+export function buildProductStockExports(products: Row[]) {
+  const exports: Record<string, string> = {};
+  const usedNames = new Set<string>();
+  for (const product of products) {
+    const baseName = stockFileName(String(product.name ?? "Product"), product.id);
+    let fileName = baseName;
+    if (usedNames.has(fileName)) fileName = stockFileName(`${String(product.name ?? "Product")}-${product.id}`, product.id);
+    usedNames.add(fileName);
+    const stock = String(product.inventoryText ?? "").replaceAll("\\n", "\n").split(/\r?\n/).map(item => item.trim()).filter(Boolean);
+    exports[fileName] = stock.length ? `${stock.join("\n")}\n` : "";
+  }
+  return exports;
+}
+
 export function formatOrderHistory(orders: Row[]) {
   return orders.map(order => [
     `Order #${order.id}`,
@@ -74,6 +93,7 @@ export function buildReadableExports() {
       }, 2);
     }
     const orders = enrichedOrders(client);
+    Object.assign(exports, buildProductStockExports(rows(client, "products")));
     exports["orders.txt"] = formatOrderHistory(orders) + (orders.length ? "\n\n" : "");
     exports["README.txt"] = [
       "Nebula Nook Bot data export",

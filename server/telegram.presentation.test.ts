@@ -46,6 +46,9 @@ import {
   resolvePurchaseCallbackRoute,
   isPurchasableProduct,
   extractInsertedRowId,
+  consumeDigitalInventory,
+  buildPurchasePaymentFailureKeyboard,
+  hasProductImage,
 } from "./telegram";
 
 describe("Telegram presentation and notification helpers", () => {
@@ -67,6 +70,25 @@ describe("Telegram presentation and notification helpers", () => {
     expect(resolveNotificationChatId(undefined, "-200456", "-300789")).toBe(-200456);
     expect(resolveNotificationChatId(undefined, undefined, "-300789")).toBe(-300789);
     expect(resolveNotificationChatId("not-a-chat", undefined, "0")).toBeNull();
+  });
+
+  it("consumes one digital item per requested quantity and preserves remaining lines", () => {
+    expect(consumeDigitalInventory("link-a\\nuser:pass\\nlink-c", 2)).toEqual({ ok: true, items: ["link-a", "user:pass"], remaining: ["link-c"] });
+    expect(consumeDigitalInventory("only-one", 2).ok).toBe(false);
+  });
+
+  it("recognizes optional product images without treating blank values as images", () => {
+    expect(hasProductImage("https://cdn.example.com/gemini.png")).toBe(true);
+    expect(hasProductImage("  ")).toBe(false);
+    expect(hasProductImage(undefined)).toBe(false);
+  });
+
+  it("renders copy-friendly automatic delivery, manual delivery, warranty, and payment cancellation", () => {
+    const automatic = formatPurchaseConfirmation(42, "Gemini", 100, { mode: "automatic", items: ["activation-link"], warrantyDays: 30 });
+    expect(automatic).toContain("<blockquote>activation-link</blockquote>");
+    expect(automatic).toContain("30 days");
+    expect(formatPurchaseConfirmation(43, "Gemini", 100, { mode: "manual", warrantyDays: 7 })).toContain("Manual delivery");
+    expect(buildPurchasePaymentFailureKeyboard(7).inline_keyboard[0][0]).toMatchObject({ text: "✖️ Cancel", callback_data: "buycancel:7" });
   });
 
   it("keeps core messages emoji-led and HTML formatted", () => {

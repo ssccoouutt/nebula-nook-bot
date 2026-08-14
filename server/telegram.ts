@@ -93,6 +93,14 @@ async function editMessage(chatId: number, messageId: number, text: string, repl
   return telegramCall("editMessageText", { chat_id: chatId, message_id: messageId, text, parse_mode: "HTML", reply_markup: replyMarkup });
 }
 
+async function sendPhoto(chatId: number, photo: string, caption: string, replyMarkup?: unknown) {
+  return telegramCall("sendPhoto", { chat_id: chatId, photo, caption, parse_mode: "HTML", reply_markup: replyMarkup });
+}
+
+export function hasProductImage(imageUrl: string | null | undefined) {
+  return Boolean(imageUrl?.trim());
+}
+
 export function telegramResponseMethod(messageId?: number, editFailed = false) {
   return messageId === undefined || editFailed ? "sendMessage" as const : "editMessageText" as const;
 }
@@ -153,8 +161,21 @@ export function formatSupportSubmitted(ticketId: string) {
   return `✅ <b>Support request received</b>\n\nTicket: <b>#${ticketId}</b>\nOur team will review it shortly.`;
 }
 
-export function formatPurchaseConfirmation(orderId: string | number, productName: string, amountCents: number) {
-  return `✅ <b>Order completed</b>\n\n📦 Order: <b>#${orderId}</b>\n🛍️ Product: <b>${productName}</b>\n💵 Amount: <b>$${(amountCents / 100).toFixed(2)}</b>\n\n⚡ Payment received and your order is complete.`;
+export function formatPurchaseConfirmation(orderId: string | number, productName: string, amountCents: number, delivery?: { mode: "automatic" | "manual"; items?: string[]; warrantyDays?: number }) {
+  const warranty = delivery?.warrantyDays ? `\n🛡️ Warranty: <b>${delivery.warrantyDays} days</b>` : "";
+  const delivered = delivery?.mode === "automatic" && delivery.items?.length
+    ? `\n\n📦 <b>Your digital product</b>\n<blockquote>${delivery.items.map(item => item.replace(/[<&>]/g, "")).join("\n")}</blockquote>\n\nTap and hold the text above to copy it.${warranty}`
+    : delivery?.mode === "manual"
+      ? `\n\n🕐 <b>Manual delivery</b>\nYour payment is received. The product will be delivered by the admin shortly.${warranty}`
+      : warranty;
+  return `✅ <b>Order completed</b>\n\n📦 Order: <b>#${orderId}</b>\n🛍️ Product: <b>${productName}</b>\n💵 Amount: <b>$${(amountCents / 100).toFixed(2)}</b>${delivered}\n\n⚡ Payment received and your order is complete.`;
+}
+
+export function consumeDigitalInventory(inventoryText: string | null | undefined, quantity: number) {
+  const items = String(inventoryText ?? "").replaceAll("\\n", "\n").split(/\r?\n/).map(item => item.trim()).filter(Boolean);
+  const count = Math.max(1, Math.floor(quantity));
+  if (items.length < count) return { ok: false as const, items: [] as string[], remaining: items };
+  return { ok: true as const, items: items.slice(0, count), remaining: items.slice(count) };
 }
 
 export const SHOP_PAGE_SIZE = 6;
@@ -384,6 +405,10 @@ export function formatBep20TopupPrompt(amountCents: number) {
   return `💰 <b>Amount to send:</b> ${amount} USDT\n💳 <b>Deposit address (BEP20):</b> <code>${bep20DepositAddress()}</code>\n━━━━━━━━━━━━━━━━━━\n\n<b>Important:</b>\n• Send the exact amount shown.\n• Use the BEP20 network only — wrong-network funds are unrecoverable.\n• After sending, send the Transaction Hash (TxID) here as your next message.\n\nThis invoice expires in <b>20 minutes</b>.`;
 }
 
+export function buildPurchasePaymentFailureKeyboard(productId: number) {
+  return keyboard([[{ text: "✖️ Cancel", callback_data: `buycancel:${productId}` }]]);
+}
+
 export function formatPaymentVerificationFailure(reason: string, method: "binance_pay" | "bep20", expectedAmountCents?: number) {
   const isBep20 = method === "bep20";
   const expected = expectedAmountCents === undefined ? "the exact requested amount" : `$${(expectedAmountCents / 100).toFixed(2)}`;
@@ -527,7 +552,20 @@ async function showProduct(chatId: number, productId: number, messageId?: number
   if (!isPurchasableProduct(item)) return respond(chatId, "⚠️ This product is currently unavailable.\n\nThis may be an old product button. Open the current Shop to see items that are in stock.", buildUnavailableProductKeyboard(), messageId);
   const safeName = item.name.replace(/[<&>]/g, "");
   const safeDescription = item.description.replace(/[<&>]/g, "");
-  await respond(chatId, `✨ <b>${safeName}</b>\n\n${safeDescription}\n\n━━━━━━━━━━━━━━\n💵 <b>$${(item.priceCents / 100).toFixed(2)}</b> per unit\n📦 <b>${item.stock}</b> available\n⚡ <b>Instant digital delivery</b>\n🛡️ <b>Quality checked</b>\n\nChoose an action below:`, buildProductKeyboard(item.id), messageId);
+  const details = item.details?.trim() ? `\n\n📝 <b>Product details</b>\n${item.details.replace(/[<&>]/g, "")}` : "";
+  const delivery = item.deliveryMode === "manual" ? "🕐 Manual delivery" : "⚡ Automatic digital delivery";
+  const warranty = item.warrantyDays > 0 ? `\n🛡️ Warranty: <b>${item.warrantyDays} days</b>` : "";
+  const productText = `✨ <b>${safeName}</b>\n\n${safeDescription}${details}\n\n━━━━━━━━━━━━━━\n💵 <b>$${(item.priceCents / 100).toFixed(2)}</b> per unit\n📦 <b>${item.stock}</b> available\n${delivery}${warranty}\n\nChoose an action below:`;
+  const productKeyboard = buildProductKeyboard(item.id);
+  if (hasProductImage(item.imageUrl)) {
+    try {
+      await sendPhoto(chatId, item.imageUrl.trim(), productText, productKeyboard);
+      return;
+    } catch (error) {
+      console.error("[Telegram] product image failed; falling back to text product view", error);
+    }
+  }
+  await respond(chatId, productText, productKeyboard, messageId);
 }
 
 async function showWallet(chatId: number, userId: number, messageId?: number) {
@@ -565,10 +603,13 @@ async function claimFree(chatId: number, userId: number, productId: number, mess
   const windowStart = freeWindowStart(now, product.freeWindowMs);
   const last = await db.select().from(freeClaims).where(and(eq(freeClaims.botUserId, user.id), eq(freeClaims.productId, product.id))).orderBy(desc(freeClaims.createdAt)).limit(1);
   if (!canClaimFreeItem(last[0] ? Number(last[0].windowStartMs) : null, now, product.freeWindowMs)) return respond(chatId, "⏳ You have already claimed this item during the current free window.", buildFreebiesKeyboard([{ id: product.id, name: product.name }]), messageId);
+  const digital = product.inventoryText?.trim() ? consumeDigitalInventory(product.inventoryText, 1) : { ok: true as const, items: [] as string[], remaining: [] as string[] };
+  if (!digital.ok) return respond(chatId, "⚠️ This free item is currently unavailable.", buildFreebiesKeyboard([]), messageId);
   await db.insert(freeClaims).values({ botUserId: user.id, productId: product.id, windowStartMs: windowStart, status: "claimed" });
-  await db.update(products).set({ stock: product.stock - 1 }).where(eq(products.id, product.id));
+  await db.update(products).set({ stock: product.stock - 1, inventoryText: product.inventoryText?.trim() ? digital.remaining.join("\n") : product.inventoryText }).where(eq(products.id, product.id));
   const order = await db.insert(orders).values({ botUserId: user.id, productId: product.id, kind: "free", amountCents: 0, status: "fulfilled" });
-  await respond(chatId, `✅ <b>Free claim recorded</b>\n\n🎁 ${product.name}\n\nYour claim has been added to your order history.`, buildHomeKeyboard(), messageId);
+  const delivery = digital.items.length ? `\n\n📦 <b>Your digital item</b>\n<blockquote>${digital.items[0].replace(/[<&>]/g, "")}</blockquote>\n\nTap and hold the text above to copy it.` : "";
+  await respond(chatId, `✅ <b>Free claim recorded</b>\n\n🎁 ${product.name}${delivery}\n\nYour claim has been added to your order history.`, buildHomeKeyboard(), messageId);
   await notifyAdmin("free_claim", `${user.id}:${product.id}:${windowStart}`, `<b>Free claim</b>\nUser: ${user.telegramUserId}\nProduct: ${product.name}`);
 }
 
@@ -591,7 +632,13 @@ async function showPurchaseReview(chatId: number, userId: number, productId: num
   return respond(chatId, formatPurchaseReview(product.name, product.priceCents, safeQuantity, user.balanceCents), buildPaymentMethodKeyboard(productId, safeQuantity), messageId);
 }
 
-async function cancelPurchase(chatId: number, productId: number, messageId?: number) {
+async function cancelPurchase(chatId: number, userId: number, productId: number, messageId?: number) {
+  const db = await getDb();
+  pendingBinancePayPurchases.delete(userId);
+  if (db) {
+    const user = (await db.select().from(botUsers).where(eq(botUsers.telegramUserId, userId)).limit(1))[0];
+    if (user) await db.update(paymentIntents).set({ status: "cancelled" }).where(and(eq(paymentIntents.botUserId, user.id), eq(paymentIntents.status, "pending")));
+  }
   return showProduct(chatId, productId, messageId);
 }
 
@@ -605,12 +652,15 @@ async function createPurchase(chatId: number, userId: number, productId: number,
     if (!user || !product || !product.active) return { ok: false as const, status: "unavailable" as const };
     const purchase = buildConfirmedPurchasePlan(user.balanceCents, product.priceCents, product.stock, requestedQuantity);
     if (!purchase.ok) return { ok: false as const, status: purchase.status, balanceCents: user.balanceCents, productId: product.id, stock: product.stock, totalCents: purchase.totalCents };
-    const result = await tx.insert(orders).values({ botUserId: user.id, productId: product.id, kind: "purchase", amountCents: purchase.totalCents, status: "fulfilled" });
+    const digital = product.inventoryText?.trim() ? consumeDigitalInventory(product.inventoryText, purchase.quantity) : { ok: true as const, items: [] as string[], remaining: [] as string[] };
+    if (!digital.ok) return { ok: false as const, status: "out_of_stock" as const, productId: product.id, stock: product.stock, totalCents: purchase.totalCents };
+    const deliveryMode = product.deliveryMode === "manual" ? "manual" as const : "automatic" as const;
+    const result = await tx.insert(orders).values({ botUserId: user.id, productId: product.id, kind: "purchase", amountCents: purchase.totalCents, status: deliveryMode === "manual" ? "paid" : "fulfilled" });
     const orderId = String(extractInsertedRowId(result) || `${user.id}:${product.id}:${Date.now()}`);
     await tx.update(botUsers).set({ balanceCents: purchase.nextBalanceCents }).where(eq(botUsers.id, user.id));
-    await tx.update(products).set({ stock: purchase.nextStock }).where(eq(products.id, product.id));
-    await tx.insert(walletLedger).values({ botUserId: user.id, amountCents: -purchase.totalCents, kind: "purchase", referenceId: orderId, note: `Automatic purchase (${purchase.quantity}×): ${product.name}` });
-    return { ok: true as const, orderId, productId: product.id, productName: product.name, quantity: purchase.quantity, totalCents: purchase.totalCents, buyerName: user.firstName ?? user.username ?? "User", telegramUserId: user.telegramUserId };
+    await tx.update(products).set({ stock: purchase.nextStock, inventoryText: product.inventoryText?.trim() ? digital.remaining.join("\n") : product.inventoryText }).where(eq(products.id, product.id));
+    await tx.insert(walletLedger).values({ botUserId: user.id, amountCents: -purchase.totalCents, kind: "purchase", referenceId: orderId, note: `${deliveryMode === "manual" ? "Manual" : "Automatic"} purchase (${purchase.quantity}×): ${product.name}` });
+    return { ok: true as const, orderId, productId: product.id, productName: product.name, quantity: purchase.quantity, totalCents: purchase.totalCents, buyerName: user.firstName ?? user.username ?? "User", telegramUserId: user.telegramUserId, deliveryMode, deliveredItems: digital.items, warrantyDays: product.warrantyDays };
   });
   if (!outcome.ok) {
     if (outcome.status === "insufficient_balance") return respond(chatId, `💳 <b>Insufficient balance</b>\n\nYour balance is <b>$${(outcome.balanceCents / 100).toFixed(2)}</b>. This quantity costs <b>$${(outcome.totalCents / 100).toFixed(2)}.</b>`, buildQuantityKeyboard(outcome.productId, outcome.stock), messageId);
@@ -618,7 +668,7 @@ async function createPurchase(chatId: number, userId: number, productId: number,
     return respond(chatId, "⚠️ This product is currently unavailable.\n\nOpen the current Shop to choose an in-stock product.", buildUnavailableProductKeyboard(), messageId);
   }
   const announcement = buildPurchaseAnnouncement(outcome.productId, outcome.productName, outcome.quantity, outcome.buyerName, outcome.telegramUserId);
-  await respond(chatId, formatPurchaseConfirmation(outcome.orderId, `${outcome.quantity}× ${outcome.productName}`, outcome.totalCents), buildHomeKeyboard(), messageId);
+  await respond(chatId, formatPurchaseConfirmation(outcome.orderId, `${outcome.quantity}× ${outcome.productName}`, outcome.totalCents, { mode: outcome.deliveryMode, items: outcome.deliveredItems, warrantyDays: outcome.warrantyDays }), buildHomeKeyboard(), messageId);
   await notifyAdmin("order_fulfilled", String(outcome.orderId), announcement.text, announcement.replyMarkup);
 }
 
@@ -717,7 +767,7 @@ export async function handleCallback(query: TelegramCallbackQuery, options: { sk
   if (purchaseRoute === "payment_method" && action.kind === "buyconfirm") return showPurchaseReview(chatId, userId, action.id, action.quantity, messageId);
   if (purchaseRoute === "purchase_confirm" && action.kind === "paywallet") return createPurchase(chatId, userId, action.id, action.quantity, messageId);
   if (purchaseRoute === "binance_pay_pending" && (action.kind === "paybinance" || action.kind === "paybep20")) return createBinancePayPurchaseIntent(chatId, userId, action.id, action.quantity, messageId, action.kind === "paybep20" ? "bep20" : "binance_pay");
-  if (purchaseRoute === "product_view" && action.kind === "buycancel") return cancelPurchase(chatId, action.id, messageId);
+  if (action.kind === "buycancel") return cancelPurchase(chatId, userId, action.id, messageId);
   if (purchaseRoute === "custom_quantity" && action.kind === "customqty") {
     const db = await getDb();
     if (!db) throw new Error("Database is unavailable");
@@ -754,7 +804,7 @@ async function verifyAndFulfillBinancePurchase(chatId: number, userId: number, i
   if (!result.ok) {
     const reason = formatPaymentVerificationFailure(result.reason, isBep20 ? "bep20" : "binance_pay", intent.amountCents);
     const identifierLabel = isBep20 ? "transaction hash (TxID)" : "Binance Pay order ID";
-    await respond(chatId, `❌ <b>Payment not verified</b>\n\n${reason}\n\nSend the correct ${identifierLabel} within the remaining payment window.`, undefined);
+    await respond(chatId, `❌ <b>Payment not verified</b>\n\n${reason}\n\nSend the correct ${identifierLabel} within the remaining payment window.`, buildPurchasePaymentFailureKeyboard(intent.productId));
     return false;
   }
   const transactionRef = String(result.transaction.transactionId ?? transactionId.trim());
@@ -768,11 +818,14 @@ async function verifyAndFulfillBinancePurchase(chatId: number, userId: number, i
     const product = (await tx.select().from(products).where(eq(products.id, current.productId)).limit(1))[0];
     if (!account || account.id !== (await tx.select({ id: botUsers.id }).from(botUsers).where(eq(botUsers.telegramUserId, userId)).limit(1))[0]?.id) return { ok: false as const, reason: "user_mismatch" as const };
     if (!product || !isPurchasableProduct(product) || product.stock < current.quantity) return { ok: false as const, reason: "unavailable" as const };
-    const inserted = await tx.insert(orders).values({ botUserId: account.id, productId: product.id, kind: "purchase", amountCents: current.amountCents, status: "fulfilled" });
-    const orderId = Number((inserted as any)[0]?.insertId ?? 0);
-    await tx.update(products).set({ stock: sql`${products.stock} - ${current.quantity}` }).where(eq(products.id, product.id));
+    const digital = product.inventoryText?.trim() ? consumeDigitalInventory(product.inventoryText, current.quantity) : { ok: true as const, items: [] as string[], remaining: [] as string[] };
+    if (!digital.ok) return { ok: false as const, reason: "unavailable" as const };
+    const deliveryMode = product.deliveryMode === "manual" ? "manual" as const : "automatic" as const;
+    const inserted = await tx.insert(orders).values({ botUserId: account.id, productId: product.id, kind: "purchase", amountCents: current.amountCents, status: deliveryMode === "manual" ? "paid" : "fulfilled" });
+    const orderId = extractInsertedRowId(inserted) || Number(`${Date.now()}`.slice(-9));
+    await tx.update(products).set({ stock: sql`${products.stock} - ${current.quantity}`, inventoryText: product.inventoryText?.trim() ? digital.remaining.join("\n") : product.inventoryText }).where(eq(products.id, product.id));
     await tx.update(paymentIntents).set({ status: "fulfilled", transactionId: transactionRef }).where(eq(paymentIntents.id, current.id));
-    return { ok: true as const, orderId, product, quantity: current.quantity, amountCents: current.amountCents };
+    return { ok: true as const, orderId, product, quantity: current.quantity, amountCents: current.amountCents, deliveryMode, deliveredItems: digital.items, warrantyDays: product.warrantyDays };
   });
   if (!outcome.ok) {
     const text = outcome.reason === "already_used" ? "ℹ️ This Binance Pay transaction was already used." : outcome.reason === "unavailable" ? "⚠️ The product sold out before payment verification. Contact support with your transaction ID." : outcome.reason === "user_mismatch" ? "⚠️ This payment intent belongs to a different account." : "ℹ️ This payment order was already processed.";
@@ -781,7 +834,7 @@ async function verifyAndFulfillBinancePurchase(chatId: number, userId: number, i
   }
   const buyer = (await db.select().from(botUsers).where(eq(botUsers.telegramUserId, userId)).limit(1))[0];
   const announcement = buildPurchaseAnnouncement(outcome.product.id, outcome.product.name, outcome.quantity, buyer?.firstName ?? "User", userId);
-  await respond(chatId, formatPurchaseConfirmation(outcome.orderId, `${outcome.quantity}× ${outcome.product.name}`, outcome.amountCents), buildHomeKeyboard());
+  await respond(chatId, formatPurchaseConfirmation(outcome.orderId, `${outcome.quantity}× ${outcome.product.name}`, outcome.amountCents, { mode: outcome.deliveryMode, items: outcome.deliveredItems, warrantyDays: outcome.warrantyDays }), buildHomeKeyboard());
   await notifyAdmin("order_fulfilled", String(outcome.orderId), announcement.text, announcement.replyMarkup);
   return true;
 }

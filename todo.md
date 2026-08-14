@@ -322,3 +322,11 @@
 
 - [x] Fix pending Binance Pay and USDT BEP20 product transaction IDs being routed to the generic /start welcome response instead of verification.
 - [x] Add regression coverage for pending product verification message precedence and publish the validated repair.
+
+- [x] Add Cancel buttons to failed product-payment verification responses for Binance Pay and USDT BEP20.
+- [x] Fix admin product price parsing so entered dollar values preserve their decimal meaning, such as 1 becoming $1.00 rather than $0.10.
+- [x] Add product metadata fields for rich details, automatic/manual delivery, and warranty period in days.
+- [x] Add one-per-line digital inventory support, automatic item allocation on fulfillment, and copy-friendly text delivery.
+- [x] Add regression coverage and publish the validated payment/product-management release.
+- [x] Create and synchronize a human-readable `<ProductName>.txt` file in the Drive exports folder containing all current digital stock items, one item per line.
+- [x] Add optional product image support with durable storage reference, admin form input, and Telegram product presentation.

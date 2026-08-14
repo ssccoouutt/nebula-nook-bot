@@ -7,6 +7,17 @@ import { publicProcedure, router } from "./_core/trpc";
 import { getDb } from "./db";
 import { botSettings, botUsers, broadcasts, orders, products, supportTickets, walletLedger } from "../drizzle/schema";
 import { TRPCError } from "@trpc/server";
+
+function inventoryLines(value: string) {
+  return value.replaceAll("\\n", "\n").split(/\r?\n/).map(line => line.trim()).filter(Boolean);
+}
+
+function productValues(input: { name: string; description: string; details: string; priceUsd: number; inventoryText: string; deliveryMode: "automatic" | "manual"; warrantyDays: number; imageUrl: string; freeEligible: boolean; freeWindowMs: number | null; active?: boolean }) {
+  const priceCents = Math.round(input.priceUsd * 100);
+  if (!Number.isFinite(input.priceUsd) || priceCents < 0) throw new TRPCError({ code: "BAD_REQUEST", message: "Price must be a valid non-negative USD amount" });
+  const items = inventoryLines(input.inventoryText);
+  return { name: input.name.trim(), description: input.description.trim(), details: input.details.trim(), priceCents, stock: items.length, inventoryText: items.join("\n"), deliveryMode: input.deliveryMode, warrantyDays: Math.max(0, Math.floor(input.warrantyDays)), imageUrl: input.imageUrl.trim(), freeEligible: input.freeEligible ? 1 : 0, freeWindowMs: input.freeWindowMs, ...(input.active === undefined ? {} : { active: input.active ? 1 : 0 }) };
+}
 import { buildFulfillmentNotifications, configureTelegramWebhook, notifyAdmin, sendTelegramMessage, validTelegramJoinUrl } from "./telegram";
 
 // Public dashboard mode is intentionally enabled at the user’s request.
@@ -41,14 +52,14 @@ export const appRouter = router({
       return { users: Number(users[0]?.count ?? 0), activeProducts: Number(activeProducts[0]?.count ?? 0), openTickets: Number(openTickets[0]?.count ?? 0), orders: Number(ordersCount[0]?.count ?? 0) };
     }),
     products: adminProcedure.query(async () => (await database()).select().from(products).orderBy(desc(products.createdAt))),
-    createProduct: adminProcedure.input(z.object({ name: z.string().min(1).max(255), description: z.string().min(1), priceCents: z.number().int().nonnegative(), stock: z.number().int().nonnegative(), freeEligible: z.boolean(), freeWindowMs: z.number().int().positive().nullable() })).mutation(async ({ input }) => {
+    createProduct: adminProcedure.input(z.object({ name: z.string().min(1).max(255), description: z.string().min(1), details: z.string().default(""), priceUsd: z.number().nonnegative(), inventoryText: z.string().default(""), deliveryMode: z.enum(["automatic", "manual"]).default("automatic"), warrantyDays: z.number().int().nonnegative().default(0), imageUrl: z.string().url().or(z.literal("")).default(""), freeEligible: z.boolean(), freeWindowMs: z.number().int().positive().nullable() })).mutation(async ({ input }) => {
       const db = await database();
-      await db.insert(products).values({ ...input, freeEligible: input.freeEligible ? 1 : 0, active: 1 });
+      await db.insert(products).values({ ...productValues(input), active: 1 });
       return { success: true };
     }),
-    updateProduct: adminProcedure.input(z.object({ id: z.number().int(), name: z.string().min(1).max(255), description: z.string().min(1), priceCents: z.number().int().nonnegative(), stock: z.number().int().nonnegative(), active: z.boolean(), freeEligible: z.boolean(), freeWindowMs: z.number().int().positive().nullable() })).mutation(async ({ input }) => {
+    updateProduct: adminProcedure.input(z.object({ id: z.number().int(), name: z.string().min(1).max(255), description: z.string().min(1), details: z.string().default(""), priceUsd: z.number().nonnegative(), inventoryText: z.string().default(""), deliveryMode: z.enum(["automatic", "manual"]).default("automatic"), warrantyDays: z.number().int().nonnegative().default(0), imageUrl: z.string().url().or(z.literal("")).default(""), active: z.boolean(), freeEligible: z.boolean(), freeWindowMs: z.number().int().positive().nullable() })).mutation(async ({ input }) => {
       const db = await database();
-      await db.update(products).set({ ...input, active: input.active ? 1 : 0, freeEligible: input.freeEligible ? 1 : 0 }).where(eq(products.id, input.id));
+      await db.update(products).set(productValues(input)).where(eq(products.id, input.id));
       return { success: true };
     }),
     deleteProduct: adminProcedure.input(z.object({ id: z.number().int() })).mutation(async ({ input }) => {
