@@ -98,8 +98,48 @@ async function sendPhoto(chatId: number, photo: string, caption: string, replyMa
   return telegramCall("sendPhoto", { chat_id: chatId, photo, caption, parse_mode: "HTML", reply_markup: replyMarkup });
 }
 
+async function sendPhotoUpload(chatId: number, imageUrl: string, caption: string, replyMarkup?: unknown) {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 12_000);
+  try {
+    const response = await fetch(imageUrl, { signal: controller.signal, redirect: "follow" });
+    if (!response.ok) throw new Error(`image URL returned HTTP ${response.status}`);
+    const contentType = response.headers.get("content-type")?.split(";")[0].trim().toLowerCase() ?? "";
+    if (!contentType.startsWith("image/")) throw new Error(`image URL returned ${contentType || "non-image content"}`);
+    const contentLength = Number(response.headers.get("content-length") ?? 0);
+    if (Number.isFinite(contentLength) && contentLength > 10 * 1024 * 1024) throw new Error("image exceeds Telegram's 10 MB upload limit");
+    const bytes = await response.arrayBuffer();
+    if (bytes.byteLength > 10 * 1024 * 1024) throw new Error("image exceeds Telegram's 10 MB upload limit");
+    const extension = contentType.split("/")[1]?.replace(/[^a-z0-9]/g, "") || "jpg";
+    const form = new FormData();
+    form.append("chat_id", String(chatId));
+    form.append("photo", new Blob([bytes], { type: contentType }), `product.${extension}`);
+    form.append("caption", caption);
+    form.append("parse_mode", "HTML");
+    if (replyMarkup !== undefined) form.append("reply_markup", JSON.stringify(replyMarkup));
+    const token = process.env.TELEGRAM_BOT_TOKEN;
+    if (!token) throw new Error("TELEGRAM_BOT_TOKEN is not configured");
+    const telegramResponse = await fetch(`${TELEGRAM_API}${token}/sendPhoto`, { method: "POST", body: form });
+    const json = (await telegramResponse.json()) as { ok: boolean; result?: unknown; description?: string };
+    if (!json.ok) throw new Error(json.description ?? "Telegram sendPhoto upload failed");
+    return json.result;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
 export function hasProductImage(imageUrl: string | null | undefined) {
   return Boolean(imageUrl?.trim());
+}
+
+export function isHttpProductImageUrl(imageUrl: string | null | undefined) {
+  if (!hasProductImage(imageUrl)) return false;
+  try {
+    const url = new URL(imageUrl!.trim());
+    return url.protocol === "http:" || url.protocol === "https:";
+  } catch {
+    return false;
+  }
 }
 
 export function telegramResponseMethod(messageId?: number, editFailed = false) {
@@ -561,7 +601,11 @@ async function showProduct(chatId: number, productId: number, messageId?: number
   const productKeyboard = buildProductKeyboard(item.id);
   if (hasProductImage(item.imageUrl)) {
     try {
-      await sendPhoto(chatId, item.imageUrl.trim(), productText, productKeyboard);
+      if (isHttpProductImageUrl(item.imageUrl)) {
+        await sendPhotoUpload(chatId, item.imageUrl.trim(), productText, productKeyboard);
+      } else {
+        await sendPhoto(chatId, item.imageUrl.trim(), productText, productKeyboard);
+      }
       return;
     } catch (error) {
       console.error("[Telegram] product image failed; falling back to text product view", error);

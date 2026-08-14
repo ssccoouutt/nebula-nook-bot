@@ -49,6 +49,7 @@ import {
   consumeDigitalInventory,
   buildPurchasePaymentFailureKeyboard,
   hasProductImage,
+  isHttpProductImageUrl,
 } from "./telegram";
 
 describe("Telegram presentation and notification helpers", () => {
@@ -81,6 +82,8 @@ describe("Telegram presentation and notification helpers", () => {
     expect(hasProductImage("https://cdn.example.com/gemini.png")).toBe(true);
     expect(hasProductImage("  ")).toBe(false);
     expect(hasProductImage(undefined)).toBe(false);
+    expect(isHttpProductImageUrl("https://cdn.example.com/gemini.png")).toBe(true);
+    expect(isHttpProductImageUrl("telegram-file-id")).toBe(false);
   });
 
   it("renders copy-friendly automatic delivery, manual delivery, warranty, and payment cancellation", () => {

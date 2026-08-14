@@ -332,3 +332,7 @@
 - [x] Add optional product image support with durable storage reference, admin form input, and Telegram product presentation.
 
 - [x] Require a pre-created exact-amount USDT BEP20 invoice, enforce transaction time after invoice creation, and expire invoices after 30 minutes.
+
+- [x] Diagnose and fix the blank public Koyeb dashboard URL at cognitive-quintilla-techzone3228-89a97258.koyeb.app; verified HTTP 200 dashboard HTML, JavaScript, CSS, and rendered page.
+
+- [x] Fix product-image delivery: Telegram logs show `failed to get HTTP URL content` and `wrong type of the web page content`, so product details fall back to text instead of attaching the image.
