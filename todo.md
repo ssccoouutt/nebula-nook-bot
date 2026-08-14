@@ -330,3 +330,5 @@
 - [x] Add regression coverage and publish the validated payment/product-management release.
 - [x] Create and synchronize a human-readable `<ProductName>.txt` file in the Drive exports folder containing all current digital stock items, one item per line.
 - [x] Add optional product image support with durable storage reference, admin form input, and Telegram product presentation.
+
+- [x] Require a pre-created exact-amount USDT BEP20 invoice, enforce transaction time after invoice creation, and expire invoices after 30 minutes.

@@ -31,7 +31,7 @@ type BinancePayResponse = { data?: BinancePayTransaction[]; code?: string; msg?:
 type RpcResponse<T> = { result?: T; error?: { message?: string } };
 type BscLog = { address?: string; topics?: string[]; data?: string; removed?: boolean };
 type BscReceipt = { status?: string; blockNumber?: string; to?: string; logs?: BscLog[] };
-type BscBlock = { number?: string };
+type BscBlock = { number?: string; timestamp?: string };
 
 function requireCredentials() {
   const apiKey = process.env.BINANCE_PAY_API_KEY;
@@ -131,7 +131,7 @@ async function requestBscRpc<T>(method: string, params: unknown[], fetcher: type
   throw lastError instanceof Error ? lastError : new Error("BSC RPC unavailable");
 }
 
-async function findBep20Transfer(txHash: string, expectedAmountCents: number | undefined, fetcher: typeof fetch) {
+async function findBep20Transfer(txHash: string, expectedAmountCents: number | undefined, fetcher: typeof fetch, notBeforeMs?: number) {
   const [receipt, latestBlock] = await Promise.all([
     requestBscRpc<BscReceipt | null>("eth_getTransactionReceipt", [txHash], fetcher),
     requestBscRpc<BscBlock>("eth_getBlockByNumber", ["latest", false], fetcher),
@@ -142,6 +142,13 @@ async function findBep20Transfer(txHash: string, expectedAmountCents: number | u
   const currentBlock = rpcNumber(latestBlock.number);
   if (receiptBlock === undefined || currentBlock === undefined || currentBlock - receiptBlock + 1 < BSC_MIN_CONFIRMATIONS) {
     return { ok: false as const, reason: "not_received" as const };
+  }
+  if (notBeforeMs !== undefined) {
+    const transactionBlock = await requestBscRpc<BscBlock>("eth_getBlockByNumber", [receipt.blockNumber, false], fetcher);
+    const transactionTimestamp = rpcNumber(transactionBlock.timestamp);
+    if (transactionTimestamp === undefined || transactionTimestamp * 1000 <= notBeforeMs) {
+      return { ok: false as const, reason: "before_invoice" as const };
+    }
   }
 
   const configuredAddress = normalizeAddress(process.env.BEP20);
@@ -161,13 +168,13 @@ async function findBep20Transfer(txHash: string, expectedAmountCents: number | u
   return { ok: true as const, transaction: { txId: txHash, transactionId: txHash, amount: amountCents / 100, coin: REQUIRED_ASSET, network: REQUIRED_NETWORK, address: process.env.BEP20, status: "SUCCESS" }, amountCents, asset: REQUIRED_ASSET };
 }
 
-export async function findBinancePayTransaction(searchId: string, expectedAmountCents?: number, fetcher: typeof fetch = fetch, paymentMethod: "binance_pay" | "bep20" = process.env.BEP20 ? "bep20" : "binance_pay") {
+export async function findBinancePayTransaction(searchId: string, expectedAmountCents?: number, fetcher: typeof fetch = fetch, paymentMethod: "binance_pay" | "bep20" = process.env.BEP20 ? "bep20" : "binance_pay", notBeforeMs?: number) {
   const normalizedId = searchId.trim();
   if (!/^(?:0x)?[A-Za-z0-9_-]{6,128}$/.test(normalizedId)) return { ok: false as const, reason: "invalid_id" as const };
 
   if (paymentMethod === "bep20") {
     if (!process.env.BEP20?.trim()) return { ok: false as const, reason: "address_mismatch" as const };
-    return findBep20Transfer(normalizedId, expectedAmountCents, fetcher);
+    return findBep20Transfer(normalizedId, expectedAmountCents, fetcher, notBeforeMs);
   }
 
   const { apiKey, secretKey } = requireCredentials();

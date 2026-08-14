@@ -21,6 +21,7 @@ const pendingCustomQuantities = new Map<number, { productId: number; expiresAt: 
 const pendingBinancePayTopups = new Map<number, { amountCents?: number; method: "binance_pay" | "bep20"; expiresAt: number }>();
 const pendingBinancePayPurchases = new Map<number, { intentId: number; expiresAt: number }>();
 export const BINANCE_PAY_PURCHASE_WINDOW_MS = 20 * 60 * 1000;
+export const BEP20_PURCHASE_WINDOW_MS = 30 * 60 * 1000;
 
 export function extractInsertedRowId(result: unknown): number {
   const candidate = Array.isArray(result) ? result[0] : result;
@@ -392,7 +393,7 @@ export function formatBinancePayPurchasePrompt(productName: string, quantity: nu
 
 export function formatBep20PurchasePrompt(productName: string, quantity: number, amountCents: number) {
   const amount = `$${(amountCents / 100).toFixed(2)}`;
-  return `🟢 <b>Pay with USDT (BEP20)</b>\n\n📦 ${productName.replace(/[<&>]/g, "")} × ${quantity}\n💰 <b>Amount to send:</b> ${amount} USDT\n💳 <b>Deposit address (BEP20):</b> <code>${bep20DepositAddress()}</code>\n━━━━━━━━━━━━━━━━━━\n\n<b>Important:</b>\n• Send the exact amount shown.\n• Use the BEP20 network only — wrong-network funds are unrecoverable.\n• After sending, send the Transaction Hash (TxID) here as your next message.\n\nThis invoice expires in <b>20 minutes</b>.`;
+  return `🟢 <b>Pay with USDT (BEP20)</b>\n\n📦 ${productName.replace(/[<&>]/g, "")} × ${quantity}\n💰 <b>Amount to send:</b> ${amount} USDT\n💳 <b>Deposit address (BEP20):</b> <code>${bep20DepositAddress()}</code>\n━━━━━━━━━━━━━━━━━━\n\n<b>Important:</b>\n• Create this invoice before sending any funds.\n• Send exactly ${amount} USDT — no more and no less.\n• Use the BEP20 network only — wrong-network funds are unrecoverable.\n• After sending, send the Transaction Hash (TxID) here as your next message.\n\nThis invoice expires in <b>30 minutes</b>. Transfers made before this invoice was created or after expiry are not accepted.`;
 }
 
 export function formatBinancePayTopupPrompt(amountCents: number) {
@@ -418,6 +419,7 @@ export function formatPaymentVerificationFailure(reason: string, method: "binanc
   if (reason === "unsupported_asset") return isBep20 ? "Only USDT deposits on the BEP20 network can be verified." : "Only the supported Binance Pay USDT payment can be verified.";
   if (reason === "unsupported_network") return "The deposit was not sent through the BEP20 network.";
   if (reason === "address_mismatch") return "The deposit was sent to a different address than the configured BEP20 address.";
+  if (reason === "before_invoice") return "This transfer was made before the matching invoice was created. Create a new invoice first, then send the exact requested amount.";
   return isBep20 ? "That is not a positive received USDT BEP20 deposit." : "That is not a positive received Binance Pay payment.";
 }
 
@@ -681,10 +683,11 @@ async function createBinancePayPurchaseIntent(chatId: number, userId: number, pr
   if (!user || !isPurchasableProduct(product)) return respond(chatId, "⚠️ This product is currently unavailable.\\n\\nOpen the current Shop to choose an in-stock product.", buildUnavailableProductKeyboard(), messageId);
   if (product.stock < safeQuantity) return respond(chatId, `⚠️ Only <b>${product.stock}</b> unit${product.stock === 1 ? "" : "s"} remain. Choose a smaller quantity.`, buildQuantityKeyboard(product.id, product.stock), messageId);
   const amountCents = product.priceCents * safeQuantity;
-  const inserted = await db.insert(paymentIntents).values({ botUserId: user.id, productId: product.id, quantity: safeQuantity, amountCents, method, status: "pending" });
+  const createdAtMs = Date.now();
+  const inserted = await db.insert(paymentIntents).values({ botUserId: user.id, productId: product.id, quantity: safeQuantity, amountCents, method, status: "pending", createdAt: new Date(createdAtMs), updatedAt: new Date(createdAtMs) });
   const intentId = extractInsertedRowId(inserted);
   if (!intentId) throw new Error("Failed to create Binance Pay payment intent");
-  pendingBinancePayPurchases.set(userId, { intentId, expiresAt: Date.now() + BINANCE_PAY_PURCHASE_WINDOW_MS });
+  pendingBinancePayPurchases.set(userId, { intentId, expiresAt: createdAtMs + (method === "bep20" ? BEP20_PURCHASE_WINDOW_MS : BINANCE_PAY_PURCHASE_WINDOW_MS) });
   const prompt = method === "bep20" ? formatBep20PurchasePrompt(product.name, safeQuantity, amountCents) : formatBinancePayPurchasePrompt(product.name, safeQuantity, amountCents);
   const invoiceKeyboard = method === "bep20" ? keyboard([[{ text: "📋 Copy BEP20 address", copy_text: { text: bep20DepositAddress() } }], [{ text: "✖️ Cancel", callback_data: `buycancel:${product.id}` }]]) : keyboard([[{ text: "📋 Copy Binance Pay ID", copy_text: { text: merchantBinanceId() } }], [{ text: "✖️ Cancel", callback_data: `buycancel:${product.id}` }]]);
   return respond(chatId, prompt, invoiceKeyboard, messageId);
@@ -800,7 +803,13 @@ async function verifyAndFulfillBinancePurchase(chatId: number, userId: number, i
   const isBep20 = intent?.method === "bep20";
   const paymentLabel = isBep20 ? "USDT BEP20 payment" : "Binance Pay order";
   if (!intent || intent.status !== "pending") { await respond(chatId, `ℹ️ This ${paymentLabel} is no longer pending. Open Shop to start a new purchase.`, buildHomeKeyboard()); return false; }
-  const result = await findBinancePayTransaction(transactionId, intent.amountCents, fetch, isBep20 ? "bep20" : "binance_pay");
+  const createdAtMs = intent.createdAt instanceof Date ? intent.createdAt.getTime() : new Date(intent.createdAt).getTime();
+  const windowMs = isBep20 ? BEP20_PURCHASE_WINDOW_MS : BINANCE_PAY_PURCHASE_WINDOW_MS;
+  if (!Number.isFinite(createdAtMs) || Date.now() > createdAtMs + windowMs) {
+    await respond(chatId, `⌛ <b>${isBep20 ? "USDT BEP20 invoice" : "Binance Pay order"} expired</b>\n\nCreate a new invoice before sending funds.`, buildPurchasePaymentFailureKeyboard(intent.productId));
+    return false;
+  }
+  const result = await findBinancePayTransaction(transactionId, intent.amountCents, fetch, isBep20 ? "bep20" : "binance_pay", isBep20 ? createdAtMs : undefined);
   if (!result.ok) {
     const reason = formatPaymentVerificationFailure(result.reason, isBep20 ? "bep20" : "binance_pay", intent.amountCents);
     const identifierLabel = isBep20 ? "transaction hash (TxID)" : "Binance Pay order ID";
@@ -847,7 +856,7 @@ async function restorePendingBinancePurchase(userId: number) {
   const intent = (await db.select().from(paymentIntents).where(eq(paymentIntents.botUserId, user.id)).limit(20)).find((row) => row.status === "pending");
   if (!intent) return null;
   const createdAtMs = intent.createdAt instanceof Date ? intent.createdAt.getTime() : new Date(intent.createdAt).getTime();
-  const pending = { intentId: intent.id, expiresAt: createdAtMs + BINANCE_PAY_PURCHASE_WINDOW_MS };
+  const pending = { intentId: intent.id, expiresAt: createdAtMs + (intent.method === "bep20" ? BEP20_PURCHASE_WINDOW_MS : BINANCE_PAY_PURCHASE_WINDOW_MS) };
   pendingBinancePayPurchases.set(userId, pending);
   return pending;
 }
@@ -863,7 +872,7 @@ export async function handleMessage(message: TelegramMessage) {
   if (pendingPurchase && shouldRoutePendingBinancePurchase(messageText, isCommandMessage, Boolean(pendingTopup), true)) {
     if (pendingPurchaseExpired) {
       pendingBinancePayPurchases.delete(user.id);
-      return respond(message.chat.id, "⌛ <b>Binance Pay order expired</b>\n\nOpen Shop and start again.", buildHomeKeyboard());
+      return respond(message.chat.id, "⌛ <b>Payment invoice expired</b>\n\nOpen Shop and create a new invoice before sending funds.", buildHomeKeyboard());
     }
     const completed = await verifyAndFulfillBinancePurchase(message.chat.id, user.id, pendingPurchase.intentId, messageText);
     if (completed) pendingBinancePayPurchases.delete(user.id);

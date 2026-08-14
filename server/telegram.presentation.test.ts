@@ -214,6 +214,8 @@ describe("Telegram presentation and notification helpers", () => {
     const bep20Prompt = formatBep20PurchasePrompt("Gemini Pro Trial Link", 1, 99);
     expect(bep20Prompt).toContain("BEP20 network only");
     expect(bep20Prompt).toContain("Transaction Hash (TxID)");
+    expect(bep20Prompt).toContain("Create this invoice before sending any funds");
+    expect(bep20Prompt).toContain("This invoice expires in <b>30 minutes</b>");
     expect(payPrompt).not.toContain("USDT or USDC");
     expect(payPrompt).not.toContain("force_reply");
     expect(bep20Prompt).toContain("Deposit address (BEP20):</b> <code>0xbep20-test</code>");

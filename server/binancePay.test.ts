@@ -100,6 +100,40 @@ describe("Binance Pay transaction verification", () => {
     }
   });
 
+  it("requires a BEP20 transfer to occur after the matching invoice was created", async () => {
+    const previous = process.env.BEP20;
+    process.env.BEP20 = "0x0586e6a681e3ecbf2803d92e171439a4d878423e";
+    try {
+      const fetcher: typeof fetch = async (_input, init) => {
+        const request = JSON.parse(String(init?.body ?? "{}")) as { method?: string; params?: unknown[] };
+        if (request.method === "eth_getTransactionReceipt") {
+          return new Response(JSON.stringify({ result: {
+            status: "0x1",
+            blockNumber: "0x64",
+            logs: [{
+              address: "0x55d398326f99059ff775485246999027b3197955",
+              topics: [
+                "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef",
+                `0x${"0".repeat(64)}`,
+                `0x${"0".repeat(24)}0586e6a681e3ecbf2803d92e171439a4d878423e`,
+              ],
+              data: "0x" + BigInt("1000000000000000000").toString(16).padStart(64, "0"),
+            }],
+          } }), { status: 200 });
+        }
+        if (request.method === "eth_getBlockByNumber" && request.params?.[0] === "0x64") {
+          return new Response(JSON.stringify({ result: { number: "0x64", timestamp: "0x65" } }), { status: 200 });
+        }
+        return new Response(JSON.stringify({ result: { number: "0x65", timestamp: "0x66" } }), { status: 200 });
+      };
+      expect(await findBinancePayTransaction("0xafter", 100, fetcher, "bep20", 102000)).toMatchObject({ ok: false, reason: "before_invoice" });
+      expect(await findBinancePayTransaction("0xafter", 100, fetcher, "bep20", 100000)).toMatchObject({ ok: true, amountCents: 100, asset: "USDT" });
+    } finally {
+      if (previous === undefined) delete process.env.BEP20;
+      else process.env.BEP20 = previous;
+    }
+  });
+
   it("rejects a BEP20 receipt without a matching USDT transfer to the configured address", async () => {
     const previous = process.env.BEP20;
     process.env.BEP20 = "0xmerchant";
