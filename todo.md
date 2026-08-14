@@ -336,3 +336,7 @@
 - [x] Diagnose and fix the blank public Koyeb dashboard URL at cognitive-quintilla-techzone3228-89a97258.koyeb.app; verified HTTP 200 dashboard HTML, JavaScript, CSS, and rendered page.
 
 - [x] Fix product-image delivery: Telegram logs show `failed to get HTTP URL content` and `wrong type of the web page content`, so product details fall back to text instead of attaching the image.
+
+- [x] Change wallet deposit amount limits and prompts from $1.00–$10,000.00 to $0.01–$1,000.00.
+
+- [x] Fix Referrals and Profile inline buttons so each click triggers only its own callback route and view.

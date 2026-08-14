@@ -309,7 +309,7 @@ export function buildHomeKeyboard() {
   return keyboard([
     [{ text: "🎁 Freebies", callback_data: "freebies", style: "success" }, { text: "🛍️ Shop", callback_data: "shop", style: "primary" }],
     [{ text: "💳 Wallet", callback_data: "wallet", style: "primary" }, { text: "📦 Orders", callback_data: "orders", style: "primary" }],
-    [{ text: "👤 Profile", callback_data: "profile", style: "primary" }, { text: "🤝 Referrals", callback_data: "profile", style: "primary" }],
+    [{ text: "👤 Profile", callback_data: "profile", style: "primary" }, { text: "🤝 Referrals", callback_data: "referrals", style: "primary" }],
     [{ text: "🆘 Support", callback_data: "support", style: "primary" }],
   ]);
 }
@@ -477,7 +477,7 @@ export function buildWalletDepositInvoiceKeyboard(method: "binance_pay" | "bep20
 }
 
 export function formatWalletDepositAmountPrompt(error?: "invalid" | "range", method: "binance_pay" | "bep20" = "binance_pay") {
-  const notice = error === "invalid" ? "⚠️ Enter a valid USD amount, for example <b>10</b> or <b>10.50</b>.\n\n" : error === "range" ? "⚠️ Enter an amount from <b>$1.00</b> to <b>$10,000.00</b>.\n\n" : "";
+  const notice = error === "invalid" ? "⚠️ Enter a valid USD amount, for example <b>10</b> or <b>10.50</b>.\n\n" : error === "range" ? "⚠️ Enter an amount from <b>$0.01</b> to <b>$1,000.00</b>.\n\n" : "";
   const title = method === "bep20" ? "🟢 <b>Add funds with USDT (BEP20)</b>" : "💳 <b>Add funds with Binance Pay (USDT)</b>";
   return `${notice}${title}\n\nEnter the amount in USD you want to add.\n\nExample: <b>10</b> for $10.00`;
 }
@@ -486,7 +486,7 @@ export function parseUsdAmountInput(text: string) {
   const value = text.trim().replace(/^\$/, "");
   if (!/^\d+(?:\.\d{1,2})?$/.test(value)) return { ok: false as const, reason: "invalid" as const };
   const amountCents = Math.round(Number(value) * 100);
-  if (!Number.isSafeInteger(amountCents) || amountCents < 100 || amountCents > 1_000_000) return { ok: false as const, reason: "range" as const };
+  if (!Number.isSafeInteger(amountCents) || amountCents < 1 || amountCents > 100_000) return { ok: false as const, reason: "range" as const };
   return { ok: true as const, amountCents };
 }
 
@@ -639,6 +639,14 @@ async function showProfile(chatId: number, userId: number, messageId?: number) {
   await respond(chatId, `👤 <b>Profile</b>\n\n🪪 Name: ${user?.firstName ?? "User"}\n🏅 Tier: ${user?.tier ?? "Bronze"}\n🤝 Referrals: ${Number(referralsCount[0]?.count ?? 0)}\n\n🔗 Your referral link:\nhttps://t.me/NebulaNook4827_bot?start=ref_${user?.referralCode ?? ""}`, buildHomeKeyboard(), messageId);
 }
 
+async function showReferrals(chatId: number, userId: number, messageId?: number) {
+  const db = await getDb();
+  if (!db) throw new Error("Database is unavailable");
+  const user = (await db.select().from(botUsers).where(eq(botUsers.telegramUserId, userId)).limit(1))[0];
+  const referralsCount = await db.select({ count: sql<number>`count(*)` }).from(referrals).where(eq(referrals.referrerId, user?.id ?? -1));
+  await respond(chatId, `🤝 <b>Referrals</b>\n\nInvite friends with your personal link and track your progress here.\n\n👥 Successful referrals: <b>${Number(referralsCount[0]?.count ?? 0)}</b>\n🏅 Current tier: <b>${user?.tier ?? "Bronze"}</b>\n\n🔗 Your referral link:\nhttps://t.me/NebulaNook4827_bot?start=ref_${user?.referralCode ?? ""}`, buildHomeKeyboard(), messageId);
+}
+
 async function claimFree(chatId: number, userId: number, productId: number, messageId?: number) {
   const db = await getDb();
   if (!db) throw new Error("Database is unavailable");
@@ -738,7 +746,7 @@ async function createBinancePayPurchaseIntent(chatId: number, userId: number, pr
 }
 
 export type TelegramCallbackAction =
-  | { kind: "verify_membership" | "home" | "freebies" | "wallet" | "walletadd" | "walletbep20" | "walletcancel" | "orders" | "profile" | "support" }
+  | { kind: "verify_membership" | "home" | "freebies" | "wallet" | "walletadd" | "walletbep20" | "walletcancel" | "orders" | "profile" | "referrals" | "support" }
   | { kind: "shop" | "product" | "claim" | "buy" | "customqty" | "pricealert"; id: number }
   | { kind: "walletamount"; amountCents: number }
   | { kind: "buyqty" | "buyconfirm" | "paywallet" | "paybinance" | "paybep20"; id: number; quantity: number }
@@ -746,7 +754,7 @@ export type TelegramCallbackAction =
 
 export function parseTelegramCallbackAction(data?: string): TelegramCallbackAction | null {
   const value = data ?? "";
-  if (["verify_membership", "home", "freebies", "wallet", "walletadd", "walletbep20", "walletcancel", "orders", "profile", "support"].includes(value)) return { kind: value as TelegramCallbackAction["kind"] } as TelegramCallbackAction;
+  if (["verify_membership", "home", "freebies", "wallet", "walletadd", "walletbep20", "walletcancel", "orders", "profile", "referrals", "support"].includes(value)) return { kind: value as TelegramCallbackAction["kind"] } as TelegramCallbackAction;
   const walletAmountMatch = value.match(/^walletamount:(\d+)$/);
   if (walletAmountMatch) return { kind: "walletamount", amountCents: Number(walletAmountMatch[1]) };
   const quantityMatch = value.match(/^(buyqty|buyconfirm|paywallet|paybinance|paybep20):([0-9]+):([0-9]+)$/);
@@ -807,6 +815,7 @@ export async function handleCallback(query: TelegramCallbackQuery, options: { sk
   }
   if (action.kind === "orders") return showOrders(chatId, userId, messageId);
   if (action.kind === "profile") return showProfile(chatId, userId, messageId);
+  if (action.kind === "referrals") return showReferrals(chatId, userId, messageId);
   if (action.kind === "support") return respond(chatId, formatSupportPrompt(), buildHomeKeyboard(), messageId);
   if (action.kind === "claim") return claimFree(chatId, userId, action.id, messageId);
   if (purchaseRoute === "quantity_prompt" && (action.kind === "buy" || (action.kind === "buyqty" && action.quantity === 0))) return showQuantityPrompt(chatId, action.id, messageId);

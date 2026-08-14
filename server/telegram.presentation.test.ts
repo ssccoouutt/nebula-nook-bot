@@ -231,9 +231,13 @@ describe("Telegram presentation and notification helpers", () => {
   it("parses free-form USD deposit amounts and rejects invalid ranges", () => {
     expect(parseUsdAmountInput("10")).toEqual({ ok: true, amountCents: 1000 });
     expect(parseUsdAmountInput("$10.50")).toEqual({ ok: true, amountCents: 1050 });
-    expect(parseUsdAmountInput("0.50")).toMatchObject({ ok: false, reason: "range" });
+    expect(parseUsdAmountInput("0.01")).toEqual({ ok: true, amountCents: 1 });
+    expect(parseUsdAmountInput("0.50")).toEqual({ ok: true, amountCents: 50 });
+    expect(parseUsdAmountInput("1000")).toEqual({ ok: true, amountCents: 100000 });
+    expect(parseUsdAmountInput("1000.01")).toMatchObject({ ok: false, reason: "range" });
+    expect(parseUsdAmountInput("0")).toMatchObject({ ok: false, reason: "range" });
     expect(parseUsdAmountInput("ten")).toMatchObject({ ok: false, reason: "invalid" });
-    expect(formatWalletDepositAmountPrompt()).toContain("Enter the amount in USD you want to add.");
+    expect(formatWalletDepositAmountPrompt("range")).toContain("$0.01</b> to <b>$1,000.00");
   });
 
   it("renders distinct USDT Binance Pay and BEP20 top-up invoices with copy and cancel controls", () => {
@@ -291,6 +295,10 @@ describe("Telegram presentation and notification helpers", () => {
     const home = buildHomeKeyboard().inline_keyboard;
     expect(home[0][0]).toMatchObject({ callback_data: "freebies", style: "success" });
     expect(home[0][1]).toMatchObject({ callback_data: "shop", style: "primary" });
+    expect(home[2][0]).toMatchObject({ text: "👤 Profile", callback_data: "profile" });
+    expect(home[2][1]).toMatchObject({ text: "🤝 Referrals", callback_data: "referrals" });
+    expect(home[2][0].callback_data).not.toBe(home[2][1].callback_data);
+    expect(parseTelegramCallbackAction("referrals")).toEqual({ kind: "referrals" });
 
     const compactShop = buildShopKeyboard([{ id: 1, name: "Sample", priceCents: 100 }], 0, 1).inline_keyboard;
     expect(compactShop.at(-1)).toEqual(expect.arrayContaining([
