@@ -14,6 +14,11 @@ const BSC_RPC_ENDPOINTS = [
   "https://bsc-dataseed1.ninicoin.io",
 ];
 const BSC_MIN_CONFIRMATIONS = 1;
+export const PAYMENT_TOLERANCE_CENTS = 3;
+
+export function isPaymentAmountWithinTolerance(actualAmountCents: number, expectedAmountCents: number) {
+  return Math.abs(actualAmountCents - expectedAmountCents) <= PAYMENT_TOLERANCE_CENTS;
+}
 
 type BinancePayTransaction = {
   orderId?: string | number;
@@ -162,7 +167,7 @@ async function findBep20Transfer(txHash: string, expectedAmountCents: number | u
   if (rawAmount === undefined || rawAmount <= BigInt(0)) return { ok: false as const, reason: "not_received" as const };
   const amountCents = Number((rawAmount * BigInt(100)) / BigInt("1000000000000000000"));
   if (!Number.isSafeInteger(amountCents) || amountCents <= 0) return { ok: false as const, reason: "not_received" as const };
-  if (expectedAmountCents !== undefined && amountCents !== expectedAmountCents) {
+  if (expectedAmountCents !== undefined && !isPaymentAmountWithinTolerance(amountCents, expectedAmountCents)) {
     return { ok: false as const, reason: "amount_mismatch" as const, amountCents, asset: REQUIRED_ASSET };
   }
   return { ok: true as const, transaction: { txId: txHash, transactionId: txHash, amount: amountCents / 100, coin: REQUIRED_ASSET, network: REQUIRED_NETWORK, address: process.env.BEP20, status: "SUCCESS" }, amountCents, asset: REQUIRED_ASSET };
@@ -193,7 +198,7 @@ export async function findBinancePayTransaction(searchId: string, expectedAmount
   if (asset !== REQUIRED_ASSET) return { ok: false as const, reason: "unsupported_asset" as const, transaction };
 
   const amountCents = Math.round(amount * 100);
-  if (expectedAmountCents !== undefined && amountCents !== expectedAmountCents) {
+  if (expectedAmountCents !== undefined && !isPaymentAmountWithinTolerance(amountCents, expectedAmountCents)) {
     return { ok: false as const, reason: "amount_mismatch" as const, transaction, amountCents, asset };
   }
   return { ok: true as const, transaction, amountCents, asset };

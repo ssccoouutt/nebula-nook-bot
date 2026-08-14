@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildBinanceSignedQuery, findBinancePayTransaction } from "./binancePay";
+import { buildBinanceSignedQuery, findBinancePayTransaction, isPaymentAmountWithinTolerance } from "./binancePay";
 
 describe("Binance Pay transaction verification", () => {
   it("builds the script-compatible timestamped HMAC query without exposing the secret", () => {
@@ -63,9 +63,13 @@ describe("Binance Pay transaction verification", () => {
     expect(await findBinancePayTransaction("TX-123456", undefined, negative)).toMatchObject({ ok: false, reason: "not_received" });
   });
 
-  it("rejects a receipt whose amount differs from the pending checkout total", async () => {
+  it("accepts payment amounts within three cents and rejects the fourth cent", async () => {
+    expect(isPaymentAmountWithinTolerance(97, 100)).toBe(true);
+    expect(isPaymentAmountWithinTolerance(103, 100)).toBe(true);
+    expect(isPaymentAmountWithinTolerance(104, 100)).toBe(false);
     const fetcher: typeof fetch = async () => new Response(JSON.stringify({ data: [{ transactionId: "TX-123456", amount: "12.34", currency: "USDT", status: "SUCCESS" }] }), { status: 200 });
-    expect(await findBinancePayTransaction("TX-123456", 1235, fetcher)).toMatchObject({ ok: false, reason: "amount_mismatch" });
+    expect(await findBinancePayTransaction("TX-123456", 1237, fetcher)).toMatchObject({ ok: true, amountCents: 1234 });
+    expect(await findBinancePayTransaction("TX-123456", 1238, fetcher)).toMatchObject({ ok: false, reason: "amount_mismatch" });
   });
 
   it("verifies a USDT BEP20 deposit from the BSC receipt Transfer log", async () => {
@@ -93,7 +97,8 @@ describe("Binance Pay transaction verification", () => {
       };
       process.env.BEP20 = "0x0586e6a681e3ecbf2803d92e171439a4d878423e";
       expect(await findBinancePayTransaction("0xabc123", 1000, fetcher, "bep20")).toMatchObject({ ok: true, amountCents: 1000, asset: "USDT" });
-      expect(await findBinancePayTransaction("0xabc123", 1001, fetcher, "bep20")).toMatchObject({ ok: false, reason: "amount_mismatch" });
+      expect(await findBinancePayTransaction("0xabc123", 1003, fetcher, "bep20")).toMatchObject({ ok: true, amountCents: 1000 });
+      expect(await findBinancePayTransaction("0xabc123", 1004, fetcher, "bep20")).toMatchObject({ ok: false, reason: "amount_mismatch" });
     } finally {
       if (previous === undefined) delete process.env.BEP20;
       else process.env.BEP20 = previous;

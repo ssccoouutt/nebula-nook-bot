@@ -348,3 +348,7 @@
 
 - [x] Re-verify that USDT BEP20 wallet-deposit and product-payment transactions must occur strictly after invoice creation and that both invoices expire after 30 minutes.
 - [x] Add regression coverage for pre-invoice rejection, exact 30-minute expiry, and post-invoice acceptance across both BEP20 flows.
+
+- [x] Accept Binance Pay and USDT BEP20 payments within ±$0.03 of the invoice amount while crediting exactly the invoice amount.
+- [x] Stop sending wallet top-up notifications to the operations group; keep top-up confirmation private to the user.
+- [x] Add regression coverage for tolerance boundaries and suppressed top-up group notifications.

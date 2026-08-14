@@ -460,11 +460,11 @@ export function formatPaymentVerificationFailure(reason: string, method: "binanc
   const expected = expectedAmountCents === undefined ? "the exact requested amount" : `$${(expectedAmountCents / 100).toFixed(2)}`;
   if (reason === "invalid_id") return isBep20 ? "That does not look like a valid transaction hash (TxID)." : "That does not look like a valid Binance Pay order ID.";
   if (reason === "not_found") return isBep20 ? "I could not find that USDT BEP20 deposit yet. Confirm the TxID and wait a moment for network confirmation." : "I could not find that Binance Pay payment yet.";
-  if (reason === "amount_mismatch") return `The payment amount does not match the required ${expected}.`;
+  if (reason === "amount_mismatch") return `The payment amount must be within $0.03 of the requested ${expected}.`;
   if (reason === "unsupported_asset") return isBep20 ? "Only USDT deposits on the BEP20 network can be verified." : "Only the supported Binance Pay USDT payment can be verified.";
   if (reason === "unsupported_network") return "The deposit was not sent through the BEP20 network.";
   if (reason === "address_mismatch") return "The deposit was sent to a different address than the configured BEP20 address.";
-  if (reason === "before_invoice") return "This transfer was made before the matching invoice was created. Create a new invoice first, then send the exact requested amount.";
+  if (reason === "before_invoice") return "This transfer was made before the matching invoice was created. Create a new invoice first, then send the requested amount within the allowed $0.03 range.";
   return isBep20 ? "That is not a positive received USDT BEP20 deposit." : "That is not a positive received Binance Pay payment.";
 }
 
@@ -472,7 +472,7 @@ export function formatTopupVerificationFailure(reason: string, method: "binance_
   const isBep20 = method === "bep20";
   const identifierLabel = isBep20 ? "transaction hash (TxID)" : "Binance Pay order ID";
   const retryLabel = isBep20 ? "Wallet → USDT (BEP20)" : "Wallet → Binance Pay";
-  return `❌ <b>Top-up not credited</b>\n\n${formatPaymentVerificationFailure(reason, method)}\n\nCheck the ${identifierLabel} and try again from ${retryLabel} with the exact requested amount.`;
+  return `❌ <b>Top-up not credited</b>\n\n${formatPaymentVerificationFailure(reason, method)}\n\nCheck the ${identifierLabel} and try again from ${retryLabel} with an amount within the allowed $0.03 range.`;
 }
 
 export function buildWalletDepositInvoiceKeyboard(method: "binance_pay" | "bep20" = "binance_pay") {
@@ -986,8 +986,10 @@ export async function handleMessage(message: TelegramMessage) {
       const prompt = pendingTopup.method === "bep20" ? formatBep20TopupPrompt(parsed.amountCents) : formatBinancePayTopupPrompt(parsed.amountCents);
       return respond(message.chat.id, prompt, buildWalletDepositInvoiceKeyboard(pendingTopup.method));
     }
+    const invoiceAmountCents = pendingTopup.amountCents;
+    if (invoiceAmountCents === undefined) return respond(message.chat.id, "⚠️ Create a payment invoice first from Wallet.", buildWalletKeyboard());
     pendingBinancePayTopups.delete(user.id);
-    const result = await findBinancePayTransaction(messageText, pendingTopup.amountCents, fetch, pendingTopup.method, pendingTopup.method === "bep20" ? pendingTopup.createdAt : undefined);
+    const result = await findBinancePayTransaction(messageText, invoiceAmountCents, fetch, pendingTopup.method, pendingTopup.method === "bep20" ? pendingTopup.createdAt : undefined);
     if (!result.ok) {
       const isBep20 = pendingTopup.method === "bep20";
       return respond(message.chat.id, formatTopupVerificationFailure(result.reason, isBep20 ? "bep20" : "binance_pay"), buildWalletKeyboard());
@@ -1000,14 +1002,14 @@ export async function handleMessage(message: TelegramMessage) {
       if (existing) return { ok: false as const, reason: "already_credited" as const, amountCents: existing.amountCents, asset: existing.asset };
       const account = (await tx.select().from(botUsers).where(eq(botUsers.telegramUserId, user.id)).limit(1))[0];
       if (!account) return { ok: false as const, reason: "user_missing" as const };
-      await tx.insert(binancePayDeposits).values({ botUserId: account.id, transactionId, amountCents: result.amountCents, asset: result.asset, rawStatus: result.transaction.status === undefined || result.transaction.status === null ? null : String(result.transaction.status) });
-      await tx.update(botUsers).set({ balanceCents: account.balanceCents + result.amountCents }).where(eq(botUsers.id, account.id));
-      await tx.insert(walletLedger).values({ botUserId: account.id, amountCents: result.amountCents, kind: "topup", referenceId: transactionId, note: `Binance Pay ${result.asset} transaction verified` });
-      return { ok: true as const, amountCents: result.amountCents, asset: result.asset, transactionId };
+      const creditedAmountCents = invoiceAmountCents;
+      await tx.insert(binancePayDeposits).values({ botUserId: account.id, transactionId, amountCents: creditedAmountCents, asset: result.asset, rawStatus: result.transaction.status === undefined || result.transaction.status === null ? null : String(result.transaction.status) });
+      await tx.update(botUsers).set({ balanceCents: account.balanceCents + creditedAmountCents }).where(eq(botUsers.id, account.id));
+      await tx.insert(walletLedger).values({ botUserId: account.id, amountCents: creditedAmountCents, kind: "topup", referenceId: transactionId, note: `${pendingTopup.method === "bep20" ? "USDT BEP20" : "Binance Pay"} ${result.asset} transaction verified` });
+      return { ok: true as const, amountCents: creditedAmountCents, asset: result.asset, transactionId };
     });
     if (!credited.ok && credited.reason === "already_credited") return respond(message.chat.id, `ℹ️ <b>Already credited</b>\n\nThis transaction was already added to a wallet for <b>$${(credited.amountCents / 100).toFixed(2)}</b>.`, buildWalletKeyboard());
     if (!credited.ok) return respond(message.chat.id, "⚠️ Your bot wallet could not be found. Send /start and try again.", buildHomeKeyboard());
-    await notifyAdmin("wallet_topup", credited.transactionId, `💳 <b>Binance Pay wallet top-up</b>\n\n👤 User ID: <code>${user.id}</code>\n💰 Amount: <b>$${(credited.amountCents / 100).toFixed(2)} ${credited.asset}</b>\n🧾 Transaction: <code>${credited.transactionId}</code>`);
     return respond(message.chat.id, `✅ <b>Wallet credited</b>\n\n💰 Added: <b>$${(credited.amountCents / 100).toFixed(2)} ${credited.asset}</b>\n🧾 Transaction: <code>${credited.transactionId}</code>\n\nYour new balance is available in Wallet.`, buildWalletKeyboard());
   }
   const pending = pendingCustomQuantities.get(user.id);
