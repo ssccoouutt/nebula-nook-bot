@@ -367,3 +367,5 @@
 
 - [x] Replace all user-facing Nebula Nook branding with ToolsMania across Telegram bot copy and the web dashboard while preserving technical project identifiers.
 - [x] Add regression checks for the ToolsMania branding and publish the verified rebrand.
+
+- [x] Add the user-supplied encrypted cfg.enc artifact to the connected GitHub repository without exposing or decrypting its contents.
