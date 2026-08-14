@@ -370,6 +370,6 @@
 
 - [x] Add the user-supplied encrypted cfg.enc artifact to the connected GitHub repository without exposing or decrypting its contents.
 
-- [ ] Repair Telegram /start non-response when a configured membership chat returns chat not found, while preserving valid membership gating and adding regression coverage.
+- [x] Repair Telegram /start non-response when a configured membership chat returns chat not found, while preserving valid membership gating and adding regression coverage.
 
 - [x] Diagnose and fix the Telegram /start non-response after Drive recovery restored only two records, with regression coverage for the webhook handler path.

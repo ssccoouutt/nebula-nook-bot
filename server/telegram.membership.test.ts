@@ -1,7 +1,13 @@
 import { describe, expect, it } from "vitest";
-import { validTelegramJoinUrl } from "./telegram";
+import { isTelegramChatNotFoundError, validTelegramJoinUrl } from "./telegram";
 
 describe("Telegram membership join links", () => {
+  it("recognizes deleted or mistyped membership chats without masking unrelated errors", () => {
+    expect(isTelegramChatNotFoundError(new Error("Bad Request: chat not found"))).toBe(true);
+    expect(isTelegramChatNotFoundError("chat not found")).toBe(true);
+    expect(isTelegramChatNotFoundError(new Error("Forbidden: bot was kicked"))).toBe(false);
+  });
+
   it("accepts private invite links", () => {
     expect(validTelegramJoinUrl("https://t.me/+hwT_8FtgDU85Mzlk")).toBe(true);
     expect(validTelegramJoinUrl("https://t.me/+4I-HIdE73NIyMzI8")).toBe(true);

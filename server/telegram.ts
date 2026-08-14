@@ -510,13 +510,26 @@ async function runtimeGate() {
   };
 }
 
+export function isTelegramChatNotFoundError(error: unknown) {
+  return /chat not found/i.test(error instanceof Error ? error.message : String(error));
+}
+
 async function membershipStatus(userId: number) {
   const gate = await runtimeGate();
-  const [channel, group] = await Promise.all([
-    telegramCall<{ status: "creator" | "administrator" | "member" | "restricted" | "left" | "kicked" }>("getChatMember", { chat_id: gate.channelId, user_id: userId }),
-    telegramCall<{ status: "creator" | "administrator" | "member" | "restricted" | "left" | "kicked" }>("getChatMember", { chat_id: gate.groupId, user_id: userId }),
-  ]);
-  return { channel: channel.status, group: group.status, access: hasAccess(channel.status, group.status) };
+  try {
+    const [channel, group] = await Promise.all([
+      telegramCall<{ status: "creator" | "administrator" | "member" | "restricted" | "left" | "kicked" }>("getChatMember", { chat_id: gate.channelId, user_id: userId }),
+      telegramCall<{ status: "creator" | "administrator" | "member" | "restricted" | "left" | "kicked" }>("getChatMember", { chat_id: gate.groupId, user_id: userId }),
+    ]);
+    return { channel: channel.status, group: group.status, access: hasAccess(channel.status, group.status) };
+  } catch (error) {
+    if (!isTelegramChatNotFoundError(error)) throw error;
+    // A deleted or mistyped gate chat must not make /start completely silent. The
+    // membership gate remains strict whenever Telegram returns real member statuses;
+    // this fallback lets the owner repair the chat IDs from the dashboard meanwhile.
+    console.warn("[Telegram] Membership gate chat was not found; allowing bot access until the configured chat is repaired.", { channelId: gate.channelId, groupId: gate.groupId });
+    return { channel: "left" as const, group: "left" as const, access: true };
+  }
 }
 
 async function ensureBotUser(user: TelegramUser, referralCode?: string) {
