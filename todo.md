@@ -273,7 +273,7 @@
 - [x] Persist and synchronize the complete SQLite commerce dataset, including users, wallets, ledger entries, products, orders, order history, referrals, support records, settings, and webhook cursor state.
 - [x] Restore the latest verified Drive snapshot before normal bot operations and create durable snapshots after successful data mutations.
 - [x] Add backup consistency, locking, retry, corruption detection, and recovery tests for Drive synchronization.
-- [ ] Configure the required Google Drive credential strategy for Koyeb and validate persistence across a redeploy simulation.
+- [x] Configure the required Google Drive credential strategy for Koyeb and validate persistence across a redeploy simulation.
 
 - [x] On Koyeb startup, find or create a named Nebula Nook root folder in Google Drive and keep all bot data, snapshots, manifests, and subfolders inside it.
 - [x] Restore the latest valid Drive snapshot into local SQLite before Telegram webhook processing begins.
