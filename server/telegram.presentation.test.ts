@@ -46,6 +46,7 @@ import {
   resolvePurchaseCallbackRoute,
   isPurchasableProduct,
   extractInsertedRowId,
+  didInsertReferralRow,
   consumeDigitalInventory,
   buildPurchasePaymentFailureKeyboard,
   hasProductImage,
@@ -143,6 +144,13 @@ describe("Telegram presentation and notification helpers", () => {
     expect(extractInsertedRowId({ rows: [], lastInsertRowid: 0 })).toBe(0);
   });
 
+  it("awards referral credit only when the referral insert actually changes a row", () => {
+    expect(didInsertReferralRow({ changes: 1, lastInsertRowid: 19 })).toBe(true);
+    expect(didInsertReferralRow({ changes: 0, lastInsertRowid: 19 })).toBe(false);
+    expect(didInsertReferralRow([{ insertId: 20 }])).toBe(true);
+    expect(didInsertReferralRow([{ insertId: 0 }])).toBe(false);
+  });
+
   it("routes every inline callback action deterministically", async () => {
     expect(parseTelegramCallbackAction("home")).toEqual({ kind: "home" });
     expect(parseTelegramCallbackAction("freebies")).toEqual({ kind: "freebies" });
@@ -155,6 +163,7 @@ describe("Telegram presentation and notification helpers", () => {
     expect(parseTelegramCallbackAction("shop:2")).toEqual({ kind: "shop", id: 2 });
     expect(parseTelegramCallbackAction("product:7")).toEqual({ kind: "product", id: 7 });
     expect(parseTelegramCallbackAction("claim:7")).toEqual({ kind: "claim", id: 7 });
+    expect(parseTelegramCallbackAction("reward:7")).toEqual({ kind: "reward", id: 7 });
     expect(parseTelegramCallbackAction("buy:7")).toEqual({ kind: "buy", id: 7 });
     expect(parseTelegramCallbackAction("buyqty:7:3")).toEqual({ kind: "buyqty", id: 7, quantity: 3 });
     expect(parseTelegramCallbackAction("buyconfirm:7:3")).toEqual({ kind: "buyconfirm", id: 7, quantity: 3 });
@@ -178,6 +187,7 @@ describe("Telegram presentation and notification helpers", () => {
     expect(resolvePurchaseCallbackRoute({ kind: "pricealert", id: 7 })).toBe("price_alert");
     expect(resolvePurchaseCallbackRoute({ kind: "walletamount", amountCents: 1000 })).toBe("wallet_amount");
     expect(resolvePurchaseCallbackRoute({ kind: "home" })).toBeNull();
+    expect(resolvePurchaseCallbackRoute({ kind: "reward", id: 7 })).toBeNull();
   });
 
   it("renders the Qamify-style quantity and confirmation steps", () => {

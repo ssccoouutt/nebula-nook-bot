@@ -41,20 +41,30 @@ const storageFile = path.join(storageDir, "nebula-nook.sqlite");
 const schemaSql = `
 PRAGMA journal_mode = WAL;
 CREATE TABLE IF NOT EXISTS users (id INTEGER PRIMARY KEY AUTOINCREMENT, openId TEXT NOT NULL UNIQUE, name TEXT, email TEXT, loginMethod TEXT, role TEXT NOT NULL DEFAULT 'user', createdAt INTEGER NOT NULL DEFAULT (strftime('%s','now') * 1000), updatedAt INTEGER NOT NULL DEFAULT (strftime('%s','now') * 1000), lastSignedIn INTEGER NOT NULL DEFAULT (strftime('%s','now') * 1000));
-CREATE TABLE IF NOT EXISTS botUsers (id INTEGER PRIMARY KEY AUTOINCREMENT, telegramUserId INTEGER NOT NULL UNIQUE, username TEXT, firstName TEXT, lastName TEXT, referralCode TEXT NOT NULL UNIQUE, referredById INTEGER, tier TEXT NOT NULL DEFAULT 'Bronze', balanceCents INTEGER NOT NULL DEFAULT 0, accessGranted INTEGER NOT NULL DEFAULT 0, createdAt INTEGER NOT NULL DEFAULT (strftime('%s','now') * 1000), updatedAt INTEGER NOT NULL DEFAULT (strftime('%s','now') * 1000));
+CREATE TABLE IF NOT EXISTS botUsers (id INTEGER PRIMARY KEY AUTOINCREMENT, telegramUserId INTEGER NOT NULL UNIQUE, username TEXT, firstName TEXT, lastName TEXT, referralCode TEXT NOT NULL UNIQUE, referredById INTEGER, tier TEXT NOT NULL DEFAULT 'Bronze', balanceCents INTEGER NOT NULL DEFAULT 0, referralCredits INTEGER NOT NULL DEFAULT 0, accessGranted INTEGER NOT NULL DEFAULT 0, createdAt INTEGER NOT NULL DEFAULT (strftime('%s','now') * 1000), updatedAt INTEGER NOT NULL DEFAULT (strftime('%s','now') * 1000));
 CREATE TABLE IF NOT EXISTS botSettings (id INTEGER PRIMARY KEY AUTOINCREMENT, key TEXT NOT NULL UNIQUE, value TEXT NOT NULL, updatedAt INTEGER NOT NULL DEFAULT (strftime('%s','now') * 1000));
-CREATE TABLE IF NOT EXISTS products (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, description TEXT NOT NULL, details TEXT NOT NULL DEFAULT '', priceCents INTEGER NOT NULL, stock INTEGER NOT NULL DEFAULT 0, inventoryText TEXT NOT NULL DEFAULT '', deliveryMode TEXT NOT NULL DEFAULT 'automatic', warrantyDays INTEGER NOT NULL DEFAULT 0, imageUrl TEXT NOT NULL DEFAULT '', active INTEGER NOT NULL DEFAULT 1, freeEligible INTEGER NOT NULL DEFAULT 0, freeWindowMs INTEGER, createdAt INTEGER NOT NULL DEFAULT (strftime('%s','now') * 1000), updatedAt INTEGER NOT NULL DEFAULT (strftime('%s','now') * 1000));
+CREATE TABLE IF NOT EXISTS products (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, description TEXT NOT NULL, details TEXT NOT NULL DEFAULT '', priceCents INTEGER NOT NULL, stock INTEGER NOT NULL DEFAULT 0, inventoryText TEXT NOT NULL DEFAULT '', deliveryMode TEXT NOT NULL DEFAULT 'automatic', warrantyDays INTEGER NOT NULL DEFAULT 0, imageUrl TEXT NOT NULL DEFAULT '', active INTEGER NOT NULL DEFAULT 1, freeEligible INTEGER NOT NULL DEFAULT 0, freeWindowMs INTEGER, referralEligible INTEGER NOT NULL DEFAULT 0, referralPriceCredits INTEGER NOT NULL DEFAULT 1, createdAt INTEGER NOT NULL DEFAULT (strftime('%s','now') * 1000), updatedAt INTEGER NOT NULL DEFAULT (strftime('%s','now') * 1000));
 CREATE TABLE IF NOT EXISTS freeClaims (id INTEGER PRIMARY KEY AUTOINCREMENT, botUserId INTEGER NOT NULL, productId INTEGER NOT NULL, windowStartMs INTEGER NOT NULL, status TEXT NOT NULL DEFAULT 'claimed', createdAt INTEGER NOT NULL DEFAULT (strftime('%s','now') * 1000), UNIQUE (botUserId, productId, windowStartMs));
 CREATE TABLE IF NOT EXISTS orders (id INTEGER PRIMARY KEY AUTOINCREMENT, botUserId INTEGER NOT NULL, productId INTEGER NOT NULL, kind TEXT NOT NULL, amountCents INTEGER NOT NULL, status TEXT NOT NULL DEFAULT 'pending', createdAt INTEGER NOT NULL DEFAULT (strftime('%s','now') * 1000), updatedAt INTEGER NOT NULL DEFAULT (strftime('%s','now') * 1000));
 CREATE TABLE IF NOT EXISTS walletLedger (id INTEGER PRIMARY KEY AUTOINCREMENT, botUserId INTEGER NOT NULL, amountCents INTEGER NOT NULL, kind TEXT NOT NULL, referenceId TEXT, note TEXT, createdAt INTEGER NOT NULL DEFAULT (strftime('%s','now') * 1000));
 CREATE TABLE IF NOT EXISTS binancePayDeposits (id INTEGER PRIMARY KEY AUTOINCREMENT, botUserId INTEGER NOT NULL, transactionId TEXT NOT NULL UNIQUE, amountCents INTEGER NOT NULL, asset TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'verified', rawStatus TEXT, createdAt INTEGER NOT NULL DEFAULT (strftime('%s','now') * 1000));
 CREATE TABLE IF NOT EXISTS paymentIntents (id INTEGER PRIMARY KEY AUTOINCREMENT, botUserId INTEGER NOT NULL, productId INTEGER NOT NULL, quantity INTEGER NOT NULL, amountCents INTEGER NOT NULL, method TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'pending', transactionId TEXT UNIQUE, createdAt INTEGER NOT NULL DEFAULT (strftime('%s','now') * 1000), updatedAt INTEGER NOT NULL DEFAULT (strftime('%s','now') * 1000));
-CREATE TABLE IF NOT EXISTS referrals (id INTEGER PRIMARY KEY AUTOINCREMENT, referrerId INTEGER NOT NULL, referredUserId INTEGER NOT NULL UNIQUE, bonusCents INTEGER NOT NULL DEFAULT 0, createdAt INTEGER NOT NULL DEFAULT (strftime('%s','now') * 1000));
+CREATE TABLE IF NOT EXISTS referrals (id INTEGER PRIMARY KEY AUTOINCREMENT, referrerId INTEGER NOT NULL, referredUserId INTEGER NOT NULL UNIQUE, bonusCents INTEGER NOT NULL DEFAULT 0, creditsAwarded INTEGER NOT NULL DEFAULT 1, createdAt INTEGER NOT NULL DEFAULT (strftime('%s','now') * 1000));
 CREATE TABLE IF NOT EXISTS priceAlerts (id INTEGER PRIMARY KEY AUTOINCREMENT, botUserId INTEGER NOT NULL, productId INTEGER NOT NULL, active INTEGER NOT NULL DEFAULT 1, createdAt INTEGER NOT NULL DEFAULT (strftime('%s','now') * 1000), updatedAt INTEGER NOT NULL DEFAULT (strftime('%s','now') * 1000), UNIQUE (botUserId, productId));
 CREATE TABLE IF NOT EXISTS supportTickets (id INTEGER PRIMARY KEY AUTOINCREMENT, botUserId INTEGER NOT NULL, message TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'open', createdAt INTEGER NOT NULL DEFAULT (strftime('%s','now') * 1000), updatedAt INTEGER NOT NULL DEFAULT (strftime('%s','now') * 1000));
 CREATE TABLE IF NOT EXISTS broadcasts (id INTEGER PRIMARY KEY AUTOINCREMENT, message TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'queued', sentCount INTEGER NOT NULL DEFAULT 0, failedCount INTEGER NOT NULL DEFAULT 0, createdAt INTEGER NOT NULL DEFAULT (strftime('%s','now') * 1000), completedAt INTEGER, scheduleCronTaskUid TEXT);
 CREATE TABLE IF NOT EXISTS notificationDeliveries (id INTEGER PRIMARY KEY AUTOINCREMENT, botUserId INTEGER, adminChatId INTEGER, eventType TEXT NOT NULL, referenceId TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'queued', error TEXT, createdAt INTEGER NOT NULL DEFAULT (strftime('%s','now') * 1000), sentAt INTEGER, UNIQUE (eventType, referenceId));
 `;
+
+function ensureReferralColumns(client: DatabaseClient) {
+  const botUserColumns = new Set((client.prepare("PRAGMA table_info(botUsers)").all() as Array<{ name: string }>).map(column => column.name));
+  if (!botUserColumns.has("referralCredits")) client.exec("ALTER TABLE botUsers ADD COLUMN referralCredits INTEGER NOT NULL DEFAULT 0");
+  const productColumns = new Set((client.prepare("PRAGMA table_info(products)").all() as Array<{ name: string }>).map(column => column.name));
+  if (!productColumns.has("referralEligible")) client.exec("ALTER TABLE products ADD COLUMN referralEligible INTEGER NOT NULL DEFAULT 0");
+  if (!productColumns.has("referralPriceCredits")) client.exec("ALTER TABLE products ADD COLUMN referralPriceCredits INTEGER NOT NULL DEFAULT 1");
+  const referralColumns = new Set((client.prepare("PRAGMA table_info(referrals)").all() as Array<{ name: string }>).map(column => column.name));
+  if (!referralColumns.has("creditsAwarded")) client.exec("ALTER TABLE referrals ADD COLUMN creditsAwarded INTEGER NOT NULL DEFAULT 1");
+}
 
 function ensureProductColumns(client: DatabaseClient) {
   const columns = new Set((client.prepare("PRAGMA table_info(products)").all() as Array<{ name: string }>).map(column => column.name));
@@ -74,6 +84,7 @@ async function initialize(): Promise<AppDb> {
   await mkdir(storageDir, { recursive: true });
   _client = new DatabaseSync(storageFile);
   _client.exec(schemaSql);
+  ensureReferralColumns(_client);
   ensureProductColumns(_client);
   const client = _client;
   const db = drizzle<AppSchema>(async (sql, params, method) => {

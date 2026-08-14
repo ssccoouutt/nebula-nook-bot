@@ -12,11 +12,11 @@ function inventoryLines(value: string) {
   return value.replaceAll("\\n", "\n").split(/\r?\n/).map(line => line.trim()).filter(Boolean);
 }
 
-function productValues(input: { name: string; description: string; details: string; priceUsd: number; inventoryText: string; deliveryMode: "automatic" | "manual"; warrantyDays: number; imageUrl: string; freeEligible: boolean; freeWindowMs: number | null; active?: boolean }) {
+function productValues(input: { name: string; description: string; details: string; priceUsd: number; inventoryText: string; deliveryMode: "automatic" | "manual"; warrantyDays: number; imageUrl: string; freeEligible: boolean; freeWindowMs: number | null; referralEligible: boolean; referralPriceCredits: number; active?: boolean }) {
   const priceCents = Math.round(input.priceUsd * 100);
   if (!Number.isFinite(input.priceUsd) || priceCents < 0) throw new TRPCError({ code: "BAD_REQUEST", message: "Price must be a valid non-negative USD amount" });
   const items = inventoryLines(input.inventoryText);
-  return { name: input.name.trim(), description: input.description.trim(), details: input.details.trim(), priceCents, stock: items.length, inventoryText: items.join("\n"), deliveryMode: input.deliveryMode, warrantyDays: Math.max(0, Math.floor(input.warrantyDays)), imageUrl: input.imageUrl.trim(), freeEligible: input.freeEligible ? 1 : 0, freeWindowMs: input.freeWindowMs, ...(input.active === undefined ? {} : { active: input.active ? 1 : 0 }) };
+  return { name: input.name.trim(), description: input.description.trim(), details: input.details.trim(), priceCents, stock: items.length, inventoryText: items.join("\n"), deliveryMode: input.deliveryMode, warrantyDays: Math.max(0, Math.floor(input.warrantyDays)), imageUrl: input.imageUrl.trim(), freeEligible: input.freeEligible ? 1 : 0, freeWindowMs: input.freeWindowMs, referralEligible: input.referralEligible ? 1 : 0, referralPriceCredits: Math.max(1, Math.floor(input.referralPriceCredits)), ...(input.active === undefined ? {} : { active: input.active ? 1 : 0 }) };
 }
 import { buildFulfillmentNotifications, configureTelegramWebhook, notifyAdmin, sendTelegramMessage, validTelegramJoinUrl } from "./telegram";
 
@@ -52,12 +52,12 @@ export const appRouter = router({
       return { users: Number(users[0]?.count ?? 0), activeProducts: Number(activeProducts[0]?.count ?? 0), openTickets: Number(openTickets[0]?.count ?? 0), orders: Number(ordersCount[0]?.count ?? 0) };
     }),
     products: adminProcedure.query(async () => (await database()).select().from(products).orderBy(desc(products.createdAt))),
-    createProduct: adminProcedure.input(z.object({ name: z.string().min(1).max(255), description: z.string().min(1), details: z.string().default(""), priceUsd: z.number().nonnegative(), inventoryText: z.string().default(""), deliveryMode: z.enum(["automatic", "manual"]).default("automatic"), warrantyDays: z.number().int().nonnegative().default(0), imageUrl: z.string().url().or(z.literal("")).default(""), freeEligible: z.boolean(), freeWindowMs: z.number().int().positive().nullable() })).mutation(async ({ input }) => {
+    createProduct: adminProcedure.input(z.object({ name: z.string().min(1).max(255), description: z.string().min(1), details: z.string().default(""), priceUsd: z.number().nonnegative(), inventoryText: z.string().default(""), deliveryMode: z.enum(["automatic", "manual"]).default("automatic"), warrantyDays: z.number().int().nonnegative().default(0), imageUrl: z.string().url().or(z.literal("")).default(""), freeEligible: z.boolean(), freeWindowMs: z.number().int().positive().nullable(), referralEligible: z.boolean().default(false), referralPriceCredits: z.number().int().positive().default(1) })).mutation(async ({ input }) => {
       const db = await database();
       await db.insert(products).values({ ...productValues(input), active: 1 });
       return { success: true };
     }),
-    updateProduct: adminProcedure.input(z.object({ id: z.number().int(), name: z.string().min(1).max(255), description: z.string().min(1), details: z.string().default(""), priceUsd: z.number().nonnegative(), inventoryText: z.string().default(""), deliveryMode: z.enum(["automatic", "manual"]).default("automatic"), warrantyDays: z.number().int().nonnegative().default(0), imageUrl: z.string().url().or(z.literal("")).default(""), active: z.boolean(), freeEligible: z.boolean(), freeWindowMs: z.number().int().positive().nullable() })).mutation(async ({ input }) => {
+    updateProduct: adminProcedure.input(z.object({ id: z.number().int(), name: z.string().min(1).max(255), description: z.string().min(1), details: z.string().default(""), priceUsd: z.number().nonnegative(), inventoryText: z.string().default(""), deliveryMode: z.enum(["automatic", "manual"]).default("automatic"), warrantyDays: z.number().int().nonnegative().default(0), imageUrl: z.string().url().or(z.literal("")).default(""), active: z.boolean(), freeEligible: z.boolean(), freeWindowMs: z.number().int().positive().nullable(), referralEligible: z.boolean().default(false), referralPriceCredits: z.number().int().positive().default(1) })).mutation(async ({ input }) => {
       const db = await database();
       await db.update(products).set(productValues(input)).where(eq(products.id, input.id));
       return { success: true };

@@ -340,3 +340,8 @@
 - [x] Change wallet deposit amount limits and prompts from $1.00–$10,000.00 to $0.01–$1,000.00.
 
 - [x] Fix Referrals and Profile inline buttons so each click triggers only its own callback route and view.
+
+- [x] Award 1 referral credit for each newly registered bot user who joins through a valid referral.
+- [x] Add admin product settings for referral-program eligibility and credit price.
+- [x] Show only referral-program products with credit prices in Referrals and allow eligible users to claim them using credits.
+- [x] Persist referral-credit ledger changes and add regression coverage for duplicate referrals, balances, eligibility, and claims.

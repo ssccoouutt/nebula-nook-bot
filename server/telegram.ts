@@ -23,7 +23,12 @@ const pendingBinancePayPurchases = new Map<number, { intentId: number; expiresAt
 export const BINANCE_PAY_PURCHASE_WINDOW_MS = 20 * 60 * 1000;
 export const BEP20_PURCHASE_WINDOW_MS = 30 * 60 * 1000;
 
-export function extractInsertedRowId(result: unknown): number {
+export function didInsertReferralRow(result: unknown) {
+  if (result && typeof result === "object" && !Array.isArray(result) && "changes" in result) return Number((result as { changes?: unknown }).changes ?? 0) > 0;
+  return extractInsertedRowId(result) > 0;
+}
+
+export function extractInsertedRowId(result: unknown) {
   const candidate = Array.isArray(result) ? result[0] : result;
   const row = candidate && typeof candidate === "object" ? candidate as Record<string, unknown> : undefined;
   const value = row?.insertId ?? row?.lastInsertRowid;
@@ -524,7 +529,7 @@ async function ensureBotUser(user: TelegramUser, referralCode?: string) {
   let referredById: number | null = null;
   if (referralCode) {
     const referrer = await db.select().from(botUsers).where(eq(botUsers.referralCode, referralCode)).limit(1);
-    referredById = referrer[0]?.id ?? null;
+    referredById = referrer[0] && referrer[0].telegramUserId !== user.id ? referrer[0].id : null;
   }
   const referralCodeForUser = referralCodeForTelegramId(user.id);
   await db.insert(botUsers).values({ telegramUserId: user.id, username: user.username ?? null, firstName: user.first_name ?? null, lastName: user.last_name ?? null, referralCode: referralCodeForUser, referredById, balanceCents: TESTING_WALLET_CREDIT_CENTS });
@@ -532,7 +537,10 @@ async function ensureBotUser(user: TelegramUser, referralCode?: string) {
   if (!created) throw new Error("Failed to create Telegram user");
   // Do not create a synthetic ledger entry: new users start at exactly $0.00.
   if (referredById) {
-    await db.insert(referrals).values({ referrerId: referredById, referredUserId: created.id, bonusCents: 0 }).onConflictDoUpdate({ target: referrals.referredUserId, set: { referredUserId: created.id } });
+    const insertedReferral = await db.insert(referrals).values({ referrerId: referredById, referredUserId: created.id, bonusCents: 0, creditsAwarded: 1 }).onConflictDoNothing();
+    if (didInsertReferralRow(insertedReferral)) {
+      await db.update(botUsers).set({ referralCredits: sql`${botUsers.referralCredits} + 1` }).where(eq(botUsers.id, referredById));
+    }
     const referralCount = await db.select({ count: sql<number>`count(*)` }).from(referrals).where(eq(referrals.referrerId, referredById));
     await db.update(botUsers).set({ tier: tierForReferralCount(Number(referralCount[0]?.count ?? 0)) }).where(eq(botUsers.id, referredById));
   }
@@ -644,7 +652,37 @@ async function showReferrals(chatId: number, userId: number, messageId?: number)
   if (!db) throw new Error("Database is unavailable");
   const user = (await db.select().from(botUsers).where(eq(botUsers.telegramUserId, userId)).limit(1))[0];
   const referralsCount = await db.select({ count: sql<number>`count(*)` }).from(referrals).where(eq(referrals.referrerId, user?.id ?? -1));
-  await respond(chatId, `🤝 <b>Referrals</b>\n\nInvite friends with your personal link and track your progress here.\n\n👥 Successful referrals: <b>${Number(referralsCount[0]?.count ?? 0)}</b>\n🏅 Current tier: <b>${user?.tier ?? "Bronze"}</b>\n\n🔗 Your referral link:\nhttps://t.me/NebulaNook4827_bot?start=ref_${user?.referralCode ?? ""}`, buildHomeKeyboard(), messageId);
+  const rewards = await db.select().from(products).where(and(eq(products.active, 1), eq(products.referralEligible, 1), gt(products.stock, 0))).orderBy(products.name);
+  const rewardRows = rewards.map((product) => [{ text: `🎁 ${product.name} · ${product.referralPriceCredits} credit${product.referralPriceCredits === 1 ? "" : "s"}`, callback_data: `reward:${product.id}` }]);
+  const rewardText = rewards.length ? `\n\n🎁 <b>Available rewards</b>\nClaim selected products using your credits:` : "\n\nNo referral rewards are available right now.";
+  await respond(chatId, `🤝 <b>Referrals</b>\n\nInvite friends with your personal link and earn 1 credit for each new bot user.\n\n👥 Successful referrals: <b>${Number(referralsCount[0]?.count ?? 0)}</b>\n🎟️ Referral credits: <b>${user?.referralCredits ?? 0}</b>\n🏅 Current tier: <b>${user?.tier ?? "Bronze"}</b>${rewardText}\n\n🔗 Your referral link:\nhttps://t.me/NebulaNook4827_bot?start=ref_${user?.referralCode ?? ""}`, keyboard([...rewardRows, [{ text: "⌂ Home", callback_data: "home" }]]), messageId);
+}
+
+async function claimReferralReward(chatId: number, userId: number, productId: number, messageId?: number) {
+  const db = await getDb();
+  if (!db) throw new Error("Database is unavailable");
+  const outcome = await db.transaction(async (tx) => {
+    const user = (await tx.select().from(botUsers).where(eq(botUsers.telegramUserId, userId)).limit(1))[0];
+    const product = (await tx.select().from(products).where(eq(products.id, productId)).limit(1))[0];
+    if (!user || !product || !product.active || !product.referralEligible || product.referralPriceCredits < 1) return { ok: false as const, reason: "unavailable" as const };
+    if (user.referralCredits < product.referralPriceCredits) return { ok: false as const, reason: "credits" as const, credits: user.referralCredits, required: product.referralPriceCredits };
+    if (product.stock < 1) return { ok: false as const, reason: "stock" as const };
+    const digital = product.inventoryText?.trim() ? consumeDigitalInventory(product.inventoryText, 1) : { ok: true as const, items: [] as string[], remaining: [] as string[] };
+    if (!digital.ok) return { ok: false as const, reason: "stock" as const };
+    const deliveryMode = product.deliveryMode === "manual" ? "manual" as const : "automatic" as const;
+    const inserted = await tx.insert(orders).values({ botUserId: user.id, productId: product.id, kind: "referral", amountCents: 0, status: deliveryMode === "manual" ? "paid" : "fulfilled" });
+    const orderId = String(extractInsertedRowId(inserted) || `${user.id}:referral:${product.id}:${Date.now()}`);
+    await tx.update(botUsers).set({ referralCredits: sql`${botUsers.referralCredits} - ${product.referralPriceCredits}` }).where(eq(botUsers.id, user.id));
+    await tx.update(products).set({ stock: product.stock - 1, inventoryText: product.inventoryText?.trim() ? digital.remaining.join("\n") : product.inventoryText }).where(eq(products.id, product.id));
+    return { ok: true as const, orderId, product, deliveryMode, item: digital.items[0] ?? "" };
+  });
+  if (!outcome.ok) {
+    if (outcome.reason === "credits") return respond(chatId, `🎟️ <b>Not enough referral credits</b>\n\nThis reward costs <b>${outcome.required}</b> credit${outcome.required === 1 ? "" : "s"}. You have <b>${outcome.credits}</b>.`, undefined, messageId);
+    if (outcome.reason === "stock") return respond(chatId, "⚠️ This referral reward is currently out of stock.", undefined, messageId);
+    return respond(chatId, "⚠️ This referral reward is no longer available.", undefined, messageId);
+  }
+  const delivery = outcome.item ? `\n\n📦 <b>Your digital item</b>\n<blockquote>${outcome.item.replace(/[<&>]/g, "")}</blockquote>\n\nTap and hold the text above to copy it.` : outcome.deliveryMode === "manual" ? "\n\n🕐 The admin will deliver this reward shortly." : "";
+  await respond(chatId, `✅ <b>Referral reward claimed</b>\n\n🎁 ${outcome.product.name}\n🎟️ Credits used: <b>${outcome.product.referralPriceCredits}</b>${delivery}`, keyboard([[{ text: "🤝 Back to Referrals", callback_data: "referrals" }], [{ text: "⌂ Home", callback_data: "home" }]]), messageId);
 }
 
 async function claimFree(chatId: number, userId: number, productId: number, messageId?: number) {
@@ -747,7 +785,7 @@ async function createBinancePayPurchaseIntent(chatId: number, userId: number, pr
 
 export type TelegramCallbackAction =
   | { kind: "verify_membership" | "home" | "freebies" | "wallet" | "walletadd" | "walletbep20" | "walletcancel" | "orders" | "profile" | "referrals" | "support" }
-  | { kind: "shop" | "product" | "claim" | "buy" | "customqty" | "pricealert"; id: number }
+  | { kind: "shop" | "product" | "claim" | "reward" | "buy" | "customqty" | "pricealert"; id: number }
   | { kind: "walletamount"; amountCents: number }
   | { kind: "buyqty" | "buyconfirm" | "paywallet" | "paybinance" | "paybep20"; id: number; quantity: number }
   | { kind: "buycancel"; id: number };
@@ -761,11 +799,11 @@ export function parseTelegramCallbackAction(data?: string): TelegramCallbackActi
   if (quantityMatch) return { kind: quantityMatch[1] as "buyqty" | "buyconfirm" | "paywallet" | "paybinance" | "paybep20", id: Number(quantityMatch[2]), quantity: Number(quantityMatch[3]) };
   const cancelMatch = value.match(/^buycancel:([0-9]+)$/);
   if (cancelMatch) return { kind: "buycancel", id: Number(cancelMatch[1]) };
-  const match = value.match(/^(shop|product|claim|buy|customqty|pricealert)(?::(\d+))?$/);
+  const match = value.match(/^(shop|product|claim|reward|buy|customqty|pricealert)(?::(\d+))?$/);
   if (!match) return null;
   if (match[1] === "shop" && match[2] === undefined) return { kind: "shop", id: 0 };
   if (!match[2]) return null;
-  return { kind: match[1] as "shop" | "product" | "claim" | "buy", id: Number(match[2]) };
+  return { kind: match[1] as "shop" | "product" | "claim" | "reward" | "buy", id: Number(match[2]) };
 }
 
 export function resolvePurchaseCallbackRoute(action: TelegramCallbackAction) {
@@ -818,6 +856,7 @@ export async function handleCallback(query: TelegramCallbackQuery, options: { sk
   if (action.kind === "referrals") return showReferrals(chatId, userId, messageId);
   if (action.kind === "support") return respond(chatId, formatSupportPrompt(), buildHomeKeyboard(), messageId);
   if (action.kind === "claim") return claimFree(chatId, userId, action.id, messageId);
+  if (action.kind === "reward") return claimReferralReward(chatId, userId, action.id, messageId);
   if (purchaseRoute === "quantity_prompt" && (action.kind === "buy" || (action.kind === "buyqty" && action.quantity === 0))) return showQuantityPrompt(chatId, action.id, messageId);
   if (purchaseRoute === "purchase_review" && action.kind === "buyqty") return showPurchaseReview(chatId, userId, action.id, action.quantity, messageId);
   if (purchaseRoute === "payment_method" && action.kind === "buyconfirm") return showPurchaseReview(chatId, userId, action.id, action.quantity, messageId);
