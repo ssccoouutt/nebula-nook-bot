@@ -18,7 +18,7 @@ const DEFAULT_CHANNEL_URL = process.env.TELEGRAM_CHANNEL_JOIN_URL ?? "https://t.
 const DEFAULT_GROUP_URL = process.env.TELEGRAM_GROUP_JOIN_URL ?? "https://t.me/+4I-HIdE73NIyMzI8";
 const recentRequests = new Map<number, number>();
 const pendingCustomQuantities = new Map<number, { productId: number; expiresAt: number }>();
-const pendingBinancePayTopups = new Map<number, { amountCents: number; expiresAt: number }>();
+const pendingBinancePayTopups = new Map<number, { amountCents?: number; expiresAt: number }>();
 const pendingBinancePayPurchases = new Map<number, { intentId: number; expiresAt: number }>();
 export const BINANCE_PAY_PURCHASE_WINDOW_MS = 20 * 60 * 1000;
 
@@ -221,7 +221,7 @@ async function answerCallback(id: string, text?: string) {
   await telegramCall("answerCallbackQuery", { callback_query_id: id, text, show_alert: false });
 }
 
-type TelegramButton = { text: string; callback_data?: string; url?: string; style?: "danger" | "success" | "primary" };
+type TelegramButton = { text: string; callback_data?: string; url?: string; copy_text?: { text: string }; style?: "danger" | "success" | "primary" };
 
 function keyboard(rows: Array<Array<TelegramButton>>) {
   return { inline_keyboard: rows };
@@ -262,11 +262,7 @@ export function buildWalletKeyboard() {
 }
 
 export function buildWalletDepositAmountKeyboard() {
-  return keyboard([
-    [{ text: "$5 USDT/USDC", callback_data: "walletamount:500", style: "primary" }, { text: "$10 USDT/USDC", callback_data: "walletamount:1000", style: "primary" }],
-    [{ text: "$20 USDT/USDC", callback_data: "walletamount:2000", style: "primary" }, { text: "$50 USDT/USDC", callback_data: "walletamount:5000", style: "primary" }],
-    [{ text: "✖️ Cancel", callback_data: "home" }],
-  ]);
+  return keyboard([[{ text: "✖️ Cancel", callback_data: "walletcancel" }]]);
 }
 
 export function buildProductKeyboard(productId: number) {
@@ -353,7 +349,25 @@ export function formatBinancePayPurchasePrompt(productName: string, quantity: nu
 
 export function formatBinancePayTopupPrompt(amountCents: number) {
   const merchant = merchantBinanceId() || "Merchant Binance ID is not configured yet";
-  return `🟡 <b>Add funds with Binance Pay</b>\n\n💰 Pay exactly <b>$${(amountCents / 100).toFixed(2)}</b> in USDT or USDC\n🏦 Send to Binance ID: <code>${merchant}</code>\n\nThen send the Binance transaction/order ID here within <b>20 minutes</b>. Your wallet is credited only after Binance confirms the exact amount and supported asset. No reply is required.`;
+  const amount = `$${(amountCents / 100).toFixed(2)}`;
+  return `💰 <b>Amount to send:</b> ${amount} (USDT or USDC)\n💳 <b>Binance Pay ID:</b> <code>${merchant}</code>\n━━━━━━━━━━━━━━━━━━\n\nPay exactly <b>${amount}</b> in USDT or USDC.\nSend to Binance ID: <code>${merchant}</code>\n━━━━━━━━━━━━━━━━━━\n\n<b>How to pay:</b>\n1. Open Binance → Pay → Send.\n2. Recipient: paste the Binance Pay ID above.\n3. Send the exact amount shown.\n4. Copy your Transaction ID from Binance Pay → History.\n5. Send the Transaction ID here as your next message.\n\nThis invoice expires in <b>20 minutes</b>. Your wallet is credited only after Binance confirms the exact amount and supported asset.`;
+}
+
+export function buildWalletDepositInvoiceKeyboard() {
+  return keyboard([[{ text: "📋 Copy Binance Pay ID", copy_text: { text: merchantBinanceId() } }], [{ text: "✖️ Cancel", callback_data: "walletcancel" }]]);
+}
+
+export function formatWalletDepositAmountPrompt(error?: "invalid" | "range") {
+  const notice = error === "invalid" ? "⚠️ Enter a valid USD amount, for example <b>10</b> or <b>10.50</b>.\n\n" : error === "range" ? "⚠️ Enter an amount from <b>$1.00</b> to <b>$10,000.00</b>.\n\n" : "";
+  return `${notice}💳 <b>Add funds with Binance Pay</b>\n\nEnter the amount in USD you want to add.\n\nExample: <b>10</b> for $10.00`;
+}
+
+export function parseUsdAmountInput(text: string) {
+  const value = text.trim().replace(/^\$/, "");
+  if (!/^\d+(?:\.\d{1,2})?$/.test(value)) return { ok: false as const, reason: "invalid" as const };
+  const amountCents = Math.round(Number(value) * 100);
+  if (!Number.isSafeInteger(amountCents) || amountCents < 100 || amountCents > 1_000_000) return { ok: false as const, reason: "range" as const };
+  return { ok: true as const, amountCents };
 }
 
 async function runtimeGate() {
@@ -572,7 +586,7 @@ async function createBinancePayPurchaseIntent(chatId: number, userId: number, pr
 }
 
 export type TelegramCallbackAction =
-  | { kind: "verify_membership" | "home" | "freebies" | "wallet" | "walletadd" | "orders" | "profile" | "support" }
+  | { kind: "verify_membership" | "home" | "freebies" | "wallet" | "walletadd" | "walletcancel" | "orders" | "profile" | "support" }
   | { kind: "shop" | "product" | "claim" | "buy" | "customqty" | "pricealert"; id: number }
   | { kind: "walletamount"; amountCents: number }
   | { kind: "buyqty" | "buyconfirm" | "paywallet" | "paybinance"; id: number; quantity: number }
@@ -580,7 +594,7 @@ export type TelegramCallbackAction =
 
 export function parseTelegramCallbackAction(data?: string): TelegramCallbackAction | null {
   const value = data ?? "";
-  if (["verify_membership", "home", "freebies", "wallet", "walletadd", "orders", "profile", "support"].includes(value)) return { kind: value as TelegramCallbackAction["kind"] } as TelegramCallbackAction;
+  if (["verify_membership", "home", "freebies", "wallet", "walletadd", "walletcancel", "orders", "profile", "support"].includes(value)) return { kind: value as TelegramCallbackAction["kind"] } as TelegramCallbackAction;
   const walletAmountMatch = value.match(/^walletamount:(\d+)$/);
   if (walletAmountMatch) return { kind: "walletamount", amountCents: Number(walletAmountMatch[1]) };
   const quantityMatch = value.match(/^(buyqty|buyconfirm|paywallet|paybinance):([0-9]+):([0-9]+)$/);
@@ -623,11 +637,18 @@ export async function handleCallback(query: TelegramCallbackQuery, options: { sk
   if (action.kind === "shop") return showShop(chatId, action.id, messageId);
   if (action.kind === "product") return showProduct(chatId, action.id, messageId);
   if (action.kind === "wallet") return showWallet(chatId, userId, messageId);
-  if (action.kind === "walletadd") return respond(chatId, "💳 <b>Choose deposit amount</b>\n\nSelect the exact amount you want to send. The wallet will be credited only when Binance confirms the same amount.", buildWalletDepositAmountKeyboard(), messageId);
+  if (action.kind === "walletadd") {
+    pendingBinancePayTopups.set(userId, { expiresAt: Date.now() + 20 * 60 * 1000 });
+    return respond(chatId, formatWalletDepositAmountPrompt(), buildWalletDepositAmountKeyboard(), messageId);
+  }
+  if (action.kind === "walletcancel") {
+    pendingBinancePayTopups.delete(userId);
+    return showWallet(chatId, userId, messageId);
+  }
   if (purchaseRoute === "wallet_amount" && action.kind === "walletamount") {
-    if (!Number.isSafeInteger(action.amountCents) || action.amountCents < 100) return respond(chatId, "⚠️ Choose a valid deposit amount.", buildWalletDepositAmountKeyboard(), messageId);
+    if (!Number.isSafeInteger(action.amountCents) || action.amountCents < 100) return respond(chatId, formatWalletDepositAmountPrompt("range"), buildWalletDepositAmountKeyboard(), messageId);
     pendingBinancePayTopups.set(userId, { amountCents: action.amountCents, expiresAt: Date.now() + 20 * 60 * 1000 });
-    return respond(chatId, formatBinancePayTopupPrompt(action.amountCents), undefined, messageId);
+    return respond(chatId, formatBinancePayTopupPrompt(action.amountCents), buildWalletDepositInvoiceKeyboard(), messageId);
   }
   if (action.kind === "orders") return showOrders(chatId, userId, messageId);
   if (action.kind === "profile") return showProfile(chatId, userId, messageId);
@@ -737,7 +758,13 @@ export async function handleMessage(message: TelegramMessage) {
   if (!isCommandMessage && pendingTopup) {
     if (pendingTopup.expiresAt <= Date.now()) {
       pendingBinancePayTopups.delete(user.id);
-      return respond(message.chat.id, "⌛ <b>Top-up prompt expired</b>\n\nOpen Wallet and tap Add funds with Binance Pay to try again.", buildWalletKeyboard());
+      return respond(message.chat.id, "⌛ <b>Top-up invoice expired</b>\n\nOpen Wallet and tap Add funds with Binance Pay to try again.", buildWalletKeyboard());
+    }
+    if (pendingTopup.amountCents === undefined) {
+      const parsed = parseUsdAmountInput(messageText);
+      if (!parsed.ok) return respond(message.chat.id, formatWalletDepositAmountPrompt(parsed.reason), buildWalletDepositAmountKeyboard());
+      pendingTopup.amountCents = parsed.amountCents;
+      return respond(message.chat.id, formatBinancePayTopupPrompt(parsed.amountCents), buildWalletDepositInvoiceKeyboard());
     }
     pendingBinancePayTopups.delete(user.id);
     const result = await findBinancePayTransaction(messageText, pendingTopup.amountCents);

@@ -33,6 +33,9 @@ import {
   formatBinancePayPurchasePrompt,
   formatBinancePayTopupPrompt,
   buildWalletDepositAmountKeyboard,
+  buildWalletDepositInvoiceKeyboard,
+  formatWalletDepositAmountPrompt,
+  parseUsdAmountInput,
   formatFreebiesMessage,
   buildFreebiesKeyboard,
   telegramResponseMethod,
@@ -183,10 +186,26 @@ describe("Telegram presentation and notification helpers", () => {
     expect(formatBinancePayTopupPrompt(1000)).toContain("Pay exactly <b>$10.00</b>");
     expect(formatBinancePayTopupPrompt(1000)).toContain("Send to Binance ID: <code>123456789</code>");
     const depositRows = buildWalletDepositAmountKeyboard().inline_keyboard;
-    expect(depositRows[0]).toEqual(expect.arrayContaining([
-      expect.objectContaining({ callback_data: "walletamount:500" }),
-      expect.objectContaining({ callback_data: "walletamount:1000" }),
-    ]));
+    expect(depositRows).toEqual([[expect.objectContaining({ callback_data: "walletcancel" })]]);
+  });
+
+  it("parses free-form USD deposit amounts and rejects invalid ranges", () => {
+    expect(parseUsdAmountInput("10")).toEqual({ ok: true, amountCents: 1000 });
+    expect(parseUsdAmountInput("$10.50")).toEqual({ ok: true, amountCents: 1050 });
+    expect(parseUsdAmountInput("0.50")).toMatchObject({ ok: false, reason: "range" });
+    expect(parseUsdAmountInput("ten")).toMatchObject({ ok: false, reason: "invalid" });
+    expect(formatWalletDepositAmountPrompt()).toContain("Enter the amount in USD you want to add.");
+  });
+
+  it("renders the detailed top-up invoice with copy and cancel controls", () => {
+    process.env.BID = "configured-merchant-id";
+    expect(formatBinancePayTopupPrompt(1050)).toContain("$10.50");
+    expect(formatBinancePayTopupPrompt(1050)).toContain("<code>configured-merchant-id</code>");
+    expect(formatBinancePayTopupPrompt(1050)).toContain("This invoice expires in <b>20 minutes</b>");
+    expect(buildWalletDepositAmountKeyboard().inline_keyboard[0][0]).toMatchObject({ text: "✖️ Cancel", callback_data: "walletcancel" });
+    expect(buildWalletDepositInvoiceKeyboard().inline_keyboard[0][0]).toMatchObject({ copy_text: { text: "configured-merchant-id" } });
+    expect(buildWalletDepositInvoiceKeyboard().inline_keyboard[1][0]).toMatchObject({ text: "✖️ Cancel", callback_data: "walletcancel" });
+    expect(parseTelegramCallbackAction("walletcancel")).toEqual({ kind: "walletcancel" });
   });
 
   it("uses the configured BID for wallet and product payment instructions", () => {

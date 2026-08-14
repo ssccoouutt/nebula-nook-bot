@@ -288,3 +288,10 @@
 - [x] Require Binance verification to match the expected order/deposit amount and reject mismatched or duplicate transaction IDs without crediting funds or completing orders.
 - [x] Fix the product Binance Pay button to create a pending payment and accept a transaction/order ID within the existing verification window.
 - [x] Add regression tests for BID instructions, exact amount matching, mismatch rejection, and both payment entry points.
+
+- [x] Replace preset wallet deposit amount buttons with a USD amount-entry prompt and cancel action.
+- [x] Generate a detailed 20-minute Binance Pay invoice with exact amount, monospace BID, copy-ID action, payment steps, and cancel action.
+- [x] Preserve exact-amount transaction verification and add regression coverage for parsing, invoice formatting, copy, and cancel behavior.
+
+- [x] Audit and guarantee Drive synchronization after every successful bot and dashboard mutation, including products, users, purchases, deposits, wallets, stock, referrals, support, settings, broadcasts, notifications, and order history.
+- [x] Add regression coverage proving post-transaction synchronization is scheduled for representative admin and user mutation paths without blocking request completion.
