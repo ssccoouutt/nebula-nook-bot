@@ -313,3 +313,6 @@
 
 - [x] Diagnose and fix USDT BEP20 verification failure for TxID `0x70f53418b1515fdad750ac86b5a9898b72f5ac17bb444236152c99494d90edcf`; verify exact amount, network, recipient, confirmations, and asset handling.
 - [x] Add regression coverage for the supplied BEP20 transaction-hash verification scenario and publish the validated repair.
+
+- [x] Diagnose and fix direct product-payment callbacks so Binance Pay and USDT BEP20 buttons visibly show their payment invoices.
+- [x] Add regression coverage for product Binance Pay/BEP20 callback responses and publish the validated repair.

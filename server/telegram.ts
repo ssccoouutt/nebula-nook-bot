@@ -22,6 +22,13 @@ const pendingBinancePayTopups = new Map<number, { amountCents?: number; method: 
 const pendingBinancePayPurchases = new Map<number, { intentId: number; expiresAt: number }>();
 export const BINANCE_PAY_PURCHASE_WINDOW_MS = 20 * 60 * 1000;
 
+export function extractInsertedRowId(result: unknown): number {
+  const row = Array.isArray(result) ? result[0] as Record<string, unknown> | undefined : undefined;
+  const value = row?.insertId ?? row?.lastInsertRowid;
+  const id = Number(value ?? 0);
+  return Number.isSafeInteger(id) && id > 0 ? id : 0;
+}
+
 export function isLikelyBinancePayTransactionId(value: string) {
   return /^\d{8,32}$/.test(value.trim());
 }
@@ -590,7 +597,7 @@ async function createPurchase(chatId: number, userId: number, productId: number,
     const purchase = buildConfirmedPurchasePlan(user.balanceCents, product.priceCents, product.stock, requestedQuantity);
     if (!purchase.ok) return { ok: false as const, status: purchase.status, balanceCents: user.balanceCents, productId: product.id, stock: product.stock, totalCents: purchase.totalCents };
     const result = await tx.insert(orders).values({ botUserId: user.id, productId: product.id, kind: "purchase", amountCents: purchase.totalCents, status: "fulfilled" });
-    const orderId = String((result as any)[0]?.insertId ?? `${user.id}:${product.id}:${Date.now()}`);
+    const orderId = String(extractInsertedRowId(result) || `${user.id}:${product.id}:${Date.now()}`);
     await tx.update(botUsers).set({ balanceCents: purchase.nextBalanceCents }).where(eq(botUsers.id, user.id));
     await tx.update(products).set({ stock: purchase.nextStock }).where(eq(products.id, product.id));
     await tx.insert(walletLedger).values({ botUserId: user.id, amountCents: -purchase.totalCents, kind: "purchase", referenceId: orderId, note: `Automatic purchase (${purchase.quantity}×): ${product.name}` });
@@ -616,7 +623,7 @@ async function createBinancePayPurchaseIntent(chatId: number, userId: number, pr
   if (product.stock < safeQuantity) return respond(chatId, `⚠️ Only <b>${product.stock}</b> unit${product.stock === 1 ? "" : "s"} remain. Choose a smaller quantity.`, buildQuantityKeyboard(product.id, product.stock), messageId);
   const amountCents = product.priceCents * safeQuantity;
   const inserted = await db.insert(paymentIntents).values({ botUserId: user.id, productId: product.id, quantity: safeQuantity, amountCents, method, status: "pending" });
-  const intentId = Number((inserted as any)[0]?.insertId ?? 0);
+  const intentId = extractInsertedRowId(inserted);
   if (!intentId) throw new Error("Failed to create Binance Pay payment intent");
   pendingBinancePayPurchases.set(userId, { intentId, expiresAt: Date.now() + BINANCE_PAY_PURCHASE_WINDOW_MS });
   const prompt = method === "bep20" ? formatBep20PurchasePrompt(product.name, safeQuantity, amountCents) : formatBinancePayPurchasePrompt(product.name, safeQuantity, amountCents);

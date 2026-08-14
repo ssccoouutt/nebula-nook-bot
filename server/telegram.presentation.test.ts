@@ -45,6 +45,7 @@ import {
   parseTelegramCallbackAction,
   resolvePurchaseCallbackRoute,
   isPurchasableProduct,
+  extractInsertedRowId,
 } from "./telegram";
 
 describe("Telegram presentation and notification helpers", () => {
@@ -110,7 +111,13 @@ describe("Telegram presentation and notification helpers", () => {
     expect(rows[1][0]).toMatchObject({ callback_data: "home", style: "primary" });
   });
 
-  it("routes every inline callback action deterministically", () => {
+  it("extracts payment-intent IDs from both SQLite insert result shapes", () => {
+    expect(extractInsertedRowId([{ insertId: 17 }])).toBe(17);
+    expect(extractInsertedRowId([{ lastInsertRowid: 18 }])).toBe(18);
+    expect(extractInsertedRowId([{ lastInsertRowid: 0 }])).toBe(0);
+  });
+
+  it("routes every inline callback action deterministically", async () => {
     expect(parseTelegramCallbackAction("home")).toEqual({ kind: "home" });
     expect(parseTelegramCallbackAction("freebies")).toEqual({ kind: "freebies" });
     expect(parseTelegramCallbackAction("wallet")).toEqual({ kind: "wallet" });
