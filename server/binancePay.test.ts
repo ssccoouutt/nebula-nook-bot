@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildBinanceSignedQuery, findBinancePayTransaction, isPaymentAmountWithinTolerance } from "./binancePay";
+import { BINANCE_PAY_MAX_AGE_MS, buildBinanceSignedQuery, findBinancePayTransaction, isBinancePayTransactionRecent, isPaymentAmountWithinTolerance } from "./binancePay";
 
 describe("Binance Pay transaction verification", () => {
   it("builds the script-compatible timestamped HMAC query without exposing the secret", () => {
@@ -15,7 +15,7 @@ describe("Binance Pay transaction verification", () => {
     let requestedUrl = "";
     const fetcher: typeof fetch = async (input) => {
       requestedUrl = String(input);
-      return new Response(JSON.stringify({ data: [{ transactionId: "TX-123456", amount: "12.34", currency: "USDT", status: "SUCCESS" }] }), { status: 200 });
+      return new Response(JSON.stringify({ data: [{ transactionId: "TX-123456", amount: "12.34", currency: "USDT", status: "SUCCESS", transactionTime: Date.now() }] }), { status: 200 });
     };
     const result = await findBinancePayTransaction("TX-123456", 1234, fetcher);
     expect(result).toMatchObject({ ok: true, amountCents: 1234, asset: "USDT" });
@@ -67,9 +67,19 @@ describe("Binance Pay transaction verification", () => {
     expect(isPaymentAmountWithinTolerance(97, 100)).toBe(true);
     expect(isPaymentAmountWithinTolerance(103, 100)).toBe(true);
     expect(isPaymentAmountWithinTolerance(104, 100)).toBe(false);
-    const fetcher: typeof fetch = async () => new Response(JSON.stringify({ data: [{ transactionId: "TX-123456", amount: "12.34", currency: "USDT", status: "SUCCESS" }] }), { status: 200 });
+    const fetcher: typeof fetch = async () => new Response(JSON.stringify({ data: [{ transactionId: "TX-123456", amount: "12.34", currency: "USDT", status: "SUCCESS", transactionTime: Date.now() }] }), { status: 200 });
     expect(await findBinancePayTransaction("TX-123456", 1237, fetcher)).toMatchObject({ ok: true, amountCents: 1234 });
     expect(await findBinancePayTransaction("TX-123456", 1238, fetcher)).toMatchObject({ ok: false, reason: "amount_mismatch" });
+  });
+
+  it("requires Binance Pay transactions to be timestamped within the last 12 hours", async () => {
+    const now = 1_700_000_000_000;
+    expect(isBinancePayTransactionRecent({ transactionTime: now - BINANCE_PAY_MAX_AGE_MS }, now)).toBe(true);
+    expect(isBinancePayTransactionRecent({ transactionTime: now - BINANCE_PAY_MAX_AGE_MS - 1 }, now)).toBe(false);
+    expect(isBinancePayTransactionRecent({ transactionTime: now + 1 }, now)).toBe(false);
+    expect(isBinancePayTransactionRecent({}, now)).toBe(false);
+    const fetcher: typeof fetch = async () => new Response(JSON.stringify({ data: [{ transactionId: "TX-STALE", amount: "1", currency: "USDT", transactionTime: Date.now() - BINANCE_PAY_MAX_AGE_MS - 1 }] }), { status: 200 });
+    expect(await findBinancePayTransaction("TX-STALE", 100, fetcher)).toMatchObject({ ok: false, reason: "stale_transaction" });
   });
 
   it("verifies a USDT BEP20 deposit from the BSC receipt Transfer log", async () => {

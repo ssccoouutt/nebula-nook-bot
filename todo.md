@@ -352,3 +352,5 @@
 - [x] Accept Binance Pay and USDT BEP20 payments within ±$0.03 of the invoice amount while crediting exactly the invoice amount.
 - [x] Stop sending wallet top-up notifications to the operations group; keep top-up confirmation private to the user.
 - [x] Add regression coverage for tolerance boundaries and suppressed top-up group notifications.
+
+- [x] Require Binance Pay transactions to be no older than 12 hours at verification time, with clear stale-transaction messaging and regression coverage.

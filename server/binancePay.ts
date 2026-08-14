@@ -15,9 +15,17 @@ const BSC_RPC_ENDPOINTS = [
 ];
 const BSC_MIN_CONFIRMATIONS = 1;
 export const PAYMENT_TOLERANCE_CENTS = 3;
+export const BINANCE_PAY_MAX_AGE_MS = 12 * 60 * 60 * 1000;
 
 export function isPaymentAmountWithinTolerance(actualAmountCents: number, expectedAmountCents: number) {
   return Math.abs(actualAmountCents - expectedAmountCents) <= PAYMENT_TOLERANCE_CENTS;
+}
+
+export function isBinancePayTransactionRecent(transaction: { transactionTime?: number; time?: number }, nowMs = Date.now()) {
+  const rawTimestamp = Number(transaction.transactionTime ?? transaction.time);
+  if (!Number.isFinite(rawTimestamp) || rawTimestamp <= 0) return false;
+  const timestampMs = rawTimestamp < 1_000_000_000_000 ? rawTimestamp * 1000 : rawTimestamp;
+  return timestampMs >= nowMs - BINANCE_PAY_MAX_AGE_MS && timestampMs <= nowMs;
 }
 
 type BinancePayTransaction = {
@@ -196,6 +204,7 @@ export async function findBinancePayTransaction(searchId: string, expectedAmount
   const asset = String(transaction.currency ?? transaction.asset ?? "").toUpperCase();
   if (!Number.isFinite(amount) || amount <= 0) return { ok: false as const, reason: "not_received" as const, transaction };
   if (asset !== REQUIRED_ASSET) return { ok: false as const, reason: "unsupported_asset" as const, transaction };
+  if (!isBinancePayTransactionRecent(transaction)) return { ok: false as const, reason: "stale_transaction" as const, transaction };
 
   const amountCents = Math.round(amount * 100);
   if (expectedAmountCents !== undefined && !isPaymentAmountWithinTolerance(amountCents, expectedAmountCents)) {

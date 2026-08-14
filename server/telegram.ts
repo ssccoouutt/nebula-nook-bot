@@ -465,6 +465,7 @@ export function formatPaymentVerificationFailure(reason: string, method: "binanc
   if (reason === "unsupported_network") return "The deposit was not sent through the BEP20 network.";
   if (reason === "address_mismatch") return "The deposit was sent to a different address than the configured BEP20 address.";
   if (reason === "before_invoice") return "This transfer was made before the matching invoice was created. Create a new invoice first, then send the requested amount within the allowed $0.03 range.";
+  if (reason === "stale_transaction") return isBep20 ? "This BEP20 transaction is outside the active invoice window or has no usable timestamp." : "This Binance Pay transaction is older than 12 hours or has no usable timestamp. Send a newer payment ID.";
   return isBep20 ? "That is not a positive received USDT BEP20 deposit." : "That is not a positive received Binance Pay payment.";
 }
 
