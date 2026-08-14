@@ -31,6 +31,8 @@ import {
   formatPriceAlertMessage,
   formatPurchaseReview,
   formatBinancePayPurchasePrompt,
+  formatBinancePayTopupPrompt,
+  buildWalletDepositAmountKeyboard,
   formatFreebiesMessage,
   buildFreebiesKeyboard,
   telegramResponseMethod,
@@ -121,6 +123,7 @@ describe("Telegram presentation and notification helpers", () => {
     expect(parseTelegramCallbackAction("buycancel:7")).toEqual({ kind: "buycancel", id: 7 });
     expect(parseTelegramCallbackAction("customqty:7")).toEqual({ kind: "customqty", id: 7 });
     expect(parseTelegramCallbackAction("pricealert:7")).toEqual({ kind: "pricealert", id: 7 });
+    expect(parseTelegramCallbackAction("walletamount:1000")).toEqual({ kind: "walletamount", amountCents: 1000 });
     expect(parseTelegramCallbackAction("unknown:7")).toBeNull();
     expect(parseTelegramCallbackAction("product:nope")).toBeNull();
   });
@@ -135,6 +138,7 @@ describe("Telegram presentation and notification helpers", () => {
     expect(resolvePurchaseCallbackRoute({ kind: "buycancel", id: 7 })).toBe("product_view");
     expect(resolvePurchaseCallbackRoute({ kind: "customqty", id: 7 })).toBe("custom_quantity");
     expect(resolvePurchaseCallbackRoute({ kind: "pricealert", id: 7 })).toBe("price_alert");
+    expect(resolvePurchaseCallbackRoute({ kind: "walletamount", amountCents: 1000 })).toBe("wallet_amount");
     expect(resolvePurchaseCallbackRoute({ kind: "home" })).toBeNull();
   });
 
@@ -167,12 +171,22 @@ describe("Telegram presentation and notification helpers", () => {
     expect(reviewRows[1][0]).toMatchObject({ text: "🟡 Pay with Binance Pay", callback_data: "paybinance:7:3", style: "primary" });
     expect(reviewRows[2][0]).toMatchObject({ callback_data: "buycancel:7" });
     expect(reviewRows[2][0]).not.toHaveProperty("style");
+    process.env.BID = "123456789";
     const payPrompt = formatBinancePayPurchasePrompt("Gemini Pro Trial Link", 1, 99);
     expect(payPrompt).toContain("Pay exactly <b>$0.99</b>");
     expect(payPrompt).toContain("within <b>20 minutes</b>");
     expect(payPrompt).toContain("No reply is required");
     expect(payPrompt).not.toContain("configured Binance Pay merchant account");
     expect(payPrompt).not.toContain("force_reply");
+    expect(payPrompt).toContain("Send to Binance ID: <code>123456789</code>");
+    expect(payPrompt).toContain("USDT or USDC");
+    expect(formatBinancePayTopupPrompt(1000)).toContain("Pay exactly <b>$10.00</b>");
+    expect(formatBinancePayTopupPrompt(1000)).toContain("Send to Binance ID: <code>123456789</code>");
+    const depositRows = buildWalletDepositAmountKeyboard().inline_keyboard;
+    expect(depositRows[0]).toEqual(expect.arrayContaining([
+      expect.objectContaining({ callback_data: "walletamount:500" }),
+      expect.objectContaining({ callback_data: "walletamount:1000" }),
+    ]));
   });
 
   it("uses edit-in-place responses for callback navigation and send responses for commands", () => {

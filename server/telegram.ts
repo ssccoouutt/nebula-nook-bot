@@ -18,7 +18,7 @@ const DEFAULT_CHANNEL_URL = process.env.TELEGRAM_CHANNEL_JOIN_URL ?? "https://t.
 const DEFAULT_GROUP_URL = process.env.TELEGRAM_GROUP_JOIN_URL ?? "https://t.me/+4I-HIdE73NIyMzI8";
 const recentRequests = new Map<number, number>();
 const pendingCustomQuantities = new Map<number, { productId: number; expiresAt: number }>();
-const pendingBinancePayTopups = new Map<number, { expiresAt: number }>();
+const pendingBinancePayTopups = new Map<number, { amountCents: number; expiresAt: number }>();
 const pendingBinancePayPurchases = new Map<number, { intentId: number; expiresAt: number }>();
 export const BINANCE_PAY_PURCHASE_WINDOW_MS = 20 * 60 * 1000;
 
@@ -261,6 +261,14 @@ export function buildWalletKeyboard() {
   ]);
 }
 
+export function buildWalletDepositAmountKeyboard() {
+  return keyboard([
+    [{ text: "$5 USDT/USDC", callback_data: "walletamount:500", style: "primary" }, { text: "$10 USDT/USDC", callback_data: "walletamount:1000", style: "primary" }],
+    [{ text: "$20 USDT/USDC", callback_data: "walletamount:2000", style: "primary" }, { text: "$50 USDT/USDC", callback_data: "walletamount:5000", style: "primary" }],
+    [{ text: "✖️ Cancel", callback_data: "home" }],
+  ]);
+}
+
 export function buildProductKeyboard(productId: number) {
   return keyboard([
     [{ text: "🛒 Buy now", callback_data: `buyqty:${productId}:0` }],
@@ -334,8 +342,18 @@ export function formatPurchaseReview(productName: string, priceCents: number, qu
   return `🧾 <b>Review your purchase</b>\n\n📦 <b>${productName.replace(/[<&>]/g, "")}</b>\n🔢 Quantity: <b>${quantity}</b>\n💵 Unit price: <b>$${(priceCents / 100).toFixed(2)}</b>\n💰 Total to pay: <b>$${(totalCents / 100).toFixed(2)}</b>\n\nWallet balance: <b>$${(balanceCents / 100).toFixed(2)}</b>\n\nChoose a payment method below. Your order is not completed until the selected payment is verified.`;
 }
 
+export function merchantBinanceId() {
+  return (process.env.BID ?? "").trim();
+}
+
 export function formatBinancePayPurchasePrompt(productName: string, quantity: number, amountCents: number) {
-  return `🟡 <b>Binance Pay</b>\n\n📦 ${productName.replace(/[<&>]/g, "")} × ${quantity}\n💰 Pay exactly <b>$${(amountCents / 100).toFixed(2)}</b>\n\nAfter paying, send the transaction/order ID here within <b>20 minutes</b>. No reply is required.`;
+  const merchant = merchantBinanceId() || "Merchant Binance ID is not configured yet";
+  return `🟡 <b>Pay with Binance Pay</b>\n\n📦 ${productName.replace(/[<&>]/g, "")} × ${quantity}\n💰 Pay exactly <b>$${(amountCents / 100).toFixed(2)}</b> in USDT or USDC\n🏦 Send to Binance ID: <code>${merchant}</code>\n\nAfter paying, send the Binance transaction/order ID here within <b>20 minutes</b>. The payment is accepted only when Binance confirms the exact amount and supported asset. No reply is required.`;
+}
+
+export function formatBinancePayTopupPrompt(amountCents: number) {
+  const merchant = merchantBinanceId() || "Merchant Binance ID is not configured yet";
+  return `🟡 <b>Add funds with Binance Pay</b>\n\n💰 Pay exactly <b>$${(amountCents / 100).toFixed(2)}</b> in USDT or USDC\n🏦 Send to Binance ID: <code>${merchant}</code>\n\nThen send the Binance transaction/order ID here within <b>20 minutes</b>. Your wallet is credited only after Binance confirms the exact amount and supported asset. No reply is required.`;
 }
 
 async function runtimeGate() {
@@ -556,12 +574,15 @@ async function createBinancePayPurchaseIntent(chatId: number, userId: number, pr
 export type TelegramCallbackAction =
   | { kind: "verify_membership" | "home" | "freebies" | "wallet" | "walletadd" | "orders" | "profile" | "support" }
   | { kind: "shop" | "product" | "claim" | "buy" | "customqty" | "pricealert"; id: number }
+  | { kind: "walletamount"; amountCents: number }
   | { kind: "buyqty" | "buyconfirm" | "paywallet" | "paybinance"; id: number; quantity: number }
   | { kind: "buycancel"; id: number };
 
 export function parseTelegramCallbackAction(data?: string): TelegramCallbackAction | null {
   const value = data ?? "";
   if (["verify_membership", "home", "freebies", "wallet", "walletadd", "orders", "profile", "support"].includes(value)) return { kind: value as TelegramCallbackAction["kind"] } as TelegramCallbackAction;
+  const walletAmountMatch = value.match(/^walletamount:(\d+)$/);
+  if (walletAmountMatch) return { kind: "walletamount", amountCents: Number(walletAmountMatch[1]) };
   const quantityMatch = value.match(/^(buyqty|buyconfirm|paywallet|paybinance):([0-9]+):([0-9]+)$/);
   if (quantityMatch) return { kind: quantityMatch[1] as "buyqty" | "buyconfirm" | "paywallet" | "paybinance", id: Number(quantityMatch[2]), quantity: Number(quantityMatch[3]) };
   const cancelMatch = value.match(/^buycancel:([0-9]+)$/);
@@ -574,6 +595,7 @@ export function parseTelegramCallbackAction(data?: string): TelegramCallbackActi
 }
 
 export function resolvePurchaseCallbackRoute(action: TelegramCallbackAction) {
+  if (action.kind === "walletamount") return "wallet_amount" as const;
   if (action.kind === "buy") return "quantity_prompt" as const;
   if (action.kind === "buyqty") return action.quantity > 0 ? "purchase_review" as const : "quantity_prompt" as const;
   if (action.kind === "buyconfirm") return "payment_method" as const;
@@ -593,6 +615,7 @@ export async function handleCallback(query: TelegramCallbackQuery, options: { sk
   await answerCallback(query.id);
   const action = parseTelegramCallbackAction(query.data);
   if (!action) return;
+  const purchaseRoute = resolvePurchaseCallbackRoute(action);
   if (action.kind === "verify_membership") return showHome(chatId, userId, messageId);
   if (!options.skipAccess && !(await requireAccess(chatId, userId, messageId))) return;
   if (action.kind === "home") return showHome(chatId, userId, messageId);
@@ -600,15 +623,16 @@ export async function handleCallback(query: TelegramCallbackQuery, options: { sk
   if (action.kind === "shop") return showShop(chatId, action.id, messageId);
   if (action.kind === "product") return showProduct(chatId, action.id, messageId);
   if (action.kind === "wallet") return showWallet(chatId, userId, messageId);
-  if (action.kind === "walletadd") {
-    pendingBinancePayTopups.set(userId, { expiresAt: Date.now() + 10 * 60 * 1000 });
-    return respond(chatId, "💳 <b>Add funds with Binance Pay</b>\n\nPay the merchant, then send the transaction ID here. I’ll verify the payment and credit supported USDT, USDC, or BUSD receipts.\n\n⚠️ Never send a password, API key, or secret here.", undefined, messageId);
+  if (action.kind === "walletadd") return respond(chatId, "💳 <b>Choose deposit amount</b>\n\nSelect the exact amount you want to send. The wallet will be credited only when Binance confirms the same amount.", buildWalletDepositAmountKeyboard(), messageId);
+  if (purchaseRoute === "wallet_amount" && action.kind === "walletamount") {
+    if (!Number.isSafeInteger(action.amountCents) || action.amountCents < 100) return respond(chatId, "⚠️ Choose a valid deposit amount.", buildWalletDepositAmountKeyboard(), messageId);
+    pendingBinancePayTopups.set(userId, { amountCents: action.amountCents, expiresAt: Date.now() + 20 * 60 * 1000 });
+    return respond(chatId, formatBinancePayTopupPrompt(action.amountCents), undefined, messageId);
   }
   if (action.kind === "orders") return showOrders(chatId, userId, messageId);
   if (action.kind === "profile") return showProfile(chatId, userId, messageId);
   if (action.kind === "support") return respond(chatId, formatSupportPrompt(), buildHomeKeyboard(), messageId);
   if (action.kind === "claim") return claimFree(chatId, userId, action.id, messageId);
-  const purchaseRoute = resolvePurchaseCallbackRoute(action);
   if (purchaseRoute === "quantity_prompt" && (action.kind === "buy" || (action.kind === "buyqty" && action.quantity === 0))) return showQuantityPrompt(chatId, action.id, messageId);
   if (purchaseRoute === "purchase_review" && action.kind === "buyqty") return showPurchaseReview(chatId, userId, action.id, action.quantity, messageId);
   if (purchaseRoute === "payment_method" && action.kind === "buyconfirm") return showPurchaseReview(chatId, userId, action.id, action.quantity, messageId);
@@ -716,10 +740,10 @@ export async function handleMessage(message: TelegramMessage) {
       return respond(message.chat.id, "⌛ <b>Top-up prompt expired</b>\n\nOpen Wallet and tap Add funds with Binance Pay to try again.", buildWalletKeyboard());
     }
     pendingBinancePayTopups.delete(user.id);
-    const result = await findBinancePayTransaction(messageText);
+    const result = await findBinancePayTransaction(messageText, pendingTopup.amountCents);
     if (!result.ok) {
       const reason = result.reason === "invalid_id" ? "That does not look like a valid transaction ID." : result.reason === "not_found" ? "I could not find that Binance Pay transaction yet." : result.reason === "unsupported_asset" ? "Only USDT, USDC, or BUSD receipts can be credited." : "That transaction is not a positive received payment.";
-      return respond(message.chat.id, `❌ <b>Top-up not credited</b>\n\n${reason}\n\nCheck the ID and try again from Wallet.`, buildWalletKeyboard());
+      return respond(message.chat.id, `❌ <b>Top-up not credited</b>\n\n${reason}\n\nCheck the ID and try again from Wallet with the exact requested amount.`, buildWalletKeyboard());
     }
     const db = await getDb();
     if (!db) throw new Error("Database is unavailable");

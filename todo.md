@@ -283,3 +283,8 @@
 - [x] Export all bot data into human-readable Drive files, including users, orders, deposits, wallet ledger, products, referrals, claims, payment intents, alerts, support tickets, broadcasts, notifications, settings, and a manifest.
 - [x] Format orders with complete buyer/product/payment/status details and two newlines between records; keep full history from the first record through the latest.
 - [x] Synchronize readable exports after successful data operations and test export completeness, formatting, and Drive upload behavior.
+
+- [ ] Add a Koyeb `BID` configuration for the merchant Binance payment identifier and show it in wallet deposit and product Binance Pay instructions.
+- [x] Require Binance verification to match the expected order/deposit amount and reject mismatched or duplicate transaction IDs without crediting funds or completing orders.
+- [x] Fix the product Binance Pay button to create a pending payment and accept a transaction/order ID within the existing verification window.
+- [x] Add regression tests for BID instructions, exact amount matching, mismatch rejection, and both payment entry points.
