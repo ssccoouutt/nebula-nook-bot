@@ -295,3 +295,7 @@
 
 - [x] Audit and guarantee Drive synchronization after every successful bot and dashboard mutation, including products, users, purchases, deposits, wallets, stock, referrals, support, settings, broadcasts, notifications, and order history.
 - [x] Add regression coverage proving post-transaction synchronization is scheduled for representative admin and user mutation paths without blocking request completion.
+
+- [x] Restrict wallet deposits and product Binance payments to USDT only; reject USDC, BUSD, and other assets.
+- [x] Add BEP20 address instructions from the `BEP20` Koyeb variable, including copy-address and cancel actions.
+- [x] Require exact amount, USDT asset, and BEP20 network/address match for transaction-hash verification, with regression coverage.

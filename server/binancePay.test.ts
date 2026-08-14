@@ -25,13 +25,13 @@ describe("Binance Pay transaction verification", () => {
     expect(params.get("transactionId")).toBeNull();
   });
 
-  it("matches orderId and the script’s exact-or-partial ID behavior", async () => {
+  it("rejects non-USDT assets even when the transaction ID matches", async () => {
     const fetcher: typeof fetch = async () => new Response(JSON.stringify({ data: [
       { orderId: "ORDER-998877", transactionId: "TX-OTHER", amount: "2", currency: "USDC" },
       { orderId: "ORDER-SECOND", transactionId: "TX-SECOND", amount: "3", currency: "USDT" },
     ] }), { status: 200 });
-    expect(await findBinancePayTransaction("ORDER-998877", undefined, fetcher)).toMatchObject({ ok: true, amountCents: 200, asset: "USDC" });
-    expect(await findBinancePayTransaction("998877", undefined, fetcher)).toMatchObject({ ok: true, amountCents: 200, asset: "USDC" });
+    expect(await findBinancePayTransaction("ORDER-998877", undefined, fetcher)).toMatchObject({ ok: false, reason: "unsupported_asset" });
+    expect(await findBinancePayTransaction("998877", undefined, fetcher)).toMatchObject({ ok: false, reason: "unsupported_asset" });
   });
 
   it("retries without limit when the first Pay transaction request fails", async () => {
@@ -41,7 +41,7 @@ describe("Binance Pay transaction verification", () => {
       if (urls.length === 1) return new Response(JSON.stringify({ msg: "limit unsupported" }), { status: 400 });
       return new Response(JSON.stringify({ data: [{ transactionId: "TX-FALLBACK", amount: "1", currency: "BUSD" }] }), { status: 200 });
     };
-    expect(await findBinancePayTransaction("TX-FALLBACK", 100, fetcher)).toMatchObject({ ok: true, amountCents: 100, asset: "BUSD" });
+    expect(await findBinancePayTransaction("TX-FALLBACK", 100, fetcher)).toMatchObject({ ok: false, reason: "unsupported_asset" });
     expect(new URL(urls[0]).searchParams.get("limit")).toBe("200");
     expect(new URL(urls[1]).searchParams.get("limit")).toBeNull();
   });
@@ -66,6 +66,36 @@ describe("Binance Pay transaction verification", () => {
   it("rejects a receipt whose amount differs from the pending checkout total", async () => {
     const fetcher: typeof fetch = async () => new Response(JSON.stringify({ data: [{ transactionId: "TX-123456", amount: "12.34", currency: "USDT", status: "SUCCESS" }] }), { status: 200 });
     expect(await findBinancePayTransaction("TX-123456", 1235, fetcher)).toMatchObject({ ok: false, reason: "amount_mismatch" });
+  });
+
+  it("verifies a USDT BEP20 deposit only when address, network, and amount match", async () => {
+    const previous = process.env.BEP20;
+    process.env.BEP20 = "0xmerchant";
+    try {
+      const fetcher: typeof fetch = async (input) => {
+        const params = new URL(String(input)).searchParams;
+        expect(params.get("coin")).toBe("USDT");
+        expect(params.get("network")).toBe("BSC");
+        return new Response(JSON.stringify({ depositList: [{ txId: "0xabc123", amount: "10.00", coin: "USDT", network: "BSC", status: 1, address: "0xmerchant" }] }), { status: 200 });
+      };
+      expect(await findBinancePayTransaction("0xabc123", 1000, fetcher)).toMatchObject({ ok: true, amountCents: 1000, asset: "USDT" });
+      expect(await findBinancePayTransaction("0xabc123", 1001, fetcher)).toMatchObject({ ok: false, reason: "amount_mismatch" });
+    } finally {
+      if (previous === undefined) delete process.env.BEP20;
+      else process.env.BEP20 = previous;
+    }
+  });
+
+  it("rejects a BEP20 deposit sent to another address or wrong network", async () => {
+    const previous = process.env.BEP20;
+    process.env.BEP20 = "0xmerchant";
+    try {
+      const fetcher: typeof fetch = async () => new Response(JSON.stringify({ depositList: [{ txId: "0xwrong", amount: "10", coin: "USDT", network: "ETH", status: 1, address: "0xother" }] }), { status: 200 });
+      expect(await findBinancePayTransaction("0xwrong", 1000, fetcher)).toMatchObject({ ok: false, reason: "unsupported_network" });
+    } finally {
+      if (previous === undefined) delete process.env.BEP20;
+      else process.env.BEP20 = previous;
+    }
   });
 
   it("accepts the provided transaction ID as a valid lookup candidate without claiming it exists", async () => {

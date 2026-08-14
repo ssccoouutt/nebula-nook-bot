@@ -31,7 +31,9 @@ import {
   formatPriceAlertMessage,
   formatPurchaseReview,
   formatBinancePayPurchasePrompt,
+  formatBep20PurchasePrompt,
   formatBinancePayTopupPrompt,
+  formatBep20TopupPrompt,
   buildWalletDepositAmountKeyboard,
   buildWalletDepositInvoiceKeyboard,
   formatWalletDepositAmountPrompt,
@@ -171,20 +173,22 @@ describe("Telegram presentation and notification helpers", () => {
     expect(formatPurchaseReview("Gemini Pro", 299, 3, 1000)).toContain("Choose a payment method");
     const reviewRows = buildPaymentMethodKeyboard(7, 3).inline_keyboard;
     expect(reviewRows[0][0]).toMatchObject({ text: "💳 Pay with Wallet", callback_data: "paywallet:7:3", style: "success" });
-    expect(reviewRows[1][0]).toMatchObject({ text: "🟡 Pay with Binance Pay", callback_data: "paybinance:7:3", style: "primary" });
-    expect(reviewRows[2][0]).toMatchObject({ callback_data: "buycancel:7" });
-    expect(reviewRows[2][0]).not.toHaveProperty("style");
-    process.env.BID = "123456789";
+    expect(reviewRows[1][0]).toMatchObject({ text: "🟡 Pay with Binance Pay (USDT)", callback_data: "paybinance:7:3", style: "primary" });
+    expect(reviewRows[2][0]).toMatchObject({ text: "🟢 Pay with USDT (BEP20)", callback_data: "paybep20:7:3", style: "primary" });
+    expect(reviewRows[3][0]).toMatchObject({ callback_data: "buycancel:7" });
+    expect(reviewRows[3][0]).not.toHaveProperty("style");
+    process.env.BEP20 = "0xbep20-test";
     const payPrompt = formatBinancePayPurchasePrompt("Gemini Pro Trial Link", 1, 99);
-    expect(payPrompt).toContain("Pay exactly <b>$0.99</b>");
-    expect(payPrompt).toContain("within <b>20 minutes</b>");
-    expect(payPrompt).toContain("No reply is required");
-    expect(payPrompt).not.toContain("configured Binance Pay merchant account");
+    expect(payPrompt).toContain("Amount to send:</b> $0.99 USDT");
+    expect(payPrompt).toContain("Binance Pay ID");
+    const bep20Prompt = formatBep20PurchasePrompt("Gemini Pro Trial Link", 1, 99);
+    expect(bep20Prompt).toContain("BEP20 network only");
+    expect(bep20Prompt).toContain("Transaction Hash (TxID)");
+    expect(payPrompt).not.toContain("USDT or USDC");
     expect(payPrompt).not.toContain("force_reply");
-    expect(payPrompt).toContain("Send to Binance ID: <code>123456789</code>");
-    expect(payPrompt).toContain("USDT or USDC");
-    expect(formatBinancePayTopupPrompt(1000)).toContain("Pay exactly <b>$10.00</b>");
-    expect(formatBinancePayTopupPrompt(1000)).toContain("Send to Binance ID: <code>123456789</code>");
+    expect(bep20Prompt).toContain("Deposit address (BEP20):</b> <code>0xbep20-test</code>");
+    expect(formatBinancePayTopupPrompt(1000)).toContain("$10.00 USDT");
+    expect(formatBep20TopupPrompt(1000)).toContain("<code>0xbep20-test</code>");
     const depositRows = buildWalletDepositAmountKeyboard().inline_keyboard;
     expect(depositRows).toEqual([[expect.objectContaining({ callback_data: "walletcancel" })]]);
   });
@@ -197,21 +201,29 @@ describe("Telegram presentation and notification helpers", () => {
     expect(formatWalletDepositAmountPrompt()).toContain("Enter the amount in USD you want to add.");
   });
 
-  it("renders the detailed top-up invoice with copy and cancel controls", () => {
-    process.env.BID = "configured-merchant-id";
-    expect(formatBinancePayTopupPrompt(1050)).toContain("$10.50");
-    expect(formatBinancePayTopupPrompt(1050)).toContain("<code>configured-merchant-id</code>");
-    expect(formatBinancePayTopupPrompt(1050)).toContain("This invoice expires in <b>20 minutes</b>");
+  it("renders distinct USDT Binance Pay and BEP20 top-up invoices with copy and cancel controls", () => {
+    process.env.BID = "configured-binance-pay-id";
+    process.env.BEP20 = "configured-bep20-address";
+    expect(formatBinancePayTopupPrompt(1050)).toContain("<code>configured-binance-pay-id</code>");
+    expect(formatBinancePayTopupPrompt(1050)).toContain("Send the exact amount shown in USDT");
+    expect(formatBep20TopupPrompt(1050)).toContain("<code>configured-bep20-address</code>");
+    expect(formatBep20TopupPrompt(1050)).toContain("BEP20 network only");
+    expect(formatBep20TopupPrompt(1050)).toContain("This invoice expires in <b>20 minutes</b>");
     expect(buildWalletDepositAmountKeyboard().inline_keyboard[0][0]).toMatchObject({ text: "✖️ Cancel", callback_data: "walletcancel" });
-    expect(buildWalletDepositInvoiceKeyboard().inline_keyboard[0][0]).toMatchObject({ copy_text: { text: "configured-merchant-id" } });
-    expect(buildWalletDepositInvoiceKeyboard().inline_keyboard[1][0]).toMatchObject({ text: "✖️ Cancel", callback_data: "walletcancel" });
-    expect(parseTelegramCallbackAction("walletcancel")).toEqual({ kind: "walletcancel" });
+    expect(buildWalletDepositInvoiceKeyboard("binance_pay").inline_keyboard[0][0]).toMatchObject({ copy_text: { text: "configured-binance-pay-id" } });
+    expect(buildWalletDepositInvoiceKeyboard("bep20").inline_keyboard[0][0]).toMatchObject({ copy_text: { text: "configured-bep20-address" } });
+    expect(buildWalletDepositInvoiceKeyboard("bep20").inline_keyboard[1][0]).toMatchObject({ text: "✖️ Cancel", callback_data: "walletcancel" });
+    expect(parseTelegramCallbackAction("walletbep20")).toEqual({ kind: "walletbep20" });
+    expect(parseTelegramCallbackAction("paybep20:7:2")).toEqual({ kind: "paybep20", id: 7, quantity: 2 });
   });
 
-  it("uses the configured BID for wallet and product payment instructions", () => {
-    process.env.BID = "configured-merchant-id";
-    expect(formatBinancePayPurchasePrompt("Test product", 1, 99)).toContain("configured-merchant-id");
-    expect(formatBinancePayTopupPrompt(500)).toContain("configured-merchant-id");
+  it("uses the configured payment destination for wallet and product payment instructions", () => {
+    process.env.BID = "configured-binance-pay-id";
+    process.env.BEP20 = "configured-bep20-address";
+    expect(formatBinancePayPurchasePrompt("Test product", 1, 99)).toContain("configured-binance-pay-id");
+    expect(formatBep20PurchasePrompt("Test product", 1, 99)).toContain("configured-bep20-address");
+    expect(formatBinancePayTopupPrompt(500)).toContain("configured-binance-pay-id");
+    expect(formatBep20TopupPrompt(500)).toContain("configured-bep20-address");
   });
 
   it("uses edit-in-place responses for callback navigation and send responses for commands", () => {
