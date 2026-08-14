@@ -96,7 +96,7 @@ export function buildReadableExports() {
     Object.assign(exports, buildProductStockExports(rows(client, "products")));
     exports["orders.txt"] = formatOrderHistory(orders) + (orders.length ? "\n\n" : "");
     exports["README.txt"] = [
-      "Nebula Nook Bot data export",
+      "ToolsMania Bot data export",
       "",
       "These files contain the complete human-readable export of the local SQLite dataset.",
       "JSON files preserve every stored field. orders.txt is a readable order history with two blank lines between orders.",

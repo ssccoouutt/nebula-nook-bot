@@ -99,7 +99,7 @@ describe("Telegram presentation and notification helpers", () => {
 
   it("keeps core messages emoji-led and HTML formatted", () => {
     const home = formatHomeMessage({ firstName: "Rashid", username: "rashid", tier: "Silver", balanceCents: 1000, referrals: 3, access: true });
-    expect(home).toContain("👋 <b>Welcome to Nebula Nook, Rashid!</b>");
+    expect(home).toContain("👋 <b>Welcome to ToolsMania, Rashid!</b>");
     expect(home).toContain("<code>@rashid</code>");
     expect(home).toContain("<b>Silver</b>");
     expect(home).toContain("<b>$10.00</b>");
@@ -116,7 +116,7 @@ describe("Telegram presentation and notification helpers", () => {
   it("formats a compact paginated Shop instead of a message per product", () => {
     expect(SHOP_PAGE_SIZE).toBe(6);
     expect(formatShopSummary(0, 2)).toContain("📄 Page 1 of 2");
-    expect(formatShopSummary(1, 2)).toContain("🛍️ <b>Nebula Nook Shop</b>");
+    expect(formatShopSummary(1, 2)).toContain("🛍️ <b>ToolsMania Shop</b>");
   });
 
   it("renders Freebies as one compact message with grouped claim controls", () => {
@@ -124,10 +124,10 @@ describe("Telegram presentation and notification helpers", () => {
       { name: "Gemini Pro Trial Link", stock: 40 },
       { name: "Notion Plus Coupon", stock: 10 },
     ]);
-    expect(message).toContain("🎁 <b>Nebula Nook Freebies</b>");
+    expect(message).toContain("🎁 <b>ToolsMania Freebies</b>");
     expect(message).toContain("Gemini Pro Trial Link");
     expect(message).toContain("Notion Plus Coupon");
-    expect(message.split("Nebula Nook Freebies")).toHaveLength(2);
+    expect(message.split("ToolsMania Freebies")).toHaveLength(2);
 
     const rows = buildFreebiesKeyboard([
       { id: 2, name: "Gemini Pro Trial Link" },

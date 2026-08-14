@@ -364,3 +364,6 @@
 - [x] Add a dedicated completed-orders history view with user, product/order, amount, payment kind, status, and timestamp filters.
 - [x] Add a dedicated wallet-deposits history view with user, transaction ID, asset, amount, status, and timestamp filters.
 - [x] Add regression tests and responsive verification for the new order and deposit history controls.
+
+- [x] Replace all user-facing Nebula Nook branding with ToolsMania across Telegram bot copy and the web dashboard while preserving technical project identifiers.
+- [x] Add regression checks for the ToolsMania branding and publish the verified rebrand.

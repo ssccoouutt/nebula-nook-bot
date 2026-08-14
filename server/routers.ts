@@ -140,7 +140,7 @@ export const appRouter = router({
         db.select().from(paymentIntents).where(eq(paymentIntents.botUserId, input.userId)),
       ]);
       const events = [
-        { type: "profile", id: user.id, at: user.createdAt.getTime(), label: "Joined Nebula Nook bot", amountCents: 0 },
+        { type: "profile", id: user.id, at: user.createdAt.getTime(), label: "Joined ToolsMania bot", amountCents: 0 },
         ...userOrders.map((row) => ({ type: "order", id: row.id, at: row.updatedAt.getTime(), label: `Order #${row.id} · ${row.kind} · ${row.status}`, amountCents: row.amountCents })),
         ...userLedger.map((row) => ({ type: "wallet", id: row.id, at: row.createdAt.getTime(), label: `${row.kind} · ${row.note ?? "Wallet ledger entry"}`, amountCents: row.amountCents })),
         ...userDeposits.map((row) => ({ type: "deposit", id: row.id, at: row.createdAt.getTime(), label: `Verified ${row.asset} deposit · ${row.transactionId}`, amountCents: row.amountCents })),

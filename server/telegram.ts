@@ -73,7 +73,7 @@ export const DEFAULT_TESTING_PRODUCTS = [
   { name: "ChatGPT Starter Access", description: "Testing catalog item for guided account access delivery.", priceCents: 299, stock: 25, active: 1, freeEligible: 0, freeWindowMs: null },
   { name: "Gemini Pro Trial Link", description: "Limited testing coupon/link item with automatic delivery.", priceCents: 99, stock: 40, active: 1, freeEligible: 1, freeWindowMs: 86400000 },
   { name: "Surfshark Trial Coupon", description: "Testing coupon/link item. Delivery details are provided after fulfillment.", priceCents: 100, stock: 20, active: 1, freeEligible: 0, freeWindowMs: null },
-  { name: "Canva Creator Access", description: "Testing digital-service item for the Nebula Nook catalog.", priceCents: 250, stock: 15, active: 1, freeEligible: 0, freeWindowMs: null },
+  { name: "Canva Creator Access", description: "Testing digital-service item for the ToolsMania catalog.", priceCents: 250, stock: 15, active: 1, freeEligible: 0, freeWindowMs: null },
   { name: "CapCut Premium Trial", description: "Testing digital-service item with limited stock.", priceCents: 220, stock: 12, active: 1, freeEligible: 0, freeWindowMs: null },
   { name: "Notion Plus Coupon", description: "Testing productivity-service coupon with automatic delivery.", priceCents: 200, stock: 10, active: 1, freeEligible: 0, freeWindowMs: null },
 ] as const;
@@ -192,11 +192,11 @@ export function formatHomeMessage(details?: { firstName?: string | null; usernam
   const balance = `$${((details?.balanceCents ?? 0) / 100).toFixed(2)}`;
   const referrals = details?.referrals ?? 0;
   const access = details?.access === false ? "🔒 Membership required" : "✅ Membership active";
-  return `👋 <b>Welcome to Nebula Nook, ${name}!</b>\n\n👤 <b>Your account</b>\n├ Username: <code>${handle}</code>\n├ Tier: <b>${tier}</b>\n├ Wallet: <b>${balance}</b>\n└ Referrals: <b>${referrals}</b>\n\n${access}\nChoose an option below to claim freebies, shop digital products, or manage your account:`;
+  return `👋 <b>Welcome to ToolsMania, ${name}!</b>\n\n👤 <b>Your account</b>\n├ Username: <code>${handle}</code>\n├ Tier: <b>${tier}</b>\n├ Wallet: <b>${balance}</b>\n└ Referrals: <b>${referrals}</b>\n\n${access}\nChoose an option below to claim freebies, shop digital products, or manage your account:`;
 }
 
 export function formatMembershipMessage() {
-  return "🔐 <b>Membership required</b>\n\nJoin both Nebula Nook spaces below, then tap <b>✅ I have joined</b> to unlock the bot.";
+  return "🔐 <b>Membership required</b>\n\nJoin both ToolsMania spaces below, then tap <b>✅ I have joined</b> to unlock the bot.";
 }
 
 export function formatSupportPrompt() {
@@ -227,12 +227,12 @@ export function consumeDigitalInventory(inventoryText: string | null | undefined
 export const SHOP_PAGE_SIZE = 6;
 
 export function formatShopSummary(page: number, pageCount: number) {
-  return `🛍️ <b>Nebula Nook Shop</b>\n\nChoose a product to view its details and buy instantly.\n\n📄 Page ${page + 1} of ${pageCount}`;
+  return `🛍️ <b>ToolsMania Shop</b>\n\nChoose a product to view its details and buy instantly.\n\n📄 Page ${page + 1} of ${pageCount}`;
 }
 
 export function formatFreebiesMessage(items: Array<{ name: string; stock: number }>) {
   const lines = items.map((item) => `🎁 <b>${item.name.replace(/[<&>]/g, "")}</b> · 📦 ${item.stock}`);
-  return `🎁 <b>Nebula Nook Freebies</b>\n\nClaim one available item during its active window.\n\n${lines.join("\n")}`;
+  return `🎁 <b>ToolsMania Freebies</b>\n\nClaim one available item during its active window.\n\n${lines.join("\n")}`;
 }
 
 export function buildFreebiesKeyboard(items: Array<{ id: number; name: string }>) {
@@ -268,7 +268,7 @@ export function buildPurchaseAnnouncement(productId: string | number, productNam
   const maskedName = maskPurchaseName(buyerName, telegramUserId);
   const botUrl = `https://t.me/NebulaNook4827_bot?start=product_${productId}`;
   return {
-    text: `🛍️ <b>Nebula Nook</b>\n\n👤 <b>${maskedName}</b> just bought <b>${quantity}×</b> ${productEmoji(productName)} <b>${productName.replace(/[<>]/g, "")}</b>!`,
+    text: `🛍️ <b>ToolsMania</b>\n\n👤 <b>${maskedName}</b> just bought <b>${quantity}×</b> ${productEmoji(productName)} <b>${productName.replace(/[<>]/g, "")}</b>!`,
     replyMarkup: { inline_keyboard: [[{ text: "🛍️ View product in bot", url: botUrl, style: "primary" }]] },
   };
 }
@@ -581,7 +581,7 @@ async function showFreebies(chatId: number, messageId?: number) {
   const db = await getDb();
   if (!db) throw new Error("Database is unavailable");
   const items = await db.select().from(products).where(and(eq(products.active, 1), eq(products.freeEligible, 1))).limit(20);
-  if (!items.length) return respond(chatId, "🎁 <b>Nebula Nook Freebies</b>\n\nThere are no free items available right now. Check back soon!", buildFreebiesKeyboard([]), messageId);
+  if (!items.length) return respond(chatId, "🎁 <b>ToolsMania Freebies</b>\n\nThere are no free items available right now. Check back soon!", buildFreebiesKeyboard([]), messageId);
   return respond(chatId, formatFreebiesMessage(items), buildFreebiesKeyboard(items), messageId);
 }
 
