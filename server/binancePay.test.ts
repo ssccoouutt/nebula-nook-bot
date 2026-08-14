@@ -68,30 +68,48 @@ describe("Binance Pay transaction verification", () => {
     expect(await findBinancePayTransaction("TX-123456", 1235, fetcher)).toMatchObject({ ok: false, reason: "amount_mismatch" });
   });
 
-  it("verifies a USDT BEP20 deposit only when address, network, and amount match", async () => {
+  it("verifies a USDT BEP20 deposit from the BSC receipt Transfer log", async () => {
     const previous = process.env.BEP20;
     process.env.BEP20 = "0xmerchant";
     try {
-      const fetcher: typeof fetch = async (input) => {
-        const params = new URL(String(input)).searchParams;
-        expect(params.get("coin")).toBe("USDT");
-        expect(params.get("network")).toBe("BSC");
-        return new Response(JSON.stringify({ depositList: [{ txId: "0xabc123", amount: "10.00", coin: "USDT", network: "BSC", status: 1, address: "0xmerchant" }] }), { status: 200 });
+      const fetcher: typeof fetch = async (_input, init) => {
+        const request = JSON.parse(String(init?.body ?? "{}")) as { method?: string };
+        if (request.method === "eth_getTransactionReceipt") {
+          return new Response(JSON.stringify({ result: {
+            status: "0x1",
+            blockNumber: "0x64",
+            logs: [{
+              address: "0x55d398326f99059ff775485246999027b3197955",
+              topics: [
+                "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef",
+                "0x000000000000000000000000ef3aeff9a5f61c6dda33069c58c1434006e13b20",
+                `0x${"0".repeat(24)}0586e6a681e3ecbf2803d92e171439a4d878423e`,
+              ],
+              data: "0x8ac7230489e80000",
+            }],
+          } }), { status: 200 });
+        }
+        return new Response(JSON.stringify({ result: { number: "0x65" } }), { status: 200 });
       };
-      expect(await findBinancePayTransaction("0xabc123", 1000, fetcher)).toMatchObject({ ok: true, amountCents: 1000, asset: "USDT" });
-      expect(await findBinancePayTransaction("0xabc123", 1001, fetcher)).toMatchObject({ ok: false, reason: "amount_mismatch" });
+      process.env.BEP20 = "0x0586e6a681e3ecbf2803d92e171439a4d878423e";
+      expect(await findBinancePayTransaction("0xabc123", 1000, fetcher, "bep20")).toMatchObject({ ok: true, amountCents: 1000, asset: "USDT" });
+      expect(await findBinancePayTransaction("0xabc123", 1001, fetcher, "bep20")).toMatchObject({ ok: false, reason: "amount_mismatch" });
     } finally {
       if (previous === undefined) delete process.env.BEP20;
       else process.env.BEP20 = previous;
     }
   });
 
-  it("rejects a BEP20 deposit sent to another address or wrong network", async () => {
+  it("rejects a BEP20 receipt without a matching USDT transfer to the configured address", async () => {
     const previous = process.env.BEP20;
     process.env.BEP20 = "0xmerchant";
     try {
-      const fetcher: typeof fetch = async () => new Response(JSON.stringify({ depositList: [{ txId: "0xwrong", amount: "10", coin: "USDT", network: "ETH", status: 1, address: "0xother" }] }), { status: 200 });
-      expect(await findBinancePayTransaction("0xwrong", 1000, fetcher)).toMatchObject({ ok: false, reason: "unsupported_network" });
+      const fetcher: typeof fetch = async (_input, init) => {
+        const request = JSON.parse(String(init?.body ?? "{}")) as { method?: string };
+        if (request.method === "eth_getTransactionReceipt") return new Response(JSON.stringify({ result: { status: "0x1", blockNumber: "0x64", logs: [] } }), { status: 200 });
+        return new Response(JSON.stringify({ result: { number: "0x65" } }), { status: 200 });
+      };
+      expect(await findBinancePayTransaction("0xwrong", 1000, fetcher, "bep20")).toMatchObject({ ok: false, reason: "address_mismatch" });
     } finally {
       if (previous === undefined) delete process.env.BEP20;
       else process.env.BEP20 = previous;

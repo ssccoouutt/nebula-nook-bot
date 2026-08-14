@@ -310,3 +310,6 @@
 - [x] Fix redeploy restore so users, orders, deposits, wallet ledger, products/catalog, and all related history are rebuilt from Google Drive before the dashboard serves data.
 - [x] Remove the automatic $10 testing credit for existing and new users; default wallet balance must be zero unless a real credit is recorded.
 - [x] Add regression coverage proving Drive-restored records appear in dashboard queries after startup and new users start at zero.
+
+- [x] Diagnose and fix USDT BEP20 verification failure for TxID `0x70f53418b1515fdad750ac86b5a9898b72f5ac17bb444236152c99494d90edcf`; verify exact amount, network, recipient, confirmations, and asset handling.
+- [x] Add regression coverage for the supplied BEP20 transaction-hash verification scenario and publish the validated repair.
