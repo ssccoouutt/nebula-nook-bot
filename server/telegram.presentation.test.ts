@@ -32,6 +32,8 @@ import {
   formatPurchaseReview,
   formatBinancePayPurchasePrompt,
   formatBep20PurchasePrompt,
+  BEP20_PURCHASE_WINDOW_MS,
+  BINANCE_PAY_PURCHASE_WINDOW_MS,
   formatBinancePayTopupPrompt,
   formatBep20TopupPrompt,
   buildWalletDepositAmountKeyboard,
@@ -236,6 +238,11 @@ describe("Telegram presentation and notification helpers", () => {
     expect(formatBep20TopupPrompt(1000)).toContain("<code>0xbep20-test</code>");
     const depositRows = buildWalletDepositAmountKeyboard().inline_keyboard;
     expect(depositRows).toEqual([[expect.objectContaining({ callback_data: "walletcancel" })]]);
+  });
+
+  it("keeps BEP20 invoice expiry at 30 minutes and Binance Pay at 20 minutes", () => {
+    expect(BEP20_PURCHASE_WINDOW_MS).toBe(30 * 60 * 1000);
+    expect(BINANCE_PAY_PURCHASE_WINDOW_MS).toBe(20 * 60 * 1000);
   });
 
   it("parses free-form USD deposit amounts and rejects invalid ranges", () => {

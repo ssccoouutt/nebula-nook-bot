@@ -18,7 +18,7 @@ const DEFAULT_CHANNEL_URL = process.env.TELEGRAM_CHANNEL_JOIN_URL ?? "https://t.
 const DEFAULT_GROUP_URL = process.env.TELEGRAM_GROUP_JOIN_URL ?? "https://t.me/+4I-HIdE73NIyMzI8";
 const recentRequests = new Map<number, number>();
 const pendingCustomQuantities = new Map<number, { productId: number; expiresAt: number }>();
-const pendingBinancePayTopups = new Map<number, { amountCents?: number; method: "binance_pay" | "bep20"; expiresAt: number }>();
+const pendingBinancePayTopups = new Map<number, { amountCents?: number; method: "binance_pay" | "bep20"; createdAt?: number; expiresAt: number }>();
 const pendingBinancePayPurchases = new Map<number, { intentId: number; expiresAt: number }>();
 export const BINANCE_PAY_PURCHASE_WINDOW_MS = 20 * 60 * 1000;
 export const BEP20_PURCHASE_WINDOW_MS = 30 * 60 * 1000;
@@ -837,7 +837,8 @@ export async function handleCallback(query: TelegramCallbackQuery, options: { sk
   if (action.kind === "wallet") return showWallet(chatId, userId, messageId);
   if (action.kind === "walletadd" || action.kind === "walletbep20") {
     const method = action.kind === "walletbep20" ? "bep20" as const : "binance_pay" as const;
-    pendingBinancePayTopups.set(userId, { method, expiresAt: Date.now() + 20 * 60 * 1000 });
+    const openedAt = Date.now();
+    pendingBinancePayTopups.set(userId, { method, expiresAt: openedAt + (method === "bep20" ? BEP20_PURCHASE_WINDOW_MS : BINANCE_PAY_PURCHASE_WINDOW_MS) });
     return respond(chatId, formatWalletDepositAmountPrompt(undefined, method), buildWalletDepositAmountKeyboard(), messageId);
   }
   if (action.kind === "walletcancel") {
@@ -847,7 +848,8 @@ export async function handleCallback(query: TelegramCallbackQuery, options: { sk
   if (purchaseRoute === "wallet_amount" && action.kind === "walletamount") {
     if (!Number.isSafeInteger(action.amountCents) || action.amountCents < 100) return respond(chatId, formatWalletDepositAmountPrompt("range"), buildWalletDepositAmountKeyboard(), messageId);
     const method = pendingBinancePayTopups.get(userId)?.method ?? "binance_pay";
-    pendingBinancePayTopups.set(userId, { amountCents: action.amountCents, method, expiresAt: Date.now() + 20 * 60 * 1000 });
+    const invoiceCreatedAt = Date.now();
+    pendingBinancePayTopups.set(userId, { amountCents: action.amountCents, method, createdAt: invoiceCreatedAt, expiresAt: invoiceCreatedAt + (method === "bep20" ? BEP20_PURCHASE_WINDOW_MS : BINANCE_PAY_PURCHASE_WINDOW_MS) });
     const prompt = method === "bep20" ? formatBep20TopupPrompt(action.amountCents) : formatBinancePayTopupPrompt(action.amountCents);
     return respond(chatId, prompt, buildWalletDepositInvoiceKeyboard(method), messageId);
   }
@@ -897,7 +899,7 @@ async function verifyAndFulfillBinancePurchase(chatId: number, userId: number, i
   if (!intent || intent.status !== "pending") { await respond(chatId, `ℹ️ This ${paymentLabel} is no longer pending. Open Shop to start a new purchase.`, buildHomeKeyboard()); return false; }
   const createdAtMs = intent.createdAt instanceof Date ? intent.createdAt.getTime() : new Date(intent.createdAt).getTime();
   const windowMs = isBep20 ? BEP20_PURCHASE_WINDOW_MS : BINANCE_PAY_PURCHASE_WINDOW_MS;
-  if (!Number.isFinite(createdAtMs) || Date.now() > createdAtMs + windowMs) {
+  if (!Number.isFinite(createdAtMs) || Date.now() >= createdAtMs + windowMs) {
     await respond(chatId, `⌛ <b>${isBep20 ? "USDT BEP20 invoice" : "Binance Pay order"} expired</b>\n\nCreate a new invoice before sending funds.`, buildPurchasePaymentFailureKeyboard(intent.productId));
     return false;
   }
@@ -979,11 +981,13 @@ export async function handleMessage(message: TelegramMessage) {
       const parsed = parseUsdAmountInput(messageText);
       if (!parsed.ok) return respond(message.chat.id, formatWalletDepositAmountPrompt(parsed.reason, pendingTopup.method), buildWalletDepositAmountKeyboard());
       pendingTopup.amountCents = parsed.amountCents;
+      pendingTopup.createdAt = Date.now();
+      pendingTopup.expiresAt = pendingTopup.createdAt + (pendingTopup.method === "bep20" ? BEP20_PURCHASE_WINDOW_MS : BINANCE_PAY_PURCHASE_WINDOW_MS);
       const prompt = pendingTopup.method === "bep20" ? formatBep20TopupPrompt(parsed.amountCents) : formatBinancePayTopupPrompt(parsed.amountCents);
       return respond(message.chat.id, prompt, buildWalletDepositInvoiceKeyboard(pendingTopup.method));
     }
     pendingBinancePayTopups.delete(user.id);
-    const result = await findBinancePayTransaction(messageText, pendingTopup.amountCents, fetch, pendingTopup.method);
+    const result = await findBinancePayTransaction(messageText, pendingTopup.amountCents, fetch, pendingTopup.method, pendingTopup.method === "bep20" ? pendingTopup.createdAt : undefined);
     if (!result.ok) {
       const isBep20 = pendingTopup.method === "bep20";
       return respond(message.chat.id, formatTopupVerificationFailure(result.reason, isBep20 ? "bep20" : "binance_pay"), buildWalletKeyboard());

@@ -345,3 +345,6 @@
 - [x] Add admin product settings for referral-program eligibility and credit price.
 - [x] Show only referral-program products with credit prices in Referrals and allow eligible users to claim them using credits.
 - [x] Persist referral-credit ledger changes and add regression coverage for duplicate referrals, balances, eligibility, and claims.
+
+- [x] Re-verify that USDT BEP20 wallet-deposit and product-payment transactions must occur strictly after invoice creation and that both invoices expire after 30 minutes.
+- [x] Add regression coverage for pre-invoice rejection, exact 30-minute expiry, and post-invoice acceptance across both BEP20 flows.
