@@ -163,6 +163,22 @@ export const appRouter = router({
       return { success: true, previousBalanceCents: user.balanceCents, balanceCents: nextBalance };
     }),
     ledger: adminProcedure.query(async () => (await database()).select().from(walletLedger).orderBy(desc(walletLedger.createdAt)).limit(300)),
+    completedOrders: adminProcedure.input(z.object({ search: z.string().trim().max(200).default(""), limit: z.number().int().min(1).max(1000).default(500) }).optional()).query(async ({ input }) => {
+      const db = await database();
+      const [rows, users, catalog] = await Promise.all([
+        db.select().from(orders).where(eq(orders.status, "fulfilled")).orderBy(desc(orders.updatedAt)).limit(input?.limit ?? 500),
+        db.select().from(botUsers),
+        db.select({ id: products.id, name: products.name }).from(products),
+      ]);
+      const userById = new Map(users.map((user) => [user.id, user])); const productById = new Map(catalog.map((product) => [product.id, product])); const search = (input?.search ?? "").toLowerCase();
+      return rows.map((row) => { const user = userById.get(row.botUserId); const product = productById.get(row.productId); return { ...row, userName: [user?.firstName, user?.lastName].filter(Boolean).join(" ") || "Unknown user", username: user?.username ?? "", telegramUserId: user?.telegramUserId ?? null, productName: product?.name ?? `Product #${row.productId}` }; }).filter((row) => !search || `${row.userName} ${row.username} ${row.telegramUserId ?? ""} ${row.productName} ${row.id} ${row.kind}`.toLowerCase().includes(search));
+    }),
+    deposits: adminProcedure.input(z.object({ search: z.string().trim().max(200).default(""), asset: z.string().trim().max(30).default(""), limit: z.number().int().min(1).max(1000).default(500) }).optional()).query(async ({ input }) => {
+      const db = await database();
+      const [rows, users] = await Promise.all([db.select().from(binancePayDeposits).orderBy(desc(binancePayDeposits.createdAt)).limit(input?.limit ?? 500), db.select().from(botUsers)]);
+      const userById = new Map(users.map((user) => [user.id, user])); const search = (input?.search ?? "").toLowerCase(); const asset = (input?.asset ?? "").toLowerCase();
+      return rows.map((row) => { const user = userById.get(row.botUserId); return { ...row, userName: [user?.firstName, user?.lastName].filter(Boolean).join(" ") || "Unknown user", username: user?.username ?? "", telegramUserId: user?.telegramUserId ?? null }; }).filter((row) => (!asset || row.asset.toLowerCase() === asset) && (!search || `${row.userName} ${row.username} ${row.telegramUserId ?? ""} ${row.transactionId} ${row.asset} ${row.status}`.toLowerCase().includes(search)));
+    }),
     orders: adminProcedure.query(async () => (await database()).select().from(orders).orderBy(desc(orders.createdAt)).limit(200)),
     updateOrderStatus: adminProcedure.input(z.object({ id: z.number().int(), status: z.enum(["pending", "paid", "fulfilled", "cancelled"]) })).mutation(async ({ input }) => {
       const db = await database();

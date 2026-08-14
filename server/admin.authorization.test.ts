@@ -26,6 +26,16 @@ describe("admin authorization", () => {
     expect(summary).toEqual(expect.objectContaining({ selectedDayCount: expect.any(Number), last30DayCount: expect.any(Number), selectedDayUserIds: expect.any(Array), last30DayUserIds: expect.any(Array) }));
   });
 
+  it("returns completed-order and wallet-deposit history records", async () => {
+    const caller = appRouter.createCaller(context("user"));
+    const completed = await caller.admin.completedOrders({ search: "", limit: 50 });
+    const deposits = await caller.admin.deposits({ search: "", asset: "", limit: 50 });
+    expect(Array.isArray(completed)).toBe(true);
+    expect(Array.isArray(deposits)).toBe(true);
+    if (completed[0]) expect(completed[0]).toEqual(expect.objectContaining({ userName: expect.any(String), productName: expect.any(String), status: "fulfilled" }));
+    if (deposits[0]) expect(deposits[0]).toEqual(expect.objectContaining({ userName: expect.any(String), transactionId: expect.any(String), asset: expect.any(String), status: expect.any(String) }));
+  });
+
   it("exposes the expected order and ledger state vocabulary", () => {
     expect(["pending", "paid", "fulfilled", "cancelled"]).toContain("pending");
     expect(["purchase", "free"]).toContain("free");

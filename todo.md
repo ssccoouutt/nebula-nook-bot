@@ -360,3 +360,7 @@
 - [x] Add user activity filters for a selected day and the last 30 days.
 - [x] Add a specific-user activity timeline covering wallet, deposits, orders, referrals, support, and profile events.
 - [x] Add dashboard tests, authorization coverage, and responsive UI verification for the new controls.
+
+- [x] Add a dedicated completed-orders history view with user, product/order, amount, payment kind, status, and timestamp filters.
+- [x] Add a dedicated wallet-deposits history view with user, transaction ID, asset, amount, status, and timestamp filters.
+- [x] Add regression tests and responsive verification for the new order and deposit history controls.
