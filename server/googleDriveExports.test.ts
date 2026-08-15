@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { formatOrderHistory } from "./googleDriveExports";
+import { buildProductStockExports, formatOrderHistory } from "./googleDriveExports";
 
 describe("human-readable Drive exports", () => {
   it("formats complete order history with two blank lines between orders", () => {
@@ -13,5 +13,16 @@ describe("human-readable Drive exports", () => {
     expect(text).toContain("Order #2");
     expect(text).toContain("Grace Hopper");
     expect(text).toContain("\n\nOrder #2");
+  });
+
+  it("exports only remaining digital stock lines after delivery consumption", () => {
+    const exports = buildProductStockExports([
+      { id: 7, name: "Gemini Pro", inventoryText: "remaining-link\\nremaining-user:pass" },
+      { id: 8, name: "Empty Product", inventoryText: "" },
+    ]);
+    expect(exports["Gemini Pro.txt"]).toBe(`remaining-link
+remaining-user:pass
+`);
+    expect(exports["Empty Product.txt"]).toBe("");
   });
 });

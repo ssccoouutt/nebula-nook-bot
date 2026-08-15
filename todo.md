@@ -421,3 +421,6 @@
 - [x] Send the qualified new-referral group notification anonymously and add regression coverage for qualification, duplicate prevention, and privacy.
 
 - [x] Queue Google Drive persistence after a referral is qualified, including the referral record, awarded credit, and updated referrer tier.
+
+- [x] Verify or fix removal of each delivered digital item from its product stock file after successful fulfillment, and persist the updated remaining stock to Google Drive without changing pending or failed orders; automatic purchase, freebie, and referral fulfillment already update products.inventoryText before the completed-order Drive sync.
+- [x] Add regression coverage for delivered-item stock-file updates and non-consumption on pending or failed orders; added a product stock-export regression and passed the focused test plus TypeScript check.
