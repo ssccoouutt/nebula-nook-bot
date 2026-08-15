@@ -16,6 +16,7 @@ const METADATA_FOLDER_NAME = "metadata";
 const EXPORTS_FOLDER_NAME = "exports";
 const LATEST_SNAPSHOT_NAME = "latest.sqlite";
 const MANIFEST_NAME = "latest.json";
+export const DRIVE_SYNC_DEBOUNCE_MS = 5_000;
 const READABLE_EXPORTS: Array<[string, string]> = [
   ["users", "users.json"], ["botUsers", "bot_users.json"], ["products", "products.json"],
   ["orders", "orders.json"], ["walletLedger", "wallet_ledger.json"], ["binancePayDeposits", "deposits.json"],
@@ -283,9 +284,13 @@ async function syncNow() {
       const info = await stat(databasePath);
       if (info.size < 4096) return;
       const readableExports = buildReadableExports();
-      for (const [fileName, content] of Object.entries(readableExports)) {
-        await uploadTextOrUpdate(setup.drive, fileName, setup.ids.exports, content, fileName.endsWith(".txt") ? "text/plain" : "application/json");
-      }
+      await Promise.all(Object.entries(readableExports).map(([fileName, content]) => uploadTextOrUpdate(
+        setup.drive,
+        fileName,
+        setup.ids.exports,
+        content,
+        fileName.endsWith(".txt") ? "text/plain" : "application/json",
+      )));
       const versionedSnapshotName = `snapshot-${new Date().toISOString().replaceAll(/[-:.TZ]/g, "")}-${Math.random().toString(36).slice(2, 8)}.sqlite`;
       await uploadOrUpdate(setup.drive, versionedSnapshotName, setup.ids.snapshots, databasePath, "application/x-sqlite3");
       await uploadOrUpdate(setup.drive, LATEST_SNAPSHOT_NAME, setup.ids.snapshots, databasePath, "application/x-sqlite3");
@@ -333,7 +338,7 @@ export function scheduleDriveSync() {
   syncTimer = setTimeout(() => {
     syncTimer = null;
     void syncNow();
-  }, 1500);
+  }, DRIVE_SYNC_DEBOUNCE_MS);
 }
 
 export async function flushDriveSync() {

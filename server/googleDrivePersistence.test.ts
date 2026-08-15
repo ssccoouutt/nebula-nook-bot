@@ -3,7 +3,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { createRequire } from "node:module";
-import { drivePersistenceStatus, databaseHasUserData, initializeDrivePersistence, isValidSqliteSnapshot, scheduleDriveSync, shouldRestoreReadableExportRow, withRetry } from "./googleDrivePersistence";
+import { DRIVE_SYNC_DEBOUNCE_MS, drivePersistenceStatus, databaseHasUserData, initializeDrivePersistence, isValidSqliteSnapshot, scheduleDriveSync, shouldRestoreReadableExportRow, withRetry } from "./googleDrivePersistence";
 
 const require = createRequire(import.meta.url);
 const { DatabaseSync } = require("node:sqlite") as typeof import("node:sqlite");
@@ -57,6 +57,10 @@ describe("Google Drive persistence", () => {
     expect(shouldRestoreReadableExportRow("botSettings", { key: "last_update_id", value: "999999999" })).toBe(false);
     expect(shouldRestoreReadableExportRow("botSettings", { key: "membership_group_id", value: "-100123" })).toBe(true);
     expect(shouldRestoreReadableExportRow("products", { key: "last_update_id", value: "999999999" })).toBe(true);
+  });
+
+  it("uses a five-second debounce so bursty writes coalesce before full exports", () => {
+    expect(DRIVE_SYNC_DEBOUNCE_MS).toBe(5_000);
   });
 
   it("stays a no-op when the single DRIVE setting is absent", async () => {

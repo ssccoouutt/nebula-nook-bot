@@ -390,3 +390,9 @@
 - [ ] Restore reliable live Telegram webhook delivery for new users and verify that /start produces a real response on Koyeb.
 
 - [ ] Diagnose why Koyeb Telegram webhook delivery stops after initially working and restore reliable /start delivery to the exact configured bot.
+
+- [x] Profile and reduce slow Telegram responses, especially Drive synchronization, repeated dashboard auth probes, and blocking external API work.
+- [x] Add regression coverage for non-blocking webhook processing and responsive user-facing handlers.
+
+- [x] Profile and reduce slow Telegram responses, especially Drive synchronization, repeated dashboard auth probes, and blocking external API work.
+- [x] Add regression coverage for non-blocking webhook processing and responsive user-facing handlers.

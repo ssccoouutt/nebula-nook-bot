@@ -581,7 +581,10 @@ export function isTelegramChatNotFoundError(error: unknown) {
   return /chat not found|group chat was upgraded to a supergroup/i.test(message);
 }
 
-async function membershipStatus(userId: number) {
+const MEMBERSHIP_CACHE_TTL_MS = 60_000;
+const membershipCache = new Map<number, { expiresAt: number; status: Awaited<ReturnType<typeof membershipStatusInternal>> }>();
+
+async function membershipStatusInternal(userId: number) {
   const gate = await runtimeGate();
   try {
     const [channel, group] = await Promise.all([
@@ -601,12 +604,35 @@ async function membershipStatus(userId: number) {
   }
 }
 
+async function membershipStatus(userId: number, forceRefresh = false) {
+  const now = Date.now();
+  if (!forceRefresh) {
+    const cached = membershipCache.get(userId);
+    if (cached && cached.expiresAt > now) return cached.status;
+    if (cached) membershipCache.delete(userId);
+  }
+  const status = await membershipStatusInternal(userId);
+  if (status.access || status.channel !== "left" || status.group !== "left") {
+    membershipCache.set(userId, { expiresAt: now + MEMBERSHIP_CACHE_TTL_MS, status });
+  }
+  return status;
+}
+
+export function clearMembershipCache(userId?: number) {
+  if (userId === undefined) membershipCache.clear();
+  else membershipCache.delete(userId);
+}
+
 async function ensureBotUser(user: TelegramUser, referralCode?: string) {
   const db = await getDb();
   if (!db) throw new Error("Database is unavailable");
   const existing = await db.select().from(botUsers).where(eq(botUsers.telegramUserId, user.id)).limit(1);
   if (existing[0]) {
-    await db.update(botUsers).set({ username: user.username ?? null, firstName: user.first_name ?? null, lastName: user.last_name ?? null }).where(eq(botUsers.id, existing[0].id));
+    const nextIdentity = { username: user.username ?? null, firstName: user.first_name ?? null, lastName: user.last_name ?? null };
+    const current = existing[0];
+    if (current.username !== nextIdentity.username || current.firstName !== nextIdentity.firstName || current.lastName !== nextIdentity.lastName) {
+      await db.update(botUsers).set(nextIdentity).where(eq(botUsers.id, existing[0].id));
+    }
     return existing[0];
   }
   let referredById: number | null = null;
@@ -911,7 +937,10 @@ export async function handleCallback(query: TelegramCallbackQuery, options: { sk
   const action = parseTelegramCallbackAction(query.data);
   if (!action) return;
   const purchaseRoute = resolvePurchaseCallbackRoute(action);
-  if (action.kind === "verify_membership") return showHome(chatId, userId, messageId);
+  if (action.kind === "verify_membership") {
+    clearMembershipCache(userId);
+    return showHome(chatId, userId, messageId);
+  }
   if (!options.skipAccess && !(await requireAccess(chatId, userId, messageId))) return;
   if (action.kind === "home") return showHome(chatId, userId, messageId);
   if (action.kind === "freebies") return showFreebies(chatId, messageId);
