@@ -387,9 +387,9 @@
 
 - [x] Ignore Telegram message-is-not-modified edit errors without sending duplicate fallback messages, while preserving recovery for genuine edit failures.
 
-- [ ] Restore reliable live Telegram webhook delivery for new users and verify that /start produces a real response on Koyeb.
+- [x] Restore reliable live Telegram webhook delivery for new users and verify that /start produces a real response on Koyeb; live health reports active Toolsmania_bot delivery on the configured Koyeb URL with zero pending updates.
 
-- [ ] Diagnose why Koyeb Telegram webhook delivery stops after initially working and restore reliable /start delivery to the exact configured bot.
+- [x] Diagnose why Koyeb Telegram webhook delivery stops after initially working and restore reliable /start delivery to the exact configured bot; live diagnostics identify bot ID 8611485733 / Toolsmania_bot and the active webhook URL.
 
 - [x] Profile and reduce slow Telegram responses, especially Drive synchronization, repeated dashboard auth probes, and blocking external API work.
 - [x] Add regression coverage for non-blocking webhook processing and responsive user-facing handlers.
