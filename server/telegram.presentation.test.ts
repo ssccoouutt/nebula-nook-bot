@@ -5,6 +5,9 @@ import {
   buildFulfillmentNotifications,
   buildPurchaseAnnouncement,
   maskPurchaseName,
+  formatFreebieClaimNotification,
+  formatReferralRewardNotification,
+  formatQualifiedReferralNotification,
   productEmoji,
   formatExtraDeviceMessage,
   formatHomeMessage,
@@ -120,6 +123,19 @@ describe("Telegram presentation and notification helpers", () => {
     expect(formatShopSummary(1, 2)).toContain("🛍️ <b>ToolsMania Shop</b>");
   });
 
+  it("keeps all requested group notifications anonymous", () => {
+    const freebie = formatFreebieClaimNotification("Gemini <Pro>", "Rashid", 12345);
+    const reward = formatReferralRewardNotification("Canva", 2, "Rashid", 12345);
+    const referral = formatQualifiedReferralNotification("Rashid", 12345, "Aisha", 67890);
+    for (const message of [freebie, reward, referral]) {
+      expect(message).not.toContain("12345");
+      expect(message).not.toContain("67890");
+      expect(message).toMatch(/\*{3,}/);
+    }
+    expect(freebie).toContain("Freebie claimed");
+    expect(reward).toContain("Referral reward redeemed");
+    expect(referral).toContain("New qualified referral");
+  });
   it("renders a product announcement with stock, price, and Buy now action", () => {
     const message = formatProductAvailabilityAnnouncement({ name: "Gemini <Pro>", description: "Activation link", priceCents: 99, stock: 4 }, "new_stock");
     expect(message).toContain("📦 <b>New stock added</b>");

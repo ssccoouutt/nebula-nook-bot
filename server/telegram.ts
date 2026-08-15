@@ -341,6 +341,16 @@ export function buildPurchaseAnnouncement(productId: string | number, productNam
   };
 }
 
+export function formatFreebieClaimNotification(productName: string, userName?: string, telegramUserId?: number) {
+  return `<b>Freebie claimed</b>\n👤 User: <b>${maskPurchaseName(userName, telegramUserId)}</b>\n🎁 Product: <b>${productName.replace(/[<&>]/g, "")}</b>`;
+}
+export function formatReferralRewardNotification(productName: string, credits: number, userName?: string, telegramUserId?: number) {
+  return `<b>Referral reward redeemed</b>\n👤 User: <b>${maskPurchaseName(userName, telegramUserId)}</b>\n🎁 Product: <b>${productName.replace(/[<&>]/g, "")}</b>\n🎟️ Credits used: <b>${credits}</b>`;
+}
+export function formatQualifiedReferralNotification(referrerName: string | undefined, referrerId: number, invitedName: string | undefined, invitedId: number) {
+  return `<b>New qualified referral</b>\n👤 Referrer: <b>${maskPurchaseName(referrerName, referrerId)}</b>\n👤 New member: <b>${maskPurchaseName(invitedName, invitedId)}</b>\n🎟️ Credit awarded: <b>1</b>`;
+}
+
 export function buildFulfillmentNotifications(orderId: string | number, amountCents: number, customerTelegramUserId?: number) {
   return {
     customer: null,
@@ -658,20 +668,36 @@ async function ensureBotUser(user: TelegramUser, referralCode?: string) {
   if (!created) throw new Error("Failed to create Telegram user");
   scheduleDriveSync("new_user");
   // Do not create a synthetic ledger entry: new users start at exactly $0.00.
-  if (referredById) {
-    const insertedReferral = await db.insert(referrals).values({ referrerId: referredById, referredUserId: created.id, bonusCents: 0, creditsAwarded: 1 }).onConflictDoNothing();
-    if (didInsertReferralRow(insertedReferral)) {
-      await db.update(botUsers).set({ referralCredits: sql`${botUsers.referralCredits} + 1` }).where(eq(botUsers.id, referredById));
-    }
-    const referralCount = await db.select({ count: sql<number>`count(*)` }).from(referrals).where(eq(referrals.referrerId, referredById));
-    await db.update(botUsers).set({ tier: tierForReferralCount(Number(referralCount[0]?.count ?? 0)) }).where(eq(botUsers.id, referredById));
-  }
+  // Referral rows and credits are awarded only after both membership checks pass.
   return created;
 }
 
+async function qualifyReferralIfEligible(userId: number) {
+  const db = await getDb();
+  if (!db) return false;
+  const invited = (await db.select().from(botUsers).where(eq(botUsers.telegramUserId, userId)).limit(1))[0];
+  if (!invited?.referredById) return false;
+  const status = await membershipStatus(userId);
+  if (!status.access) return false;
+  const existing = (await db.select().from(referrals).where(eq(referrals.referredUserId, invited.id)).limit(1))[0];
+  if (existing) return false;
+  const referrer = (await db.select().from(botUsers).where(eq(botUsers.id, invited.referredById)).limit(1))[0];
+  if (!referrer) return false;
+  const inserted = await db.insert(referrals).values({ referrerId: referrer.id, referredUserId: invited.id, bonusCents: 0, creditsAwarded: 1 }).onConflictDoNothing();
+  if (!didInsertReferralRow(inserted)) return false;
+  await db.update(botUsers).set({ referralCredits: sql`${botUsers.referralCredits} + 1` }).where(eq(botUsers.id, referrer.id));
+  const referralCount = await db.select({ count: sql<number>`count(*)` }).from(referrals).where(eq(referrals.referrerId, referrer.id));
+  await db.update(botUsers).set({ tier: tierForReferralCount(Number(referralCount[0]?.count ?? 0)) }).where(eq(botUsers.id, referrer.id));
+  scheduleDriveSync("referral_update");
+  await notifyAdmin("referral_qualified", String(invited.id), formatQualifiedReferralNotification(referrer.firstName ?? referrer.username ?? undefined, referrer.telegramUserId, invited.firstName ?? invited.username ?? undefined, invited.telegramUserId));
+  return true;
+}
 async function requireAccess(chatId: number, userId: number, messageId?: number) {
   const status = await membershipStatus(userId);
-  if (status.access) return true;
+  if (status.access) {
+    await qualifyReferralIfEligible(userId);
+    return true;
+  }
   const gate = await runtimeGate();
   await respond(chatId, formatMembershipMessage(), buildMembershipKeyboard(gate.channelUrl, gate.groupUrl), messageId);
   return false;
@@ -796,7 +822,7 @@ async function claimReferralReward(chatId: number, userId: number, productId: nu
     const orderId = String(extractInsertedRowId(inserted) || `${user.id}:referral:${product.id}:${Date.now()}`);
     await tx.update(botUsers).set({ referralCredits: sql`${botUsers.referralCredits} - ${product.referralPriceCredits}` }).where(eq(botUsers.id, user.id));
     await tx.update(products).set({ stock: product.stock - 1, inventoryText: product.inventoryText?.trim() ? digital.remaining.join("\n") : product.inventoryText }).where(eq(products.id, product.id));
-    return { ok: true as const, orderId, product, deliveryMode, item: digital.items[0] ?? "" };
+    return { ok: true as const, orderId, product, deliveryMode, item: digital.items[0] ?? "", userFirstName: user.firstName ?? undefined, userUsername: user.username ?? undefined, userTelegramId: user.telegramUserId };
   });
   if (!outcome.ok) {
     if (outcome.reason === "credits") return respond(chatId, `🎟️ <b>Not enough referral credits</b>\n\nThis reward costs <b>${outcome.required}</b> credit${outcome.required === 1 ? "" : "s"}. You have <b>${outcome.credits}</b>.`, undefined, messageId);
@@ -805,6 +831,8 @@ async function claimReferralReward(chatId: number, userId: number, productId: nu
   }
   const delivery = outcome.item ? `\n\n📦 <b>Your digital item</b>\n<blockquote>${outcome.item.replace(/[<&>]/g, "")}</blockquote>\n\nTap and hold the text above to copy it.` : outcome.deliveryMode === "manual" ? "\n\n🕐 The admin will deliver this reward shortly." : "";
   await respond(chatId, `✅ <b>Referral reward claimed</b>\n\n🎁 ${outcome.product.name}\n🎟️ Credits used: <b>${outcome.product.referralPriceCredits}</b>${delivery}`, keyboard([[{ text: "🤝 Back to Referrals", callback_data: "referrals" }], [{ text: "⌂ Home", callback_data: "home" }]]), messageId);
+  scheduleDriveSync("referral_update");
+  await notifyAdmin("referral_reward", String(outcome.orderId), formatReferralRewardNotification(outcome.product.name, outcome.product.referralPriceCredits, outcome.userFirstName ?? outcome.userUsername, outcome.userTelegramId));
 }
 
 async function claimFree(chatId: number, userId: number, productId: number, messageId?: number) {
@@ -825,7 +853,7 @@ async function claimFree(chatId: number, userId: number, productId: number, mess
   scheduleDriveSync("completed_order");
   const delivery = digital.items.length ? `\n\n📦 <b>Your digital item</b>\n<blockquote>${digital.items[0].replace(/[<&>]/g, "")}</blockquote>\n\nTap and hold the text above to copy it.` : "";
   await respond(chatId, `✅ <b>Free claim recorded</b>\n\n🎁 ${product.name}${delivery}\n\nYour claim has been added to your order history.`, buildHomeKeyboard(), messageId);
-  await notifyAdmin("free_claim", `${user.id}:${product.id}:${windowStart}`, `<b>Free claim</b>\nUser: ${user.telegramUserId}\nProduct: ${product.name}`);
+  await notifyAdmin("free_claim", `${user.id}:${product.id}:${windowStart}`, formatFreebieClaimNotification(product.name, user.firstName ?? undefined, user.telegramUserId));
 }
 
 async function showQuantityPrompt(chatId: number, productId: number, messageId?: number) {

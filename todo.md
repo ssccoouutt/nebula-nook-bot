@@ -413,3 +413,11 @@
 
 - [x] Replace the dashboard Additional details product field with Delivery format, supporting values such as activation link or username; password.
 - [x] Propagate Delivery format through product creation/editing, storage compatibility, and user-facing product/delivery presentation with regression coverage.
+
+- [x] Send group notifications for paid purchases, freebie claims, referral-credit redemptions, and newly created referrals.
+- [x] Apply the existing anonymous identity format consistently to every requested group notification and add privacy regression coverage.
+
+- [x] Count an invited user as a referral only after both membership-channel and membership-group checks pass.
+- [x] Send the qualified new-referral group notification anonymously and add regression coverage for qualification, duplicate prevention, and privacy.
+
+- [x] Queue Google Drive persistence after a referral is qualified, including the referral record, awarded credit, and updated referrer tier.
