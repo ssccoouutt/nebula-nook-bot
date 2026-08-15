@@ -380,3 +380,5 @@
 - [x] Handle Telegram group-to-supergroup migration errors without blocking /start, log the stale membership chat clearly, and add redeploy-safe regression coverage.
 
 - [x] Replace the repository cfg.enc with the newly supplied encrypted artifact and sync only that configuration change to GitHub without exposing its contents.
+
+- [x] Make Telegram membership checks and webhook responses resilient to invalid chat IDs, Telegram API connection timeouts, and benign edit-message failures, with regression coverage.

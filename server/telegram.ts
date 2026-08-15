@@ -12,6 +12,16 @@ type TelegramCallbackQuery = { id: string; from: TelegramUser; message?: Telegra
 type TelegramUpdate = { update_id: number; message?: TelegramMessage; callback_query?: TelegramCallbackQuery; channel_post?: TelegramMessage };
 
 const TELEGRAM_API = "https://api.telegram.org/bot";
+const TELEGRAM_REQUEST_TIMEOUT_MS = 15_000;
+const TELEGRAM_RETRY_DELAYS_MS = [250, 750] as const;
+
+export function isTelegramTransientNetworkError(error: unknown) {
+  const message = error instanceof Error ? error.message : String(error);
+  const cause = error && typeof error === "object" && "cause" in error ? (error as { cause?: unknown }).cause : undefined;
+  const causeCode = cause && typeof cause === "object" && "code" in cause ? String((cause as { code?: unknown }).code ?? "") : "";
+  return /fetch failed|connect timeout|network|econnreset|etimedout|aborted/i.test(message) || /UND_ERR_CONNECT_TIMEOUT|ECONNRESET|ETIMEDOUT|ENETUNREACH|EAI_AGAIN/i.test(causeCode);
+}
+
 const DEFAULT_CHANNEL_ID = process.env.TELEGRAM_MEMBERSHIP_CHANNEL_ID ?? "-1004462190741";
 const DEFAULT_GROUP_ID = process.env.TELEGRAM_MEMBERSHIP_GROUP_ID ?? "-5036785892";
 const DEFAULT_CHANNEL_URL = process.env.TELEGRAM_CHANNEL_JOIN_URL ?? "https://t.me/+hwT_8FtgDU85Mzlk";
@@ -81,14 +91,29 @@ export const DEFAULT_TESTING_PRODUCTS = [
 async function telegramCall<T>(method: string, body: Record<string, unknown>): Promise<T> {
   const token = process.env.TELEGRAM_BOT_TOKEN;
   if (!token) throw new Error("TELEGRAM_BOT_TOKEN is not configured");
-  const response = await fetch(`${TELEGRAM_API}${token}/${method}`, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify(body),
-  });
-  const json = (await response.json()) as { ok: boolean; result?: T; description?: string };
-  if (!json.ok) throw new Error(json.description ?? `Telegram ${method} failed`);
-  return json.result as T;
+  let lastError: unknown;
+  for (let attempt = 0; attempt <= TELEGRAM_RETRY_DELAYS_MS.length; attempt += 1) {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), TELEGRAM_REQUEST_TIMEOUT_MS);
+    try {
+      const response = await fetch(`${TELEGRAM_API}${token}/${method}`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(body),
+        signal: controller.signal,
+      });
+      const json = (await response.json()) as { ok: boolean; result?: T; description?: string };
+      if (!json.ok) throw new Error(json.description ?? `Telegram ${method} failed`);
+      return json.result as T;
+    } catch (error) {
+      lastError = error;
+      if (!isTelegramTransientNetworkError(error) || attempt === TELEGRAM_RETRY_DELAYS_MS.length) throw error;
+      await new Promise((resolve) => setTimeout(resolve, TELEGRAM_RETRY_DELAYS_MS[attempt]));
+    } finally {
+      clearTimeout(timeout);
+    }
+  }
+  throw lastError instanceof Error ? lastError : new Error(`Telegram ${method} failed`);
 }
 
 async function sendMessage(chatId: number, text: string, replyMarkup?: unknown) {
@@ -560,11 +585,13 @@ async function membershipStatus(userId: number) {
     ]);
     return { channel: channel.status, group: group.status, access: hasAccess(channel.status, group.status) };
   } catch (error) {
-    if (!isTelegramChatNotFoundError(error)) throw error;
-    // A deleted or mistyped gate chat must not make /start completely silent. The
-    // membership gate remains strict whenever Telegram returns real member statuses;
-    // this fallback lets the owner repair the chat IDs from the dashboard meanwhile.
-    console.warn("[Telegram] Membership gate chat was not found; allowing bot access until the configured chat is repaired.", { channelId: gate.channelId, groupId: gate.groupId });
+    if (!isTelegramChatNotFoundError(error) && !isTelegramTransientNetworkError(error)) throw error;
+    // A deleted, migrated, mistyped, or temporarily unreachable gate chat must not
+    // make /start completely silent. Valid Telegram member statuses remain strict;
+    // this fail-open path keeps the bot usable while the owner repairs configuration
+    // or Telegram connectivity recovers.
+    const reason = isTelegramChatNotFoundError(error) ? "invalid membership chat" : "temporary Telegram connectivity failure";
+    console.warn(`[Telegram] Membership gate unavailable (${reason}); allowing bot access temporarily.`, { channelId: gate.channelId, groupId: gate.groupId });
     return { channel: "left" as const, group: "left" as const, access: true };
   }
 }

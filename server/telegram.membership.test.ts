@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { isTelegramChatNotFoundError, validTelegramJoinUrl } from "./telegram";
+import { isTelegramChatNotFoundError, isTelegramTransientNetworkError, validTelegramJoinUrl } from "./telegram";
 
 describe("Telegram membership join links", () => {
   it("recognizes deleted or mistyped membership chats without masking unrelated errors", () => {
@@ -7,6 +7,13 @@ describe("Telegram membership join links", () => {
     expect(isTelegramChatNotFoundError("chat not found")).toBe(true);
     expect(isTelegramChatNotFoundError(new Error("Bad Request: group chat was upgraded to a supergroup chat"))).toBe(true);
     expect(isTelegramChatNotFoundError(new Error("Forbidden: bot was kicked"))).toBe(false);
+  });
+
+  it("classifies transient Telegram network failures without masking unrelated errors", () => {
+    expect(isTelegramTransientNetworkError(new TypeError("fetch failed", { cause: { code: "UND_ERR_CONNECT_TIMEOUT" } }))).toBe(true);
+    expect(isTelegramTransientNetworkError(new Error("The operation was aborted"))).toBe(true);
+    expect(isTelegramTransientNetworkError(new Error("Forbidden: bot was kicked"))).toBe(false);
+    expect(isTelegramTransientNetworkError(new Error("Bad Request: invalid chat_id"))).toBe(false);
   });
 
   it("accepts private invite links", () => {
