@@ -386,3 +386,7 @@
 - [x] Replace cfg.enc with the newly supplied encrypted artifact containing the updated membership chat configuration and sync only that change to GitHub.
 
 - [x] Ignore Telegram message-is-not-modified edit errors without sending duplicate fallback messages, while preserving recovery for genuine edit failures.
+
+- [ ] Restore reliable live Telegram webhook delivery for new users and verify that /start produces a real response on Koyeb.
+
+- [ ] Diagnose why Koyeb Telegram webhook delivery stops after initially working and restore reliable /start delivery to the exact configured bot.

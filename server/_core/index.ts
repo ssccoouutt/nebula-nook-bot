@@ -5,7 +5,7 @@ import net from "net";
 import { createExpressMiddleware } from "@trpc/server/adapters/express";
 import { registerStorageProxy } from "./storageProxy";
 import { appRouter } from "../routers";
-import { configureKoyebWebhookOnStartup, telegramWebhookConfigure, telegramWebhookHandler, telegramWebhookHealth } from "../telegram";
+import { configureKoyebWebhookOnStartup, getTelegramBotIdentity, telegramWebhookConfigure, telegramWebhookHandler, telegramWebhookHealth } from "../telegram";
 import { initializeDrivePersistence, drivePersistenceStatus } from "../googleDrivePersistence";
 import { createContext } from "./context";
 import { serveStatic, setupVite } from "./vite";
@@ -66,8 +66,16 @@ async function startServer() {
   server.listen(port, () => {
     console.log(`Server running on http://localhost:${port}/`);
     void configureKoyebWebhookOnStartup()
-      .then(info => {
-        if (info) console.log(`[Telegram] Koyeb webhook configured: ${info.url}`);
+      .then(async info => {
+        if (!info) return;
+        console.log(`[Telegram] Koyeb webhook configured: ${info.url}`);
+        try {
+          const bot = await getTelegramBotIdentity();
+          console.log(`[Telegram] Active bot identity: @${bot.username ?? "unknown"} (${bot.id})`);
+          if (info.last_error_message) console.error(`[Telegram] Webhook delivery error: ${info.last_error_message}`);
+        } catch (error) {
+          console.error("[Telegram] Bot identity check failed", error);
+        }
       })
       .catch(error => console.error("[Telegram] Koyeb webhook configuration failed", error));
   });

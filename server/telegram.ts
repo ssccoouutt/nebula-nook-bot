@@ -1149,11 +1149,17 @@ export function validTelegramJoinUrl(value: string) {
   return /^https:\/\/t\.me\/(?:\+[A-Za-z0-9_-]+|[A-Za-z0-9_]{5,})$/.test(value.trim());
 }
 
+export type TelegramBotIdentity = { id: number; is_bot: boolean; first_name: string; username?: string };
+
+export async function getTelegramBotIdentity() {
+  return telegramCall<TelegramBotIdentity>("getMe", {});
+}
+
 export async function configureTelegramWebhook(webhookUrl: string) {
   if (!/^https:\/\//i.test(webhookUrl)) throw new Error("Webhook URL must use HTTPS");
   const secret = validTelegramWebhookSecret(process.env.TELEGRAM_WEBHOOK_SECRET);
   await telegramCall("setWebhook", { url: webhookUrl, ...(secret ? { secret_token: secret } : {}) });
-  return telegramCall<{ url: string; has_custom_certificate: boolean; pending_update_count: number; last_error_message?: string }>("getWebhookInfo", {});
+  return telegramCall<{ url: string; has_custom_certificate: boolean; pending_update_count: number; max_connections?: number; ip_address?: string; last_error_date?: number; last_error_message?: string }>("getWebhookInfo", {});
 }
 
 /**
@@ -1187,8 +1193,11 @@ export async function telegramWebhookConfigure(req: Request, res: Response) {
 export async function telegramWebhookHealth(_req: Request, res: Response) {
   if (!isKoyebRuntime()) return res.json({ ok: true, active: false, runtime: "manus-dashboard-only" });
   try {
-    const info = await telegramCall<{ url: string; pending_update_count: number; last_error_message?: string }>("getWebhookInfo", {});
-    return res.json({ ok: true, active: true, runtime: "koyeb", webhook: info });
+    const [info, bot] = await Promise.all([
+      telegramCall<{ url: string; pending_update_count: number; max_connections?: number; ip_address?: string; last_error_date?: number; last_error_message?: string }>("getWebhookInfo", {}),
+      getTelegramBotIdentity(),
+    ]);
+    return res.json({ ok: true, active: true, runtime: "koyeb", bot: { id: bot.id, username: bot.username ?? null, first_name: bot.first_name }, webhook: info });
   } catch (error) {
     return res.status(503).json({ ok: false, error: error instanceof Error ? error.message : "Telegram unavailable" });
   }
