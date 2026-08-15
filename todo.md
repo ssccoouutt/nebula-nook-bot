@@ -396,3 +396,6 @@
 
 - [x] Profile and reduce slow Telegram responses, especially Drive synchronization, repeated dashboard auth probes, and blocking external API work.
 - [x] Add regression coverage for non-blocking webhook processing and responsive user-facing handlers.
+
+- [x] Change Google Drive sync to run only for new users, completed orders, and newly added stock, with startup/recovery persistence safeguards.
+- [x] Add regression tests proving ordinary navigation and non-durable writes do not trigger Drive sync while durable events do; focused persistence, Telegram, and dashboard coverage passed, while the separate live Telegram credential test was blocked by a sandbox connect timeout.

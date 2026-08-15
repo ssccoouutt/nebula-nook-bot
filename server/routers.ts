@@ -7,6 +7,7 @@ import { publicProcedure, router } from "./_core/trpc";
 import { getDb } from "./db";
 import { binancePayDeposits, botSettings, botUsers, broadcasts, orders, paymentIntents, referrals, products, supportTickets, walletLedger } from "../drizzle/schema";
 import { TRPCError } from "@trpc/server";
+import { scheduleDriveSync } from "./googleDrivePersistence";
 
 function inventoryLines(value: string) {
   return value.replaceAll("\\n", "\n").split(/\r?\n/).map(line => line.trim()).filter(Boolean);
@@ -58,7 +59,10 @@ export const appRouter = router({
       const result = await db.insert(products).values({ ...values, active: 1 });
       const resultRow = Array.isArray(result) ? result[0] : result as any;
       const productId = Number(resultRow?.insertId ?? resultRow?.lastInsertRowid ?? 0);
-      if (productId > 0 && values.stock > 0) await notifyProductAvailability({ id: productId, ...values }, "new_product", `created:${Date.now()}`);
+      if (productId > 0 && values.stock > 0) {
+        scheduleDriveSync("new_stock");
+        await notifyProductAvailability({ id: productId, ...values }, "new_product", `created:${Date.now()}`);
+      }
       return { success: true };
     }),
     updateProduct: adminProcedure.input(z.object({ id: z.number().int(), name: z.string().min(1).max(255), description: z.string().min(1), details: z.string().default(""), priceUsd: z.number().nonnegative(), inventoryText: z.string().default(""), deliveryMode: z.enum(["automatic", "manual"]).default("automatic"), warrantyDays: z.number().int().nonnegative().default(0), imageUrl: z.string().url().or(z.literal("")).default(""), active: z.boolean(), freeEligible: z.boolean(), freeWindowMs: z.number().int().positive().nullable(), referralEligible: z.boolean().default(false), referralPriceCredits: z.number().int().positive().default(1) })).mutation(async ({ input }) => {
@@ -66,7 +70,10 @@ export const appRouter = router({
       const existing = (await db.select().from(products).where(eq(products.id, input.id)).limit(1))[0];
       const values = productValues(input);
       await db.update(products).set(values).where(eq(products.id, input.id));
-      if (existing && values.active === 1 && values.stock > existing.stock) await notifyProductAvailability({ id: input.id, ...values }, "new_stock", `stock:${Date.now()}`);
+      if (existing && values.active === 1 && values.stock > existing.stock) {
+        scheduleDriveSync("new_stock");
+        await notifyProductAvailability({ id: input.id, ...values }, "new_stock", `stock:${Date.now()}`);
+      }
       return { success: true };
     }),
     deleteProduct: adminProcedure.input(z.object({ id: z.number().int() })).mutation(async ({ input }) => {
@@ -193,6 +200,7 @@ export const appRouter = router({
       if (!order) throw new TRPCError({ code: "NOT_FOUND", message: "Order not found" });
       await db.update(orders).set({ status: input.status }).where(eq(orders.id, input.id));
       if (input.status === "fulfilled") {
+        scheduleDriveSync("completed_order");
         const users = await db.select().from(botUsers).where(eq(botUsers.id, order.botUserId)).limit(1);
         const customer = users[0];
         const notifications = buildFulfillmentNotifications(String(order.id), order.amountCents, customer?.telegramUserId);

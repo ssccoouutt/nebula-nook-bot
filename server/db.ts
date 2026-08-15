@@ -9,7 +9,6 @@ import { eq } from "drizzle-orm";
 import { InsertUser, users } from "../drizzle/schema";
 import * as schema from "../drizzle/schema";
 import { ENV } from "./_core/env";
-import { scheduleDriveSync } from "./googleDrivePersistence";
 
 type AppSchema = typeof schema;
 type AppDb = ReturnType<typeof drizzle<AppSchema>>;
@@ -92,7 +91,6 @@ async function initialize(): Promise<AppDb> {
     const normalizedParams = normalizeSqliteParams(params);
     if (method === "run") {
       const result = statement.run(...normalizedParams);
-      scheduleDriveSync();
       return { rows: [], changes: Number(result.changes), lastInsertRowid: Number(result.lastInsertRowid) };
     }
     if (method === "get") {

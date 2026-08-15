@@ -332,8 +332,11 @@ export async function initializeDrivePersistence() {
   await initPromise;
 }
 
-export function scheduleDriveSync() {
+export type DriveSyncReason = "new_user" | "completed_order" | "new_stock";
+
+export function scheduleDriveSync(reason?: DriveSyncReason) {
   if (!configured() || !initialized) return;
+  if (reason) console.info(`[Drive] Queued durable sync: ${reason}`);
   if (syncTimer) clearTimeout(syncTimer);
   syncTimer = setTimeout(() => {
     syncTimer = null;
