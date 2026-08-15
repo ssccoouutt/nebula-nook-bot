@@ -376,3 +376,5 @@
 
 - [x] Notify bot users privately when a product is created or new stock is added, with product details and a Buy now button.
 - [x] Make product notifications resilient to blocked users and add delivery regression coverage.
+
+- [x] Handle Telegram group-to-supergroup migration errors without blocking /start, log the stale membership chat clearly, and add redeploy-safe regression coverage.

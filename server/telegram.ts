@@ -547,7 +547,8 @@ async function runtimeGate() {
 }
 
 export function isTelegramChatNotFoundError(error: unknown) {
-  return /chat not found/i.test(error instanceof Error ? error.message : String(error));
+  const message = error instanceof Error ? error.message : String(error);
+  return /chat not found|group chat was upgraded to a supergroup/i.test(message);
 }
 
 async function membershipStatus(userId: number) {

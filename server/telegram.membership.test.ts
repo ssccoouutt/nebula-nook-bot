@@ -5,6 +5,7 @@ describe("Telegram membership join links", () => {
   it("recognizes deleted or mistyped membership chats without masking unrelated errors", () => {
     expect(isTelegramChatNotFoundError(new Error("Bad Request: chat not found"))).toBe(true);
     expect(isTelegramChatNotFoundError("chat not found")).toBe(true);
+    expect(isTelegramChatNotFoundError(new Error("Bad Request: group chat was upgraded to a supergroup chat"))).toBe(true);
     expect(isTelegramChatNotFoundError(new Error("Forbidden: bot was kicked"))).toBe(false);
   });
 
