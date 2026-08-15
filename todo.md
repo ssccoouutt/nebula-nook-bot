@@ -404,3 +404,9 @@
 - [x] Add regression coverage for command and callback activity updates without triggering Google Drive synchronization.
 
 - [x] Replace the legacy Nebula Nook username in group purchase Buy now notification links with @Toolsmania_bot and add regression coverage.
+
+- [x] Keep zero-stock products visible in the Telegram catalog with red inline buttons and available products green; remove products only through explicit dashboard deletion.
+- [x] Queue Google Drive synchronization when any wallet balance update is committed, including admin adjustments and successful wallet deposits or debits.
+- [x] Add regression coverage for zero-stock catalog rendering, explicit deletion behavior, and wallet-balance Drive events.
+
+- [x] Notify every existing bot user in a private chat when stock is newly added, including product details and a working Buy now button, with deduplicated failure handling; existing recipient selection and delivery tracking were verified and preserved.

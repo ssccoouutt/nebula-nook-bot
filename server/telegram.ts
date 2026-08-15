@@ -395,8 +395,12 @@ export function buildMembershipKeyboard(channelUrl: string, groupUrl: string) {
   ]);
 }
 
-export function buildShopKeyboard(items: Array<{ id: number; name: string; priceCents: number }>, page: number, pageCount: number) {
-  const rows: TelegramButton[][] = items.map((item) => [{ text: `✨ ${item.name} · $${(item.priceCents / 100).toFixed(2)}`, callback_data: `product:${item.id}`, style: "primary" }]);
+export function buildShopKeyboard(items: Array<{ id: number; name: string; priceCents: number; stock?: number }>, page: number, pageCount: number) {
+  const rows: TelegramButton[][] = items.map((item) => {
+    const available = Number(item.stock ?? 0) > 0;
+    const label = available ? `✨ ${item.name} · $${(item.priceCents / 100).toFixed(2)}` : `⛔ ${item.name} · OUT OF STOCK`;
+    return [{ text: label.slice(0, 64), callback_data: `product:${item.id}`, style: available ? "success" : "danger" }];
+  });
   const nav: TelegramButton[] = [];
   if (page > 0) nav.push({ text: "◀️ Previous", callback_data: `shop:${page - 1}`, style: "primary" });
   if (page < pageCount - 1) nav.push({ text: "Next ▶️", callback_data: `shop:${page + 1}`, style: "primary" });
@@ -705,7 +709,7 @@ async function showFreebies(chatId: number, messageId?: number) {
 async function showShop(chatId: number, page = 0, messageId?: number) {
   const db = await getDb();
   if (!db) throw new Error("Database is unavailable");
-  const items = await db.select().from(products).where(and(eq(products.active, 1), gt(products.stock, 0))).limit(60);
+  const items = await db.select().from(products).where(eq(products.active, 1)).limit(60);
   if (!items.length) return respond(chatId, "🛍️ <b>Shop</b>\n\nThe catalog is empty right now. Please check back soon.", undefined, messageId);
   const pageCount = Math.max(1, Math.ceil(items.length / SHOP_PAGE_SIZE));
   const safePage = Math.min(Math.max(page, 0), pageCount - 1);
@@ -878,6 +882,8 @@ async function createPurchase(chatId: number, userId: number, productId: number,
     if (outcome.status === "out_of_stock") return respond(chatId, "⚠️ The requested quantity is no longer available.", buildQuantityKeyboard(outcome.productId, outcome.stock), messageId);
     return respond(chatId, "⚠️ This product is currently unavailable.\n\nOpen the current Shop to choose an in-stock product.", buildUnavailableProductKeyboard(), messageId);
   }
+  scheduleDriveSync("wallet_balance");
+  scheduleDriveSync("completed_order");
   const announcement = buildPurchaseAnnouncement(outcome.productId, outcome.productName, outcome.quantity, outcome.buyerName, outcome.telegramUserId);
   await respond(chatId, formatPurchaseConfirmation(outcome.orderId, `${outcome.quantity}× ${outcome.productName}`, outcome.totalCents, { mode: outcome.deliveryMode, items: outcome.deliveredItems, warrantyDays: outcome.warrantyDays }), buildHomeKeyboard(), messageId);
   await notifyAdmin("order_fulfilled", String(outcome.orderId), announcement.text, announcement.replyMarkup);
@@ -1134,6 +1140,7 @@ export async function handleMessage(message: TelegramMessage) {
     });
     if (!credited.ok && credited.reason === "already_credited") return respond(message.chat.id, `ℹ️ <b>Already credited</b>\n\nThis transaction was already added to a wallet for <b>$${(credited.amountCents / 100).toFixed(2)}</b>.`, buildWalletKeyboard());
     if (!credited.ok) return respond(message.chat.id, "⚠️ Your bot wallet could not be found. Send /start and try again.", buildHomeKeyboard());
+    scheduleDriveSync("wallet_balance");
     return respond(message.chat.id, `✅ <b>Wallet credited</b>\n\n💰 Added: <b>$${(credited.amountCents / 100).toFixed(2)} ${credited.asset}</b>\n🧾 Transaction: <code>${credited.transactionId}</code>\n\nYour new balance is available in Wallet.`, buildWalletKeyboard());
   }
   const pending = pendingCustomQuantities.get(user.id);

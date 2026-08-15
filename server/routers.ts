@@ -174,6 +174,7 @@ export const appRouter = router({
       if (nextBalance < 0) throw new TRPCError({ code: "BAD_REQUEST", message: "Balance cannot become negative" });
       await db.update(botUsers).set({ balanceCents: nextBalance, updatedAt: new Date() }).where(eq(botUsers.id, user.id));
       await db.insert(walletLedger).values({ botUserId: user.id, amountCents, kind: "admin_adjustment", referenceId: `admin-${user.id}-${Date.now()}`, note: input.note });
+      scheduleDriveSync("wallet_balance");
       return { success: true, previousBalanceCents: user.balanceCents, balanceCents: nextBalance };
     }),
     ledger: adminProcedure.query(async () => (await database()).select().from(walletLedger).orderBy(desc(walletLedger.createdAt)).limit(300)),

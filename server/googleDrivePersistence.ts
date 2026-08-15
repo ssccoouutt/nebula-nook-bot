@@ -332,7 +332,7 @@ export async function initializeDrivePersistence() {
   await initPromise;
 }
 
-export type DriveSyncReason = "new_user" | "completed_order" | "new_stock";
+export type DriveSyncReason = "new_user" | "completed_order" | "new_stock" | "wallet_balance";
 
 export function scheduleDriveSync(reason?: DriveSyncReason) {
   if (!configured() || !initialized) return;
