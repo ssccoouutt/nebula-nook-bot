@@ -176,11 +176,16 @@ export function telegramResponseMethod(messageId?: number, editFailed = false) {
   return messageId === undefined || editFailed ? "sendMessage" as const : "editMessageText" as const;
 }
 
+export function isTelegramMessageNotModifiedError(error: unknown) {
+  return error instanceof Error && error.message.toLowerCase().includes("message is not modified");
+}
+
 export async function respond(chatId: number, text: string, replyMarkup?: unknown, messageId?: number) {
   if (telegramResponseMethod(messageId) === "sendMessage") return sendMessage(chatId, text, replyMarkup);
   try {
     return await editMessage(chatId, messageId as number, text, replyMarkup);
   } catch (error) {
+    if (isTelegramMessageNotModifiedError(error)) return undefined;
     console.error("[Telegram] editMessageText failed; falling back to one sendMessage", error);
     return sendMessage(chatId, text, replyMarkup);
   }

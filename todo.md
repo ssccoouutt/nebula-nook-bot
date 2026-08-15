@@ -384,3 +384,5 @@
 - [x] Make Telegram membership checks and webhook responses resilient to invalid chat IDs, Telegram API connection timeouts, and benign edit-message failures, with regression coverage.
 
 - [x] Replace cfg.enc with the newly supplied encrypted artifact containing the updated membership chat configuration and sync only that change to GitHub.
+
+- [x] Ignore Telegram message-is-not-modified edit errors without sending duplicate fallback messages, while preserving recovery for genuine edit failures.

@@ -318,6 +318,18 @@ describe("Telegram presentation and notification helpers", () => {
     else process.env.TELEGRAM_BOT_TOKEN = previousToken;
   });
 
+  it("does not send a duplicate when Telegram says the edit is already applied", async () => {
+    const previousToken = process.env.TELEGRAM_BOT_TOKEN;
+    process.env.TELEGRAM_BOT_TOKEN = "test-token";
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(JSON.stringify({ ok: false, description: "Bad Request: message is not modified: specified new message content and reply markup are exactly the same as a current content and reply markup of the message" }), { status: 200 }));
+    await respond(123, "🛍️ Shop", { inline_keyboard: [] }, 88);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(String(fetchMock.mock.calls[0][0])).toContain("/editMessageText");
+    fetchMock.mockRestore();
+    if (previousToken === undefined) delete process.env.TELEGRAM_BOT_TOKEN;
+    else process.env.TELEGRAM_BOT_TOKEN = previousToken;
+  });
+
   it("assigns Telegram primary and success styles to representative keyboards", () => {
     const home = buildHomeKeyboard().inline_keyboard;
     expect(home[0][0]).toMatchObject({ callback_data: "freebies", style: "success" });
