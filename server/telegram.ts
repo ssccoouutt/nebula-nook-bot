@@ -624,6 +624,12 @@ export function clearMembershipCache(userId?: number) {
   else membershipCache.delete(userId);
 }
 
+async function recordBotActivity(telegramUserId: number) {
+  const db = await getDb();
+  if (!db) return;
+  await db.update(botUsers).set({ updatedAt: new Date() }).where(eq(botUsers.telegramUserId, telegramUserId));
+}
+
 async function ensureBotUser(user: TelegramUser, referralCode?: string) {
   const db = await getDb();
   if (!db) throw new Error("Database is unavailable");
@@ -936,6 +942,7 @@ export async function handleCallback(query: TelegramCallbackQuery, options: { sk
   const messageId = query.message?.message_id;
   if (!chatId) return;
   const userId = query.from.id;
+  await recordBotActivity(userId);
   await answerCallback(query.id);
   const action = parseTelegramCallbackAction(query.data);
   if (!action) return;
@@ -1147,6 +1154,7 @@ export async function handleMessage(message: TelegramMessage) {
   const referral = rest.find((part) => part.startsWith("ref_"))?.slice(4);
   const productDeepLink = rest.find((part) => part.startsWith("product_"))?.slice(8);
   await ensureBotUser(user, referral);
+  await recordBotActivity(user.id);
   if (command === "/start") {
     if (productDeepLink && /^\d+$/.test(productDeepLink)) {
       if (!(await requireAccess(message.chat.id, user.id))) return;

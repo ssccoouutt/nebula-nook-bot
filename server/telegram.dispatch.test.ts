@@ -6,6 +6,7 @@ const state = vi.hoisted(() => ({
   alerts: [] as Array<{ id: number; botUserId: number; productId: number; active: number }>,
   selectCount: 0,
   mode: "custom" as "custom" | "price",
+  activityUpdates: 0,
 }));
 
 vi.mock("./db", () => ({
@@ -30,9 +31,10 @@ vi.mock("./db", () => ({
       },
     }),
     update: () => ({
-      set: (value: { active: number }) => ({
+      set: (value: { active?: number; updatedAt?: Date }) => ({
         where: async () => {
-          if (state.alerts[0]) state.alerts[0].active = value.active;
+          if (value.updatedAt) state.activityUpdates += 1;
+          if (value.active !== undefined && state.alerts[0]) state.alerts[0].active = value.active;
         },
       }),
     }),
@@ -46,6 +48,7 @@ describe("Telegram dispatcher handlers", () => {
     state.alerts.length = 0;
     state.selectCount = 0;
     state.mode = "custom";
+    state.activityUpdates = 0;
     vi.restoreAllMocks();
     vi.stubGlobal("fetch", vi.fn(async (_url: string, init?: RequestInit) => {
       const body = init?.body ? JSON.parse(String(init.body)) : {};
@@ -93,9 +96,11 @@ describe("Telegram dispatcher handlers", () => {
     } as any;
     await handleCallback(query, { skipAccess: true });
     expect(state.alerts).toEqual([{ id: 1, botUserId: 41, productId: 7, active: 1 }]);
+    expect(state.activityUpdates).toBe(1);
 
     await handleCallback({ ...query, id: "cb-alert-off" } as any, { skipAccess: true });
     expect(state.alerts[0].active).toBe(0);
+    expect(state.activityUpdates).toBe(2);
     const calls = (fetch as unknown as ReturnType<typeof vi.fn>).mock.calls;
     const payloads = calls.map(([, init]) => JSON.parse(String((init as RequestInit).body)));
     expect(calls.length).toBeGreaterThanOrEqual(2);

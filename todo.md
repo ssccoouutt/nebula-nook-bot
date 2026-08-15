@@ -399,3 +399,6 @@
 
 - [x] Change Google Drive sync to run only for new users, completed orders, and newly added stock, with startup/recovery persistence safeguards.
 - [x] Add regression tests proving ordinary navigation and non-durable writes do not trigger Drive sync while durable events do; focused persistence, Telegram, and dashboard coverage passed, while the separate live Telegram credential test was blocked by a sandbox connect timeout.
+
+- [x] Update bot-user last activity for every meaningful Telegram command, callback/button click, and interaction so dashboard sorting reflects actual engagement.
+- [x] Add regression coverage for command and callback activity updates without triggering Google Drive synchronization.
