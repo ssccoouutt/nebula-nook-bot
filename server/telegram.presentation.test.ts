@@ -41,6 +41,7 @@ import {
   formatWalletDepositAmountPrompt,
   parseUsdAmountInput,
   formatFreebiesMessage,
+  formatProductAvailabilityAnnouncement,
   buildFreebiesKeyboard,
   telegramResponseMethod,
   respond,
@@ -117,6 +118,15 @@ describe("Telegram presentation and notification helpers", () => {
     expect(SHOP_PAGE_SIZE).toBe(6);
     expect(formatShopSummary(0, 2)).toContain("📄 Page 1 of 2");
     expect(formatShopSummary(1, 2)).toContain("🛍️ <b>ToolsMania Shop</b>");
+  });
+
+  it("renders a product announcement with stock, price, and Buy now action", () => {
+    const message = formatProductAvailabilityAnnouncement({ name: "Gemini <Pro>", description: "Activation link", priceCents: 99, stock: 4 }, "new_stock");
+    expect(message).toContain("📦 <b>New stock added</b>");
+    expect(message).toContain("Gemini Pro");
+    expect(message).toContain("$0.99");
+    expect(message).toContain("📦 Stock: <b>4</b> available");
+    expect(buildProductKeyboard(42).inline_keyboard.flat().some(button => button.text === "🛒 Buy now" && button.callback_data === "buyqty:42:0")).toBe(true);
   });
 
   it("renders Freebies as one compact message with grouped claim controls", () => {

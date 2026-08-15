@@ -165,6 +165,42 @@ export async function sendTelegramMessage(chatId: number, text: string) {
   return sendMessage(chatId, text);
 }
 
+export function formatProductAvailabilityAnnouncement(product: { name: string; description: string; priceCents: number; stock: number }, reason: "new_product" | "new_stock") {
+  const title = reason === "new_product" ? "🆕 <b>New product available</b>" : "📦 <b>New stock added</b>";
+  const name = product.name.replace(/[<&>]/g, "");
+  const description = product.description.replace(/[<&>]/g, "");
+  return `${title}\n\n✨ <b>${name}</b>\n\n${description}\n\n━━━━━━━━━━━━━━\n💵 Price: <b>$${(product.priceCents / 100).toFixed(2)}</b> per unit\n📦 Stock: <b>${product.stock}</b> available\n\nTap <b>Buy now</b> to order while stock lasts.`;
+}
+
+export async function notifyProductAvailability(product: { id: number; name: string; description: string; priceCents: number; stock: number }, reason: "new_product" | "new_stock", referenceSuffix: string) {
+  const db = await getDb();
+  if (!db || product.stock <= 0) return { sent: 0, skipped: 0, failed: 0 };
+  const text = formatProductAvailabilityAnnouncement(product, reason);
+  const replyMarkup = buildProductKeyboard(product.id);
+  const users = await db.select().from(botUsers);
+  let sent = 0;
+  let skipped = 0;
+  let failed = 0;
+  for (const user of users) {
+    const referenceId = `${product.id}:${referenceSuffix}:${user.id}`;
+    const existing = await db.select({ status: notificationDeliveries.status }).from(notificationDeliveries).where(and(eq(notificationDeliveries.eventType, "product_available"), eq(notificationDeliveries.referenceId, referenceId))).limit(1);
+    if (existing[0]?.status === "sent") {
+      skipped += 1;
+      continue;
+    }
+    await db.insert(notificationDeliveries).values({ botUserId: user.id, eventType: "product_available", referenceId, status: "queued" }).onConflictDoUpdate({ target: [notificationDeliveries.eventType, notificationDeliveries.referenceId], set: { status: "queued", error: null } });
+    try {
+      await sendMessage(user.telegramUserId, text, replyMarkup);
+      await db.update(notificationDeliveries).set({ status: "sent", sentAt: new Date(), error: null }).where(and(eq(notificationDeliveries.eventType, "product_available"), eq(notificationDeliveries.referenceId, referenceId)));
+      sent += 1;
+    } catch (error) {
+      failed += 1;
+      await db.update(notificationDeliveries).set({ status: "failed", error: error instanceof Error ? error.message : "product notification failed" }).where(and(eq(notificationDeliveries.eventType, "product_available"), eq(notificationDeliveries.referenceId, referenceId)));
+    }
+  }
+  return { sent, skipped, failed };
+}
+
 export function resolveNotificationChatId(configuredTarget: string | undefined, runtimeTarget: string | undefined, fallback: string) {
   const value = configuredTarget ?? runtimeTarget ?? fallback;
   const chatId = Number(value);

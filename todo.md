@@ -373,3 +373,6 @@
 - [x] Repair Telegram /start non-response when a configured membership chat returns chat not found, while preserving valid membership gating and adding regression coverage.
 
 - [x] Diagnose and fix the Telegram /start non-response after Drive recovery restored only two records, with regression coverage for the webhook handler path.
+
+- [x] Notify bot users privately when a product is created or new stock is added, with product details and a Buy now button.
+- [x] Make product notifications resilient to blocked users and add delivery regression coverage.

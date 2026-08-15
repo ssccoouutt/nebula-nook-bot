@@ -18,7 +18,7 @@ function productValues(input: { name: string; description: string; details: stri
   const items = inventoryLines(input.inventoryText);
   return { name: input.name.trim(), description: input.description.trim(), details: input.details.trim(), priceCents, stock: items.length, inventoryText: items.join("\n"), deliveryMode: input.deliveryMode, warrantyDays: Math.max(0, Math.floor(input.warrantyDays)), imageUrl: input.imageUrl.trim(), freeEligible: input.freeEligible ? 1 : 0, freeWindowMs: input.freeWindowMs, referralEligible: input.referralEligible ? 1 : 0, referralPriceCredits: Math.max(1, Math.floor(input.referralPriceCredits)), ...(input.active === undefined ? {} : { active: input.active ? 1 : 0 }) };
 }
-import { buildFulfillmentNotifications, configureTelegramWebhook, notifyAdmin, sendTelegramMessage, validTelegramJoinUrl } from "./telegram";
+import { buildFulfillmentNotifications, configureTelegramWebhook, notifyAdmin, notifyProductAvailability, sendTelegramMessage, validTelegramJoinUrl } from "./telegram";
 
 // Public dashboard mode is intentionally enabled at the user’s request.
 // Keep secrets server-side, but note that all dashboard mutations are publicly callable.
@@ -54,12 +54,19 @@ export const appRouter = router({
     products: adminProcedure.query(async () => (await database()).select().from(products).orderBy(desc(products.createdAt))),
     createProduct: adminProcedure.input(z.object({ name: z.string().min(1).max(255), description: z.string().min(1), details: z.string().default(""), priceUsd: z.number().nonnegative(), inventoryText: z.string().default(""), deliveryMode: z.enum(["automatic", "manual"]).default("automatic"), warrantyDays: z.number().int().nonnegative().default(0), imageUrl: z.string().url().or(z.literal("")).default(""), freeEligible: z.boolean(), freeWindowMs: z.number().int().positive().nullable(), referralEligible: z.boolean().default(false), referralPriceCredits: z.number().int().positive().default(1) })).mutation(async ({ input }) => {
       const db = await database();
-      await db.insert(products).values({ ...productValues(input), active: 1 });
+      const values = productValues(input);
+      const result = await db.insert(products).values({ ...values, active: 1 });
+      const resultRow = Array.isArray(result) ? result[0] : result as any;
+      const productId = Number(resultRow?.insertId ?? resultRow?.lastInsertRowid ?? 0);
+      if (productId > 0 && values.stock > 0) await notifyProductAvailability({ id: productId, ...values }, "new_product", `created:${Date.now()}`);
       return { success: true };
     }),
     updateProduct: adminProcedure.input(z.object({ id: z.number().int(), name: z.string().min(1).max(255), description: z.string().min(1), details: z.string().default(""), priceUsd: z.number().nonnegative(), inventoryText: z.string().default(""), deliveryMode: z.enum(["automatic", "manual"]).default("automatic"), warrantyDays: z.number().int().nonnegative().default(0), imageUrl: z.string().url().or(z.literal("")).default(""), active: z.boolean(), freeEligible: z.boolean(), freeWindowMs: z.number().int().positive().nullable(), referralEligible: z.boolean().default(false), referralPriceCredits: z.number().int().positive().default(1) })).mutation(async ({ input }) => {
       const db = await database();
-      await db.update(products).set(productValues(input)).where(eq(products.id, input.id));
+      const existing = (await db.select().from(products).where(eq(products.id, input.id)).limit(1))[0];
+      const values = productValues(input);
+      await db.update(products).set(values).where(eq(products.id, input.id));
+      if (existing && values.active === 1 && values.stock > existing.stock) await notifyProductAvailability({ id: input.id, ...values }, "new_stock", `stock:${Date.now()}`);
       return { success: true };
     }),
     deleteProduct: adminProcedure.input(z.object({ id: z.number().int() })).mutation(async ({ input }) => {
