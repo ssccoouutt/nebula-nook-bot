@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { appRouter } from "./routers";
+import { appRouter, dashboardLastActivity } from "./routers";
 import type { TrpcContext } from "./_core/context";
 
 function context(role: "admin" | "user"): TrpcContext {
@@ -24,6 +24,13 @@ describe("admin authorization", () => {
     if (users[0]) expect(users[0]).toEqual(expect.objectContaining({ balanceCents: expect.any(Number), orderCount: expect.any(Number), referralCount: expect.any(Number), lastActivity: expect.any(Number) }));
     const summary = await caller.admin.activitySummary({ day: new Date().toISOString().slice(0, 10) });
     expect(summary).toEqual(expect.objectContaining({ selectedDayCount: expect.any(Number), last30DayCount: expect.any(Number), selectedDayUserIds: expect.any(Array), last30DayUserIds: expect.any(Array) }));
+  });
+
+  it("prefers newer bot-user activity over older related history", () => {
+    const olderHistory = Date.parse("2026-08-01T00:00:00.000Z");
+    const freshStart = Date.parse("2026-08-15T00:00:00.000Z");
+    expect(dashboardLastActivity(freshStart, olderHistory)).toBe(freshStart);
+    expect(dashboardLastActivity(olderHistory, freshStart)).toBe(freshStart);
   });
 
   it("returns completed-order and wallet-deposit history records", async () => {

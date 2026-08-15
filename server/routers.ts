@@ -21,6 +21,10 @@ function productValues(input: { name: string; description: string; deliveryForma
 }
 import { buildFulfillmentNotifications, configureTelegramWebhook, notifyAdmin, notifyProductAvailability, sendTelegramMessage, validTelegramJoinUrl } from "./telegram";
 
+export function dashboardLastActivity(updatedAtMs: number, relatedLastActivityMs: number) {
+  return Math.max(updatedAtMs, relatedLastActivityMs);
+}
+
 // Public dashboard mode is intentionally enabled at the user’s request.
 // Keep secrets server-side, but note that all dashboard mutations are publicly callable.
 const adminProcedure = publicProcedure;
@@ -114,7 +118,7 @@ export const appRouter = router({
       for (const row of referralRows) touch(row.referrerId, row.count, row.lastAt, "referrals");
       for (const row of ticketRows) { const current = byUser.get(row.botUserId) ?? { orders: 0, referrals: 0, lastActivity: 0 }; current.lastActivity = Math.max(current.lastActivity, Number(row.lastAt ?? 0)); byUser.set(row.botUserId, current); }
       for (const row of paymentRows) { const current = byUser.get(row.botUserId) ?? { orders: 0, referrals: 0, lastActivity: 0 }; current.lastActivity = Math.max(current.lastActivity, Number(row.lastAt ?? 0)); byUser.set(row.botUserId, current); }
-      const enriched = rows.map((row) => { const stats = byUser.get(row.id) ?? { orders: 0, referrals: 0, lastActivity: 0 }; return { ...row, orderCount: stats.orders, referralCount: stats.referrals, lastActivity: stats.lastActivity || row.updatedAt.getTime() }; });
+      const enriched = rows.map((row) => { const stats = byUser.get(row.id) ?? { orders: 0, referrals: 0, lastActivity: 0 }; return { ...row, orderCount: stats.orders, referralCount: stats.referrals, lastActivity: dashboardLastActivity(row.updatedAt.getTime(), stats.lastActivity) }; });
       const direction = input?.direction === "asc" ? 1 : -1;
       const sort = input?.sort ?? "lastActivity";
       enriched.sort((a, b) => { const av = sort === "balance" ? a.balanceCents : sort === "createdAt" ? a.createdAt.getTime() : sort === "orders" ? a.orderCount : sort === "referrals" ? a.referralCount : a.lastActivity; const bv = sort === "balance" ? b.balanceCents : sort === "createdAt" ? b.createdAt.getTime() : sort === "orders" ? b.orderCount : sort === "referrals" ? b.referralCount : b.lastActivity; return (av - bv) * direction; });

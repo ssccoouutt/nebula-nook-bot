@@ -428,3 +428,7 @@
 - [x] Fix inconsistent last-activity updates for existing users when they send commands such as /start, including users with orders and wallet balances; activity now targets the canonical bot-user row after upsert.
 - [x] Make first responses after idle periods immediate by acknowledging webhooks quickly and moving slow membership, Drive, payment, and notification work off the response path; webhook acknowledgment is immediate, while autoscale cold-start latency still requires Koyeb minimum-instance/always-on hosting to eliminate completely.
 - [x] Add latency and activity regression coverage for warm and idle-style webhook handling; dispatcher, presentation, and router validation passed with 29 focused tests, TypeScript, and production build.
+
+- [x] Diagnose and fix the blank dashboard at the live Koyeb URL, including frontend bundle, API, and runtime deployment checks; live page renders, browser console is clean, and admin.overview returns HTTP 200 with current data after hydration.
+
+- [x] Fix the remaining stale dashboard activity for the existing user with one completed order and a 0.1 wallet balance, and add a targeted regression test; dashboard lastActivity now takes the maximum of canonical bot-user activity and related history timestamps.
