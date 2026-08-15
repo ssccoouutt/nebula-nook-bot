@@ -402,3 +402,5 @@
 
 - [x] Update bot-user last activity for every meaningful Telegram command, callback/button click, and interaction so dashboard sorting reflects actual engagement.
 - [x] Add regression coverage for command and callback activity updates without triggering Google Drive synchronization.
+
+- [x] Replace the legacy Nebula Nook username in group purchase Buy now notification links with @Toolsmania_bot and add regression coverage.

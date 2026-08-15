@@ -27,6 +27,7 @@ const DEFAULT_CHANNEL_ID = process.env.TELEGRAM_MEMBERSHIP_CHANNEL_ID ?? "-10044
 const DEFAULT_GROUP_ID = process.env.TELEGRAM_MEMBERSHIP_GROUP_ID ?? "-5036785892";
 const DEFAULT_CHANNEL_URL = process.env.TELEGRAM_CHANNEL_JOIN_URL ?? "https://t.me/+hwT_8FtgDU85Mzlk";
 const DEFAULT_GROUP_URL = process.env.TELEGRAM_GROUP_JOIN_URL ?? "https://t.me/+4I-HIdE73NIyMzI8";
+const PUBLIC_BOT_USERNAME = (process.env.TELEGRAM_BOT_USERNAME ?? "Toolsmania_bot").replace(/^@/, "");
 const recentRequests = new Map<number, number>();
 const pendingCustomQuantities = new Map<number, { productId: number; expiresAt: number }>();
 const pendingBinancePayTopups = new Map<number, { amountCents?: number; method: "binance_pay" | "bep20"; createdAt?: number; expiresAt: number }>();
@@ -333,7 +334,7 @@ export function productEmoji(productName: string) {
 
 export function buildPurchaseAnnouncement(productId: string | number, productName: string, quantity: number, buyerName?: string, telegramUserId?: number) {
   const maskedName = maskPurchaseName(buyerName, telegramUserId);
-  const botUrl = `https://t.me/NebulaNook4827_bot?start=product_${productId}`;
+  const botUrl = `https://t.me/${PUBLIC_BOT_USERNAME}?start=product_${productId}`;
   return {
     text: `🛍️ <b>ToolsMania</b>\n\n👤 <b>${maskedName}</b> just bought <b>${quantity}×</b> ${productEmoji(productName)} <b>${productName.replace(/[<>]/g, "")}</b>!`,
     replyMarkup: { inline_keyboard: [[{ text: "🛍️ View product in bot", url: botUrl, style: "primary" }]] },
@@ -761,7 +762,7 @@ async function showProfile(chatId: number, userId: number, messageId?: number) {
   if (!db) throw new Error("Database is unavailable");
   const user = (await db.select().from(botUsers).where(eq(botUsers.telegramUserId, userId)).limit(1))[0];
   const referralsCount = await db.select({ count: sql<number>`count(*)` }).from(referrals).where(eq(referrals.referrerId, user?.id ?? -1));
-  await respond(chatId, `👤 <b>Profile</b>\n\n🪪 Name: ${user?.firstName ?? "User"}\n🏅 Tier: ${user?.tier ?? "Bronze"}\n🤝 Referrals: ${Number(referralsCount[0]?.count ?? 0)}\n\n🔗 Your referral link:\nhttps://t.me/NebulaNook4827_bot?start=ref_${user?.referralCode ?? ""}`, buildHomeKeyboard(), messageId);
+  await respond(chatId, `👤 <b>Profile</b>\n\n🪪 Name: ${user?.firstName ?? "User"}\n🏅 Tier: ${user?.tier ?? "Bronze"}\n🤝 Referrals: ${Number(referralsCount[0]?.count ?? 0)}\n\n🔗 Your referral link:\nhttps://t.me/${PUBLIC_BOT_USERNAME}?start=ref_${user?.referralCode ?? ""}`, buildHomeKeyboard(), messageId);
 }
 
 async function showReferrals(chatId: number, userId: number, messageId?: number) {
@@ -772,7 +773,7 @@ async function showReferrals(chatId: number, userId: number, messageId?: number)
   const rewards = await db.select().from(products).where(and(eq(products.active, 1), eq(products.referralEligible, 1), gt(products.stock, 0))).orderBy(products.name);
   const rewardRows = rewards.map((product) => [{ text: `🎁 ${product.name} · ${product.referralPriceCredits} credit${product.referralPriceCredits === 1 ? "" : "s"}`, callback_data: `reward:${product.id}` }]);
   const rewardText = rewards.length ? `\n\n🎁 <b>Available rewards</b>\nClaim selected products using your credits:` : "\n\nNo referral rewards are available right now.";
-  await respond(chatId, `🤝 <b>Referrals</b>\n\nInvite friends with your personal link and earn 1 credit for each new bot user.\n\n👥 Successful referrals: <b>${Number(referralsCount[0]?.count ?? 0)}</b>\n🎟️ Referral credits: <b>${user?.referralCredits ?? 0}</b>\n🏅 Current tier: <b>${user?.tier ?? "Bronze"}</b>${rewardText}\n\n🔗 Your referral link:\nhttps://t.me/NebulaNook4827_bot?start=ref_${user?.referralCode ?? ""}`, keyboard([...rewardRows, [{ text: "⌂ Home", callback_data: "home" }]]), messageId);
+  await respond(chatId, `🤝 <b>Referrals</b>\n\nInvite friends with your personal link and earn 1 credit for each new bot user.\n\n👥 Successful referrals: <b>${Number(referralsCount[0]?.count ?? 0)}</b>\n🎟️ Referral credits: <b>${user?.referralCredits ?? 0}</b>\n🏅 Current tier: <b>${user?.tier ?? "Bronze"}</b>${rewardText}\n\n🔗 Your referral link:\nhttps://t.me/${PUBLIC_BOT_USERNAME}?start=ref_${user?.referralCode ?? ""}`, keyboard([...rewardRows, [{ text: "⌂ Home", callback_data: "home" }]]), messageId);
 }
 
 async function claimReferralReward(chatId: number, userId: number, productId: number, messageId?: number) {
