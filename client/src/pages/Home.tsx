@@ -46,8 +46,8 @@ export default function Home() {
   const utils = trpc.useUtils();
   const overview = trpc.admin.overview.useQuery();
   const products = trpc.admin.products.useQuery(undefined, { enabled: tab === "products" });
-  const users = trpc.admin.users.useQuery({ sort: userSort, direction: userDirection, limit: 500 }, { enabled: tab === "users" });
-  const activitySummary = trpc.admin.activitySummary.useQuery({ day: selectedDay }, { enabled: tab === "users" });
+  const users = trpc.admin.users.useQuery({ sort: userSort, direction: userDirection, limit: 500 }, { enabled: tab === "users", refetchInterval: tab === "users" ? 5000 : false, staleTime: 0 });
+  const activitySummary = trpc.admin.activitySummary.useQuery({ day: selectedDay }, { enabled: tab === "users", refetchInterval: tab === "users" ? 5000 : false, staleTime: 0 });
   const userActivity = trpc.admin.userActivity.useQuery({ userId: selectedUserId ?? 0 }, { enabled: tab === "users" && selectedUserId !== null });
   const orders = trpc.admin.orders.useQuery(undefined, { enabled: tab === "orders" });
   const completedOrders = trpc.admin.completedOrders.useQuery({ search: orderSearch, limit: 500 }, { enabled: tab === "orders" });

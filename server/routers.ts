@@ -138,7 +138,12 @@ export const appRouter = router({
       const events = [...ordersRows, ...ledgerRows, ...referralRows, ...ticketsRows, ...paymentsRows];
       const todayActiveIds = new Set<number>(); const selectedDayIds = new Set<number>(); const last30Ids = new Set<number>();
       for (const event of events) { const timestamp = event.at instanceof Date ? event.at.getTime() : Number(event.at); if (timestamp >= thirtyDaysAgo) last30Ids.add(event.botUserId); if (timestamp >= dayStart && timestamp < dayEnd) selectedDayIds.add(event.botUserId); }
-      for (const user of users) { const created = user.createdAt.getTime(); if (created >= thirtyDaysAgo) last30Ids.add(user.id); if (created >= dayStart && created < dayEnd) { selectedDayIds.add(user.id); todayActiveIds.add(user.id); } }
+      for (const user of users) {
+        const created = user.createdAt.getTime();
+        const updated = user.updatedAt.getTime();
+        if (created >= thirtyDaysAgo || updated >= thirtyDaysAgo) last30Ids.add(user.id);
+        if ((created >= dayStart && created < dayEnd) || (updated >= dayStart && updated < dayEnd)) { selectedDayIds.add(user.id); todayActiveIds.add(user.id); }
+      }
       return { selectedDay: day, selectedDayUserIds: Array.from(selectedDayIds), selectedDayCount: selectedDayIds.size, last30DayUserIds: Array.from(last30Ids), last30DayCount: last30Ids.size, totalUsers: users.length };
     }),
     userActivity: adminProcedure.input(z.object({ userId: z.number().int().positive() })).query(async ({ input }) => {

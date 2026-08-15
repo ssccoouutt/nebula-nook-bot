@@ -639,10 +639,16 @@ export function clearMembershipCache(userId?: number) {
   else membershipCache.delete(userId);
 }
 
+async function recordBotActivityById(botUserId: number) {
+  const db = await getDb();
+  if (!db) return;
+  await db.update(botUsers).set({ updatedAt: new Date() }).where(eq(botUsers.id, botUserId));
+}
 async function recordBotActivity(telegramUserId: number) {
   const db = await getDb();
   if (!db) return;
-  await db.update(botUsers).set({ updatedAt: new Date() }).where(eq(botUsers.telegramUserId, telegramUserId));
+  const user = (await db.select({ id: botUsers.id }).from(botUsers).where(eq(botUsers.telegramUserId, telegramUserId)).limit(1))[0];
+  if (user) await recordBotActivityById(user.id);
 }
 
 async function ensureBotUser(user: TelegramUser, referralCode?: string) {
@@ -977,8 +983,9 @@ export async function handleCallback(query: TelegramCallbackQuery, options: { sk
   const messageId = query.message?.message_id;
   if (!chatId) return;
   const userId = query.from.id;
-  await recordBotActivity(userId);
   await answerCallback(query.id);
+  // Acknowledge the tap first; activity bookkeeping must never delay callback routing or the user-facing reply.
+  void recordBotActivity(userId).catch((error) => console.error("[Telegram] callback activity touch failed", error));
   const action = parseTelegramCallbackAction(query.data);
   if (!action) return;
   const purchaseRoute = resolvePurchaseCallbackRoute(action);
@@ -1189,8 +1196,9 @@ export async function handleMessage(message: TelegramMessage) {
   const [command, ...rest] = message.text.trim().split(/\s+/);
   const referral = rest.find((part) => part.startsWith("ref_"))?.slice(4);
   const productDeepLink = rest.find((part) => part.startsWith("product_"))?.slice(8);
-  await ensureBotUser(user, referral);
-  await recordBotActivity(user.id);
+  const account = await ensureBotUser(user, referral);
+  // Touch the canonical row after upsert so recovered/legacy users are always visible in dashboard activity.
+  void recordBotActivityById(account.id).catch((error) => console.error("[Telegram] canonical activity touch failed", error));
   if (command === "/start") {
     if (productDeepLink && /^\d+$/.test(productDeepLink)) {
       if (!(await requireAccess(message.chat.id, user.id))) return;
@@ -1289,11 +1297,13 @@ async function processTelegramWebhookUpdate(update: TelegramUpdate) {
     await db.insert(botSettings).values({ key: "last_update_id", value: String(update.update_id) }).onConflictDoUpdate({ target: botSettings.key, set: { value: String(update.update_id) } });
   }
   const actorId = update.message?.from?.id ?? update.callback_query?.from.id;
-  if (actorId) {
+  if (actorId && update.message) {
     const now = Date.now();
     const previous = recentRequests.get(actorId) ?? 0;
     if (now - previous < 350) return;
     recentRequests.set(actorId, now);
+    // Do not make Telegram wait for this bookkeeping write.
+    void recordBotActivity(actorId).catch((error) => console.error("[Telegram] activity touch failed", error));
   }
   if (update.callback_query) await handleCallback(update.callback_query);
   else if (update.message) await handleMessage(update.message);

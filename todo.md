@@ -424,3 +424,7 @@
 
 - [x] Verify or fix removal of each delivered digital item from its product stock file after successful fulfillment, and persist the updated remaining stock to Google Drive without changing pending or failed orders; automatic purchase, freebie, and referral fulfillment already update products.inventoryText before the completed-order Drive sync.
 - [x] Add regression coverage for delivered-item stock-file updates and non-consumption on pending or failed orders; added a product stock-export regression and passed the focused test plus TypeScript check.
+
+- [x] Fix inconsistent last-activity updates for existing users when they send commands such as /start, including users with orders and wallet balances; activity now targets the canonical bot-user row after upsert.
+- [x] Make first responses after idle periods immediate by acknowledging webhooks quickly and moving slow membership, Drive, payment, and notification work off the response path; webhook acknowledgment is immediate, while autoscale cold-start latency still requires Koyeb minimum-instance/always-on hosting to eliminate completely.
+- [x] Add latency and activity regression coverage for warm and idle-style webhook handling; dispatcher, presentation, and router validation passed with 29 focused tests, TypeScript, and production build.

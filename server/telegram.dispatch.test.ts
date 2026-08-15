@@ -17,7 +17,7 @@ vi.mock("./db", () => ({
           state.selectCount += 1;
           const rows = state.mode === "custom"
             ? (state.selectCount === 1 || state.selectCount === 2 ? state.products : state.users)
-            : (((state.selectCount - 1) % 3) === 0 ? state.users : ((state.selectCount - 1) % 3) === 1 ? state.products : state.alerts);
+            : (state.selectCount % 4 === 1 || state.selectCount % 4 === 2 ? state.users : state.selectCount % 4 === 3 ? state.products : state.alerts);
           const query = Promise.resolve(rows) as Promise<typeof rows> & { limit?: () => Promise<typeof rows> };
           query.limit = async () => rows;
           return query;
@@ -95,10 +95,12 @@ describe("Telegram dispatcher handlers", () => {
       message: { message_id: 200, chat: { id: 9001, type: "private" } },
     } as any;
     await handleCallback(query, { skipAccess: true });
+    await new Promise((resolve) => setTimeout(resolve, 0));
     expect(state.alerts).toEqual([{ id: 1, botUserId: 41, productId: 7, active: 1 }]);
     expect(state.activityUpdates).toBe(1);
 
     await handleCallback({ ...query, id: "cb-alert-off" } as any, { skipAccess: true });
+    await new Promise((resolve) => setTimeout(resolve, 0));
     expect(state.alerts[0].active).toBe(0);
     expect(state.activityUpdates).toBe(2);
     const calls = (fetch as unknown as ReturnType<typeof vi.fn>).mock.calls;
