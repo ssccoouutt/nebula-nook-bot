@@ -724,10 +724,10 @@ async function showProduct(chatId: number, productId: number, messageId?: number
   if (!isPurchasableProduct(item)) return respond(chatId, "⚠️ This product is currently unavailable.\n\nThis may be an old product button. Open the current Shop to see items that are in stock.", buildUnavailableProductKeyboard(), messageId);
   const safeName = item.name.replace(/[<&>]/g, "");
   const safeDescription = item.description.replace(/[<&>]/g, "");
-  const details = item.details?.trim() ? `\n\n📝 <b>Product details</b>\n${item.details.replace(/[<&>]/g, "")}` : "";
+  const deliveryFormat = item.deliveryFormat?.trim() ? `\n\n📋 <b>Delivery format</b>\n${item.deliveryFormat.replace(/[<&>]/g, "")}` : "";
   const delivery = item.deliveryMode === "manual" ? "🕐 Manual delivery" : "⚡ Automatic digital delivery";
   const warranty = item.warrantyDays > 0 ? `\n🛡️ Warranty: <b>${item.warrantyDays} days</b>` : "";
-  const productText = `✨ <b>${safeName}</b>\n\n${safeDescription}${details}\n\n━━━━━━━━━━━━━━\n💵 <b>$${(item.priceCents / 100).toFixed(2)}</b> per unit\n📦 <b>${item.stock}</b> available\n${delivery}${warranty}\n\nChoose an action below:`;
+  const productText = `✨ <b>${safeName}</b>\n\n${safeDescription}${deliveryFormat}\n\n━━━━━━━━━━━━━━\n💵 <b>$${(item.priceCents / 100).toFixed(2)}</b> per unit\n📦 <b>${item.stock}</b> available\n${delivery}${warranty}\n\nChoose an action below:`;
   const productKeyboard = buildProductKeyboard(item.id);
   if (hasProductImage(item.imageUrl)) {
     try {

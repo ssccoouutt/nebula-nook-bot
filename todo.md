@@ -410,3 +410,6 @@
 - [x] Add regression coverage for zero-stock catalog rendering, explicit deletion behavior, and wallet-balance Drive events.
 
 - [x] Notify every existing bot user in a private chat when stock is newly added, including product details and a working Buy now button, with deduplicated failure handling; existing recipient selection and delivery tracking were verified and preserved.
+
+- [x] Replace the dashboard Additional details product field with Delivery format, supporting values such as activation link or username; password.
+- [x] Propagate Delivery format through product creation/editing, storage compatibility, and user-facing product/delivery presentation with regression coverage.
