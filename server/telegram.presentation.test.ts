@@ -13,6 +13,7 @@ import {
   formatHomeMessage,
   formatMembershipMessage,
   formatOrderStatus,
+  formatDetailedOrder,
   formatPurchaseConfirmation,
   formatShopSummary,
   SHOP_PAGE_SIZE,
@@ -108,12 +109,18 @@ describe("Telegram presentation and notification helpers", () => {
   });
 
   it("keeps core messages emoji-led and HTML formatted", () => {
-    const home = formatHomeMessage({ firstName: "Rashid", username: "rashid", tier: "Silver", balanceCents: 1000, referrals: 3, access: true });
+    const home = formatHomeMessage({ firstName: "Rashid", username: "rashid", tier: "Silver", balanceCents: 1000, totalSpentCents: 2750, referrals: 3, access: true });
     expect(home).toContain("👋 <b>Welcome to ToolsMania, Rashid!</b>");
     expect(home).toContain("<code>@rashid</code>");
     expect(home).toContain("<b>Silver</b>");
     expect(home).toContain("<b>$10.00</b>");
+    expect(home).toContain("Total spent: <b>$27.50</b>");
     expect(home).toContain("<b>3</b>");
+    const order = formatDetailedOrder({ id: 42, kind: "purchase", status: "fulfilled", amountCents: 100, productName: "Gemini Pro", deliveredItem: "activation-link", paymentMethod: "Wallet", createdAt: "2026-08-17T12:34:56.000Z" });
+    expect(order).toContain("Product: <b>Gemini Pro</b>");
+    expect(order).toContain("Payment: <b>Wallet</b>");
+    expect(order).toContain("Purchased: <b>2026-08-17 12:34 UTC</b>");
+    expect(order).toContain("<pre>activation-link</pre>");
     expect(home).toContain("✅ Membership active");
     expect(formatMembershipMessage()).toContain("🔐 <b>Membership required</b>");
     expect(formatSupportPrompt()).toContain("🆘 <b>Support</b>");

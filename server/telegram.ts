@@ -1,5 +1,5 @@
 import type { Request, Response } from "express";
-import { and, desc, eq, gt, sql } from "drizzle-orm";
+import { and, desc, eq, gt, inArray, sql } from "drizzle-orm";
 import { getDb } from "./db";
 import { binancePayDeposits, botSettings, botUsers, freeClaims, notificationDeliveries, orders, paymentIntents, priceAlerts, products, referrals, supportTickets, walletLedger } from "../drizzle/schema";
 import { findBinancePayTransaction } from "./binancePay";
@@ -253,14 +253,15 @@ export function buildConfirmedPurchasePlan(balanceCents: number, priceCents: num
   return { ok: true as const, quantity: purchase.quantity, totalCents: purchase.totalCents, nextBalanceCents: purchase.nextBalanceCents, nextStock: purchase.nextStock };
 }
 
-export function formatHomeMessage(details?: { firstName?: string | null; username?: string | null; tier?: string | null; balanceCents?: number; referrals?: number; access?: boolean }) {
+export function formatHomeMessage(details?: { firstName?: string | null; username?: string | null; tier?: string | null; balanceCents?: number; totalSpentCents?: number; referrals?: number; access?: boolean }) {
   const name = (details?.firstName ?? "there").replace(/[<&>]/g, "");
   const handle = details?.username ? `@${details.username.replace(/[<&>]/g, "")}` : "No username";
   const tier = details?.tier ?? "Bronze";
   const balance = `$${((details?.balanceCents ?? 0) / 100).toFixed(2)}`;
+  const totalSpent = `$${((details?.totalSpentCents ?? 0) / 100).toFixed(2)}`;
   const referrals = details?.referrals ?? 0;
   const access = details?.access === false ? "🔒 Membership required" : "✅ Membership active";
-  return `👋 <b>Welcome to ToolsMania, ${name}!</b>\n\n👤 <b>Your account</b>\n├ Username: <code>${handle}</code>\n├ Tier: <b>${tier}</b>\n├ Wallet: <b>${balance}</b>\n└ Referrals: <b>${referrals}</b>\n\n${access}\nChoose an option below to claim freebies, shop digital products, or manage your account:`;
+  return `👋 <b>Welcome to ToolsMania, ${name}!</b>\n\n👤 <b>Your account</b>\n├ Username: <code>${handle}</code>\n├ Tier: <b>${tier}</b>\n├ Wallet: <b>${balance}</b>\n├ Total spent: <b>${totalSpent}</b>\n└ Referrals: <b>${referrals}</b>\n\n${access}\nChoose an option below to claim freebies, shop digital products, or manage your account:`;
 }
 
 export function formatMembershipMessage() {
@@ -316,6 +317,15 @@ export function buildFreebiesKeyboard(items: Array<{ id: number; name: string }>
 export function formatOrderStatus(orderId: string | number, kind: string, status: string, amountCents: number) {
   const icon = status === "fulfilled" ? "✅" : status === "cancelled" ? "❌" : "⏳";
   return `${icon} #${orderId} · ${kind} · ${status} · $${(amountCents / 100).toFixed(2)}`;
+}
+
+export function formatDetailedOrder(order: { id: string | number; kind: string; status: string; amountCents: number; productName: string; deliveredItem?: string | null; paymentMethod?: string | null; createdAt: Date | string }) {
+  const icon = order.status === "fulfilled" ? "✅" : order.status === "cancelled" ? "❌" : "⏳";
+  const purchasedAt = new Date(order.createdAt).toISOString().replace("T", " ").slice(0, 16) + " UTC";
+  const product = order.productName.replace(/[<&>]/g, "");
+  const delivered = order.deliveredItem?.trim() ? `\n📦 Delivered:\n<pre>${order.deliveredItem.trim().replace(/[<&>]/g, "")}</pre>` : "";
+  const payment = (order.paymentMethod ?? (order.amountCents > 0 ? "Payment method unavailable" : "Free / credits")).replace(/[<&>]/g, "");
+  return `${icon} <b>Order #${order.id}</b>\n🛍️ Product: <b>${product}</b>\n💵 Amount: <b>$${(order.amountCents / 100).toFixed(2)}</b>\n💳 Payment: <b>${payment}</b>\n🗓️ Purchased: <b>${purchasedAt}</b>\n📌 Status: <b>${order.status}</b>${delivered}`;
 }
 
 export function maskPurchaseName(name: string | undefined, telegramUserId?: number) {
@@ -715,12 +725,14 @@ async function showHome(chatId: number, userId: number, messageId?: number) {
   if (!db) throw new Error("Database is unavailable");
   const user = (await db.select().from(botUsers).where(eq(botUsers.telegramUserId, userId)).limit(1))[0];
   const referralRows = await db.select({ count: sql<number>`count(*)` }).from(referrals).where(eq(referrals.referrerId, user?.id ?? -1));
+  const spentRows = await db.select({ total: sql<number>`coalesce(sum(${orders.amountCents}), 0)` }).from(orders).where(eq(orders.botUserId, user?.id ?? -1));
   const status = await membershipStatus(userId);
   await respond(chatId, formatHomeMessage({
     firstName: user?.firstName,
     username: user?.username,
     tier: user?.tier,
     balanceCents: user?.balanceCents,
+    totalSpentCents: Number(spentRows[0]?.total ?? 0),
     referrals: Number(referralRows[0]?.count ?? 0),
     access: status.access,
   }), buildHomeKeyboard(), messageId);
@@ -793,8 +805,13 @@ async function showOrders(chatId: number, userId: number, messageId?: number) {
   const db = await getDb();
   if (!db) throw new Error("Database is unavailable");
   const user = (await db.select().from(botUsers).where(eq(botUsers.telegramUserId, userId)).limit(1))[0];
-  const rows = await db.select().from(orders).where(eq(orders.botUserId, user?.id ?? -1)).orderBy(desc(orders.createdAt)).limit(1000);
-  await respond(chatId, rows.length ? `📦 <b>Orders</b>\n\n${rows.map((o) => formatOrderStatus(o.id, o.kind, o.status, o.amountCents)).join("\n")}` : "📦 <b>Orders</b>\n\nYou do not have any orders yet.", buildHomeKeyboard(), messageId);
+  const rows = await db.select().from(orders).where(eq(orders.botUserId, user?.id ?? -1)).orderBy(desc(orders.createdAt)).limit(50);
+  const productIds = Array.from(new Set(rows.map((row) => row.productId).filter((id): id is number => typeof id === "number")));
+  const productRows = productIds.length ? await db.select().from(products).where(inArray(products.id, productIds)) : [];
+  const productById = new Map(productRows.map((product) => [product.id, product.name]));
+  const details = rows.map((order) => formatDetailedOrder({ ...order, productName: productById.get(order.productId) ?? `Product #${order.productId}` })).join("\n\n");
+  const text = details ? `📦 <b>Orders</b>\n\n${details}` : "📦 <b>Orders</b>\n\nYou do not have any orders yet.";
+  await respond(chatId, text.slice(0, 4000), buildHomeKeyboard(), messageId);
 }
 
 async function showProfile(chatId: number, userId: number, messageId?: number) {
@@ -802,7 +819,8 @@ async function showProfile(chatId: number, userId: number, messageId?: number) {
   if (!db) throw new Error("Database is unavailable");
   const user = (await db.select().from(botUsers).where(eq(botUsers.telegramUserId, userId)).limit(1))[0];
   const referralsCount = await db.select({ count: sql<number>`count(*)` }).from(referrals).where(eq(referrals.referrerId, user?.id ?? -1));
-  await respond(chatId, `👤 <b>Profile</b>\n\n🪪 Name: ${user?.firstName ?? "User"}\n🏅 Tier: ${user?.tier ?? "Bronze"}\n🤝 Referrals: ${Number(referralsCount[0]?.count ?? 0)}\n\n🔗 Your referral link:\nhttps://t.me/${PUBLIC_BOT_USERNAME}?start=ref_${user?.referralCode ?? ""}`, buildHomeKeyboard(), messageId);
+  const spentRows = await db.select({ total: sql<number>`coalesce(sum(${orders.amountCents}), 0)` }).from(orders).where(eq(orders.botUserId, user?.id ?? -1));
+  await respond(chatId, `👤 <b>Profile</b>\n\n🪪 Name: ${user?.firstName ?? "User"}\n🏅 Tier: ${user?.tier ?? "Bronze"}\n💰 Total spent: <b>$${(Number(spentRows[0]?.total ?? 0) / 100).toFixed(2)}</b>\n🤝 Referrals: ${Number(referralsCount[0]?.count ?? 0)}\n\n🔗 Your referral link:\nhttps://t.me/${PUBLIC_BOT_USERNAME}?start=ref_${user?.referralCode ?? ""}`, buildHomeKeyboard(), messageId);
 }
 
 async function showReferrals(chatId: number, userId: number, messageId?: number) {
