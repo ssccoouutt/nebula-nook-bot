@@ -436,3 +436,8 @@
 - [x] Allow arbitrary warranty text such as `no warranty` or `30 Minutes` instead of requiring a numeric day count.
 - [x] Add a freebies-only product availability mode that hides a product from the normal Shop catalog while keeping it visible in Freebies.
 - [x] Add regression coverage for warranty text validation and normal-Shop versus Freebies visibility.
+
+- [x] Add payment method and product details to the dashboard Orders section.
+- [x] Change anonymous group notification masking to show only the first letter of the username.
+- [x] Add regression coverage for dashboard order fields and first-letter-only notification masking.
+2026-08-17

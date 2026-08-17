@@ -189,13 +189,42 @@ export const appRouter = router({
     ledger: adminProcedure.query(async () => (await database()).select().from(walletLedger).orderBy(desc(walletLedger.createdAt)).limit(300)),
     completedOrders: adminProcedure.input(z.object({ search: z.string().trim().max(200).default(""), limit: z.number().int().min(1).max(1000).default(500) }).optional()).query(async ({ input }) => {
       const db = await database();
-      const [rows, users, catalog] = await Promise.all([
+      const [rows, users, catalog, intents] = await Promise.all([
         db.select().from(orders).where(eq(orders.status, "fulfilled")).orderBy(desc(orders.updatedAt)).limit(input?.limit ?? 500),
         db.select().from(botUsers),
-        db.select({ id: products.id, name: products.name }).from(products),
+        db.select().from(products),
+        db.select().from(paymentIntents).where(eq(paymentIntents.status, "fulfilled")),
       ]);
-      const userById = new Map(users.map((user) => [user.id, user])); const productById = new Map(catalog.map((product) => [product.id, product])); const search = (input?.search ?? "").toLowerCase();
-      return rows.map((row) => { const user = userById.get(row.botUserId); const product = productById.get(row.productId); return { ...row, userName: [user?.firstName, user?.lastName].filter(Boolean).join(" ") || "Unknown user", username: user?.username ?? "", telegramUserId: user?.telegramUserId ?? null, productName: product?.name ?? `Product #${row.productId}` }; }).filter((row) => !search || `${row.userName} ${row.username} ${row.telegramUserId ?? ""} ${row.productName} ${row.id} ${row.kind}`.toLowerCase().includes(search));
+      const userById = new Map(users.map((user) => [user.id, user]));
+      const productById = new Map(catalog.map((product) => [product.id, product]));
+      const search = (input?.search ?? "").toLowerCase();
+      const paymentMethodFor = (row: typeof rows[number]) => {
+        if (row.kind === "claim") return "Freebie";
+        if (row.kind === "referral_reward") return "Referral credits";
+        const matching = intents
+          .filter((intent) => intent.botUserId === row.botUserId && intent.productId === row.productId && intent.amountCents === row.amountCents && intent.quantity > 0)
+          .sort((a, b) => Math.abs(a.updatedAt.getTime() - row.updatedAt.getTime()) - Math.abs(b.updatedAt.getTime() - row.updatedAt.getTime()))[0];
+        if (matching?.method === "bep20") return "USDT BEP20";
+        if (matching?.method === "binance_pay") return "Binance Pay";
+        return "Wallet";
+      };
+      return rows.map((row) => {
+        const user = userById.get(row.botUserId);
+        const product = productById.get(row.productId);
+        const paymentMethod = paymentMethodFor(row);
+        return {
+          ...row,
+          userName: [user?.firstName, user?.lastName].filter(Boolean).join(" ") || "Unknown user",
+          username: user?.username ?? "",
+          telegramUserId: user?.telegramUserId ?? null,
+          productName: product?.name ?? `Product #${row.productId}`,
+          productDescription: product?.description ?? "",
+          deliveryFormat: product?.deliveryFormat ?? "",
+          deliveryMode: product?.deliveryMode ?? "automatic",
+          warranty: product?.warrantyDays ?? "",
+          paymentMethod,
+        };
+      }).filter((row) => !search || `${row.userName} ${row.username} ${row.telegramUserId ?? ""} ${row.productName} ${row.productDescription} ${row.deliveryFormat} ${row.paymentMethod} ${row.id} ${row.kind}`.toLowerCase().includes(search));
     }),
     deposits: adminProcedure.input(z.object({ search: z.string().trim().max(200).default(""), asset: z.string().trim().max(30).default(""), limit: z.number().int().min(1).max(1000).default(500) }).optional()).query(async ({ input }) => {
       const db = await database();

@@ -320,8 +320,7 @@ export function formatOrderStatus(orderId: string | number, kind: string, status
 
 export function maskPurchaseName(name: string | undefined, telegramUserId?: number) {
   const raw = (name ?? "User").replace(/[<>]/g, "").trim() || "User";
-  if (raw.length <= 2) return `${raw[0] ?? "U"}***`;
-  return `${raw[0]}*****${raw.slice(-1)}`;
+  return `${raw[0] ?? "U"}*****`;
 }
 
 export function productEmoji(productName: string) {

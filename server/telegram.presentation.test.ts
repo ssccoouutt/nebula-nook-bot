@@ -410,10 +410,11 @@ describe("Telegram presentation and notification helpers", () => {
   });
 
   it("builds a Qamify-style masked purchase announcement with a product deep link", () => {
-    expect(maskPurchaseName("Rashid")).toBe("R*****d");
+    expect(maskPurchaseName("Rashid")).toBe("R*****");
     expect(productEmoji("Gemini Pro Trial Link")).toBe("🔋");
     const announcement = buildPurchaseAnnouncement(12, "Gemini Pro Trial Link", 2, "Rashid", 7278358063);
-    expect(announcement.text).toContain("R*****d");
+    expect(announcement.text).toContain("R*****");
+    expect(announcement.text).not.toContain("R*****d");
     expect(announcement.text).toContain("2×");
     expect(announcement.text).toContain("🔋 <b>Gemini Pro Trial Link</b>");
     expect(announcement.replyMarkup.inline_keyboard[0][0]).toEqual({
