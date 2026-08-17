@@ -467,3 +467,7 @@
 
 - [x] Normalize legacy numeric warranty values before Telegram product-detail rendering.
 - [x] Add regression coverage proving Available Products product clicks render for legacy numeric warranties.
+
+- [x] Diagnose why dashboard Broadcast queue announcements are not delivered to bot users.
+- [x] Repair broadcast processing and expose delivery success/failure feedback.
+- [x] Add regression coverage for queued broadcast delivery and failure handling.

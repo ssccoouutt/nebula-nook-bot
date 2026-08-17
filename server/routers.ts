@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { desc, eq, sql } from "drizzle-orm";
+import { and, desc, eq, sql } from "drizzle-orm";
 import { COOKIE_NAME } from "@shared/const";
 import { getSessionCookieOptions } from "./_core/cookies";
 import { systemRouter } from "./_core/systemRouter";
@@ -21,6 +21,7 @@ function productValues(input: { name: string; description: string; deliveryForma
   return { name: input.name.trim(), description: input.description.trim(), deliveryFormat: input.deliveryFormat.trim(), priceCents, stock: items.length, inventoryText: items.join("\n"), deliveryMode: input.deliveryMode, warrantyDays: input.warrantyDays.trim(), imageUrl: input.imageUrl.trim(), freeEligible: input.freeEligible ? 1 : 0, freeWindowMs: input.freeWindowMs, shopEligible: input.shopEligible ? 1 : 0, referralEligible: input.referralEligible ? 1 : 0, referralPriceCredits: Math.max(1, Math.floor(input.referralPriceCredits)), ...(input.active === undefined ? {} : { active: input.active ? 1 : 0 }) };
 }
 import { buildFulfillmentNotifications, configureTelegramWebhook, notifyAdmin, notifyProductAvailability, sendTelegramMessage, validTelegramJoinUrl } from "./telegram";
+import { normalizeBroadcastRecipients } from "./broadcast";
 
 export function dashboardLastActivity(updatedAtMs: number, relatedLastActivityMs: number) {
   return Math.max(updatedAtMs, relatedLastActivityMs);
@@ -34,6 +35,38 @@ async function database() {
   const db = await getDb();
   if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Database is unavailable" });
   return db;
+}
+
+async function deliverBroadcast(db: Awaited<ReturnType<typeof database>>, broadcastId: number) {
+  const claimed = await db.update(broadcasts)
+    .set({ status: "sending" })
+    .where(and(eq(broadcasts.id, broadcastId), eq(broadcasts.status, "queued")))
+    .returning({ id: broadcasts.id, message: broadcasts.message });
+  if (!claimed.length) {
+    const existing = await db.select().from(broadcasts).where(eq(broadcasts.id, broadcastId)).limit(1);
+    return existing[0] ?? { id: broadcastId, message: "", status: "missing", sentCount: 0, failedCount: 0 };
+  }
+
+  const recipientRows = await db.select({ telegramUserId: botUsers.telegramUserId }).from(botUsers);
+  const recipients = normalizeBroadcastRecipients(recipientRows.map(({ telegramUserId }) => telegramUserId));
+  let sentCount = 0;
+  let failedCount = 0;
+  const batchSize = 20;
+  for (let offset = 0; offset < recipients.length; offset += batchSize) {
+    const batch = recipients.slice(offset, offset + batchSize);
+    const results = await Promise.allSettled(batch.map((telegramUserId) => sendTelegramMessage(telegramUserId, claimed[0].message)));
+    for (const result of results) {
+      if (result.status === "fulfilled") sentCount += 1;
+      else {
+        failedCount += 1;
+        console.warn("[Broadcast] Telegram delivery failed", result.reason);
+      }
+    }
+  }
+
+  const completedAt = new Date();
+  await db.update(broadcasts).set({ status: "completed", sentCount, failedCount, completedAt }).where(eq(broadcasts.id, broadcastId));
+  return { id: broadcastId, message: claimed[0].message, status: "completed", sentCount, failedCount, completedAt };
 }
 
 export const appRouter = router({
@@ -257,8 +290,9 @@ export const appRouter = router({
     }),
     queueBroadcast: adminProcedure.input(z.object({ message: z.string().min(1).max(4000) })).mutation(async ({ input }) => {
       const db = await database();
-      await db.insert(broadcasts).values({ message: input.message, status: "queued" });
-      return { success: true };
+      const inserted = await db.insert(broadcasts).values({ message: input.message.trim(), status: "queued" }).returning({ id: broadcasts.id });
+      const result = await deliverBroadcast(db, inserted[0].id);
+      return { success: result.status === "completed", status: result.status, sentCount: result.sentCount, failedCount: result.failedCount };
     }),
   }),
 });
