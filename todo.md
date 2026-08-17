@@ -451,3 +451,8 @@
 
 - [x] Correct the authenticated Koyeb service deployment source or revision so it runs GitHub main commit 3467f9a.
 - [ ] Trigger the Koyeb redeploy and verify the live asset hash and dashboard counts after startup.
+
+- [x] Show the actual delivered stock item in dashboard order history.
+- [x] Preserve purchase-time snapshots for order price, warranty, payment method, and related historical fields.
+- [x] Remove product description and delivery format from the Orders history presentation while retaining useful historical metadata.
+- [x] Add regression coverage for delivered stock and immutable purchase-time order details.

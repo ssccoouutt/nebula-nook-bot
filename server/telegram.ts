@@ -828,7 +828,7 @@ async function claimReferralReward(chatId: number, userId: number, productId: nu
     const digital = product.inventoryText?.trim() ? consumeDigitalInventory(product.inventoryText, 1) : { ok: true as const, items: [] as string[], remaining: [] as string[] };
     if (!digital.ok) return { ok: false as const, reason: "stock" as const };
     const deliveryMode = product.deliveryMode === "manual" ? "manual" as const : "automatic" as const;
-    const inserted = await tx.insert(orders).values({ botUserId: user.id, productId: product.id, kind: "referral", amountCents: 0, status: deliveryMode === "manual" ? "paid" : "fulfilled" });
+    const inserted = await tx.insert(orders).values({ botUserId: user.id, productId: product.id, kind: "referral", amountCents: 0, status: deliveryMode === "manual" ? "paid" : "fulfilled", deliveredItem: digital.items[0] ?? null, purchaseWarranty: product.warrantyDays?.trim() || null, paymentMethod: "Referral credits", quantity: 1 });
     const orderId = String(extractInsertedRowId(inserted) || `${user.id}:referral:${product.id}:${Date.now()}`);
     await tx.update(botUsers).set({ referralCredits: sql`${botUsers.referralCredits} - ${product.referralPriceCredits}` }).where(eq(botUsers.id, user.id));
     await tx.update(products).set({ stock: product.stock - 1, inventoryText: product.inventoryText?.trim() ? digital.remaining.join("\n") : product.inventoryText }).where(eq(products.id, product.id));
@@ -859,7 +859,7 @@ async function claimFree(chatId: number, userId: number, productId: number, mess
   if (!digital.ok) return respond(chatId, "⚠️ This free item is currently unavailable.", buildFreebiesKeyboard([]), messageId);
   await db.insert(freeClaims).values({ botUserId: user.id, productId: product.id, windowStartMs: windowStart, status: "claimed" });
   await db.update(products).set({ stock: product.stock - 1, inventoryText: product.inventoryText?.trim() ? digital.remaining.join("\n") : product.inventoryText }).where(eq(products.id, product.id));
-  const order = await db.insert(orders).values({ botUserId: user.id, productId: product.id, kind: "free", amountCents: 0, status: "fulfilled" });
+  const order = await db.insert(orders).values({ botUserId: user.id, productId: product.id, kind: "free", amountCents: 0, status: "fulfilled", deliveredItem: digital.items[0] ?? null, purchaseWarranty: product.warrantyDays?.trim() || null, paymentMethod: "Freebie", quantity: 1 });
   scheduleDriveSync("completed_order");
   const delivery = digital.items.length ? `\n\n📦 <b>Your digital item</b>\n<blockquote>${digital.items[0].replace(/[<&>]/g, "")}</blockquote>\n\nTap and hold the text above to copy it.` : "";
   await respond(chatId, `✅ <b>Free claim recorded</b>\n\n🎁 ${product.name}${delivery}\n\nYour claim has been added to your order history.`, buildHomeKeyboard(), messageId);
@@ -908,7 +908,7 @@ async function createPurchase(chatId: number, userId: number, productId: number,
     const digital = product.inventoryText?.trim() ? consumeDigitalInventory(product.inventoryText, purchase.quantity) : { ok: true as const, items: [] as string[], remaining: [] as string[] };
     if (!digital.ok) return { ok: false as const, status: "out_of_stock" as const, productId: product.id, stock: product.stock, totalCents: purchase.totalCents };
     const deliveryMode = product.deliveryMode === "manual" ? "manual" as const : "automatic" as const;
-    const result = await tx.insert(orders).values({ botUserId: user.id, productId: product.id, kind: "purchase", amountCents: purchase.totalCents, status: deliveryMode === "manual" ? "paid" : "fulfilled" });
+    const result = await tx.insert(orders).values({ botUserId: user.id, productId: product.id, kind: "purchase", amountCents: purchase.totalCents, status: deliveryMode === "manual" ? "paid" : "fulfilled", deliveredItem: digital.items.length ? digital.items.join("\n") : null, purchaseWarranty: product.warrantyDays?.trim() || null, paymentMethod: "Wallet", quantity: purchase.quantity });
     const orderId = String(extractInsertedRowId(result) || `${user.id}:${product.id}:${Date.now()}`);
     await tx.update(botUsers).set({ balanceCents: purchase.nextBalanceCents }).where(eq(botUsers.id, user.id));
     await tx.update(products).set({ stock: purchase.nextStock, inventoryText: product.inventoryText?.trim() ? digital.remaining.join("\n") : product.inventoryText }).where(eq(products.id, product.id));
@@ -1092,7 +1092,7 @@ async function verifyAndFulfillBinancePurchase(chatId: number, userId: number, i
     const digital = product.inventoryText?.trim() ? consumeDigitalInventory(product.inventoryText, current.quantity) : { ok: true as const, items: [] as string[], remaining: [] as string[] };
     if (!digital.ok) return { ok: false as const, reason: "unavailable" as const };
     const deliveryMode = product.deliveryMode === "manual" ? "manual" as const : "automatic" as const;
-    const inserted = await tx.insert(orders).values({ botUserId: account.id, productId: product.id, kind: "purchase", amountCents: current.amountCents, status: deliveryMode === "manual" ? "paid" : "fulfilled" });
+    const inserted = await tx.insert(orders).values({ botUserId: account.id, productId: product.id, kind: "purchase", amountCents: current.amountCents, status: deliveryMode === "manual" ? "paid" : "fulfilled", deliveredItem: digital.items.length ? digital.items.join("\n") : null, purchaseWarranty: product.warrantyDays?.trim() || null, paymentMethod: isBep20 ? "USDT BEP20" : "Binance Pay", quantity: current.quantity });
     const orderId = extractInsertedRowId(inserted) || Number(`${Date.now()}`.slice(-9));
     await tx.update(products).set({ stock: sql`${products.stock} - ${current.quantity}`, inventoryText: product.inventoryText?.trim() ? digital.remaining.join("\n") : product.inventoryText }).where(eq(products.id, product.id));
     await tx.update(paymentIntents).set({ status: "fulfilled", transactionId: transactionRef }).where(eq(paymentIntents.id, current.id));

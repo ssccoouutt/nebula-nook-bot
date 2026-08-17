@@ -44,7 +44,7 @@ CREATE TABLE IF NOT EXISTS botUsers (id INTEGER PRIMARY KEY AUTOINCREMENT, teleg
 CREATE TABLE IF NOT EXISTS botSettings (id INTEGER PRIMARY KEY AUTOINCREMENT, key TEXT NOT NULL UNIQUE, value TEXT NOT NULL, updatedAt INTEGER NOT NULL DEFAULT (strftime('%s','now') * 1000));
 CREATE TABLE IF NOT EXISTS products (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, description TEXT NOT NULL, details TEXT NOT NULL DEFAULT '', deliveryFormat TEXT NOT NULL DEFAULT '', priceCents INTEGER NOT NULL, stock INTEGER NOT NULL DEFAULT 0, inventoryText TEXT NOT NULL DEFAULT '', deliveryMode TEXT NOT NULL DEFAULT 'automatic', warrantyDays INTEGER NOT NULL DEFAULT 0, imageUrl TEXT NOT NULL DEFAULT '', active INTEGER NOT NULL DEFAULT 1, freeEligible INTEGER NOT NULL DEFAULT 0, freeWindowMs INTEGER, shopEligible INTEGER NOT NULL DEFAULT 1, referralEligible INTEGER NOT NULL DEFAULT 0, referralPriceCredits INTEGER NOT NULL DEFAULT 1, createdAt INTEGER NOT NULL DEFAULT (strftime('%s','now') * 1000), updatedAt INTEGER NOT NULL DEFAULT (strftime('%s','now') * 1000));
 CREATE TABLE IF NOT EXISTS freeClaims (id INTEGER PRIMARY KEY AUTOINCREMENT, botUserId INTEGER NOT NULL, productId INTEGER NOT NULL, windowStartMs INTEGER NOT NULL, status TEXT NOT NULL DEFAULT 'claimed', createdAt INTEGER NOT NULL DEFAULT (strftime('%s','now') * 1000), UNIQUE (botUserId, productId, windowStartMs));
-CREATE TABLE IF NOT EXISTS orders (id INTEGER PRIMARY KEY AUTOINCREMENT, botUserId INTEGER NOT NULL, productId INTEGER NOT NULL, kind TEXT NOT NULL, amountCents INTEGER NOT NULL, status TEXT NOT NULL DEFAULT 'pending', createdAt INTEGER NOT NULL DEFAULT (strftime('%s','now') * 1000), updatedAt INTEGER NOT NULL DEFAULT (strftime('%s','now') * 1000));
+CREATE TABLE IF NOT EXISTS orders (id INTEGER PRIMARY KEY AUTOINCREMENT, botUserId INTEGER NOT NULL, productId INTEGER NOT NULL, kind TEXT NOT NULL, amountCents INTEGER NOT NULL, status TEXT NOT NULL DEFAULT 'pending', deliveredItem TEXT, purchaseWarranty TEXT, paymentMethod TEXT, quantity INTEGER NOT NULL DEFAULT 1, createdAt INTEGER NOT NULL DEFAULT (strftime('%s','now') * 1000), updatedAt INTEGER NOT NULL DEFAULT (strftime('%s','now') * 1000));
 CREATE TABLE IF NOT EXISTS walletLedger (id INTEGER PRIMARY KEY AUTOINCREMENT, botUserId INTEGER NOT NULL, amountCents INTEGER NOT NULL, kind TEXT NOT NULL, referenceId TEXT, note TEXT, createdAt INTEGER NOT NULL DEFAULT (strftime('%s','now') * 1000));
 CREATE TABLE IF NOT EXISTS binancePayDeposits (id INTEGER PRIMARY KEY AUTOINCREMENT, botUserId INTEGER NOT NULL, transactionId TEXT NOT NULL UNIQUE, amountCents INTEGER NOT NULL, asset TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'verified', rawStatus TEXT, createdAt INTEGER NOT NULL DEFAULT (strftime('%s','now') * 1000));
 CREATE TABLE IF NOT EXISTS paymentIntents (id INTEGER PRIMARY KEY AUTOINCREMENT, botUserId INTEGER NOT NULL, productId INTEGER NOT NULL, quantity INTEGER NOT NULL, amountCents INTEGER NOT NULL, method TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'pending', transactionId TEXT UNIQUE, createdAt INTEGER NOT NULL DEFAULT (strftime('%s','now') * 1000), updatedAt INTEGER NOT NULL DEFAULT (strftime('%s','now') * 1000));
@@ -63,6 +63,19 @@ function ensureReferralColumns(client: DatabaseClient) {
   if (!productColumns.has("referralPriceCredits")) client.exec("ALTER TABLE products ADD COLUMN referralPriceCredits INTEGER NOT NULL DEFAULT 1");
   const referralColumns = new Set((client.prepare("PRAGMA table_info(referrals)").all() as Array<{ name: string }>).map(column => column.name));
   if (!referralColumns.has("creditsAwarded")) client.exec("ALTER TABLE referrals ADD COLUMN creditsAwarded INTEGER NOT NULL DEFAULT 1");
+}
+
+function ensureOrderColumns(client: DatabaseClient) {
+  const columns = new Set((client.prepare("PRAGMA table_info(orders)").all() as Array<{ name: string }>).map((column) => column.name));
+  const additions: Array<[string, string]> = [
+    ["deliveredItem", "TEXT"],
+    ["purchaseWarranty", "TEXT"],
+    ["paymentMethod", "TEXT"],
+    ["quantity", "INTEGER NOT NULL DEFAULT 1"],
+  ];
+  for (const [name, definition] of additions) {
+    if (!columns.has(name)) client.exec(`ALTER TABLE orders ADD COLUMN "${name}" ${definition}`);
+  }
 }
 
 function ensureProductColumns(client: DatabaseClient) {
@@ -87,6 +100,7 @@ async function initialize(): Promise<AppDb> {
   _client = new DatabaseSync(storageFile);
   _client.exec(schemaSql);
   ensureReferralColumns(_client);
+  ensureOrderColumns(_client);
   ensureProductColumns(_client);
   const client = _client;
   const db = drizzle<AppSchema>(async (sql, params, method) => {

@@ -8,6 +8,7 @@ import { getDb } from "./db";
 import { binancePayDeposits, botSettings, botUsers, broadcasts, orders, paymentIntents, referrals, products, supportTickets, walletLedger } from "../drizzle/schema";
 import { TRPCError } from "@trpc/server";
 import { scheduleDriveSync } from "./googleDrivePersistence";
+import { orderHistorySearchText, resolveOrderHistorySnapshot } from "./orderHistory";
 
 function inventoryLines(value: string) {
   return value.replaceAll("\\n", "\n").split(/\r?\n/).map(line => line.trim()).filter(Boolean);
@@ -211,20 +212,18 @@ export const appRouter = router({
       return rows.map((row) => {
         const user = userById.get(row.botUserId);
         const product = productById.get(row.productId);
-        const paymentMethod = paymentMethodFor(row);
-        return {
+        const legacyPaymentMethod = paymentMethodFor(row);
+        const snapshot = resolveOrderHistorySnapshot({ deliveredItem: row.deliveredItem, purchaseWarranty: row.purchaseWarranty, quantity: row.quantity, paymentMethod: row.paymentMethod, legacyWarranty: product?.warrantyDays, legacyPaymentMethod });
+        const result = {
           ...row,
           userName: [user?.firstName, user?.lastName].filter(Boolean).join(" ") || "Unknown user",
           username: user?.username ?? "",
           telegramUserId: user?.telegramUserId ?? null,
           productName: product?.name ?? `Product #${row.productId}`,
-          productDescription: product?.description ?? "",
-          deliveryFormat: product?.deliveryFormat ?? "",
-          deliveryMode: product?.deliveryMode ?? "automatic",
-          warranty: product?.warrantyDays ?? "",
-          paymentMethod,
+          ...snapshot,
         };
-      }).filter((row) => !search || `${row.userName} ${row.username} ${row.telegramUserId ?? ""} ${row.productName} ${row.productDescription} ${row.deliveryFormat} ${row.paymentMethod} ${row.id} ${row.kind}`.toLowerCase().includes(search));
+        return result;
+      }).filter((row) => !search || orderHistorySearchText(row).includes(search));
     }),
     deposits: adminProcedure.input(z.object({ search: z.string().trim().max(200).default(""), asset: z.string().trim().max(30).default(""), limit: z.number().int().min(1).max(1000).default(500) }).optional()).query(async ({ input }) => {
       const db = await database();
