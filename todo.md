@@ -441,3 +441,6 @@
 - [x] Change anonymous group notification masking to show only the first letter of the username.
 - [x] Add regression coverage for dashboard order fields and first-letter-only notification masking.
 2026-08-17
+
+- [x] Fix redeploy restore precedence so the latest Google Drive users, orders, and product exports load instead of an older SQLite snapshot.
+- [x] Add restart-style regression coverage proving the newest Drive export state wins during recovery.

@@ -123,7 +123,8 @@ async function findFile(drive: ReturnType<typeof google.drive>, name: string, pa
     q: `name = '${name.replaceAll("'", "\\'")}' and '${parentId}' in parents and trashed = false`,
     spaces: "drive",
     fields: "files(id,name,modifiedTime,size)",
-    pageSize: 10,
+    orderBy: "modifiedTime desc",
+    pageSize: 100,
   });
   return result.data.files?.[0] || null;
 }
@@ -158,7 +159,17 @@ export function shouldRestoreReadableExportRow(table: string, row: Record<string
   return !(table === "botSettings" && row.key === "last_update_id");
 }
 
-async function restoreReadableExports(setup: { drive: ReturnType<typeof google.drive>; ids: { exports: string } }, databasePath: string) {
+export function shouldPreferReadableExports(snapshotModifiedTime: string | undefined, exportModifiedTimes: Array<string | undefined>) {
+  if (!snapshotModifiedTime) return exportModifiedTimes.some(Boolean);
+  const snapshotMs = Date.parse(snapshotModifiedTime);
+  if (!Number.isFinite(snapshotMs)) return exportModifiedTimes.some(Boolean);
+  return exportModifiedTimes.some(value => {
+    const exportMs = value ? Date.parse(value) : NaN;
+    return Number.isFinite(exportMs) && exportMs > snapshotMs;
+  });
+}
+
+async function restoreReadableExports(setup: { drive: ReturnType<typeof google.drive>; ids: { exports: string } }, databasePath: string, replaceExisting = false) {
   const downloaded: Array<[string, unknown[]]> = [];
   for (const [table, fileName] of READABLE_EXPORTS) {
     const file = await findFile(setup.drive, fileName, setup.ids.exports);
@@ -176,6 +187,12 @@ async function restoreReadableExports(setup: { drive: ReturnType<typeof google.d
   const client = new DatabaseSync(databasePath);
   let inserted = 0;
   try {
+    if (replaceExisting) {
+      client.exec("PRAGMA foreign_keys = OFF");
+      for (const table of ["notificationDeliveries", "botSettings", "broadcasts", "supportTickets", "priceAlerts", "freeClaims", "referrals", "paymentIntents", "binancePayDeposits", "walletLedger", "orders", "products", "botUsers", "users"]) {
+        client.exec(`DELETE FROM "${table}"`);
+      }
+    }
     const tableNames = new Set(downloaded.map(([table]) => table));
     for (const table of ["users", "botUsers", "botSettings", "products", "orders", "walletLedger", "binancePayDeposits", "paymentIntents", "referrals", "freeClaims", "priceAlerts", "supportTickets", "broadcasts", "notificationDeliveries"]) {
       if (!tableNames.has(table)) continue;
@@ -224,6 +241,16 @@ async function restoreLatestSnapshot() {
   if (downloaded.size < 4096) {
     await unlink(tempPath).catch(() => undefined);
     throw new Error("Drive snapshot is unexpectedly small; refusing to replace local database");
+  }
+  const exportFiles = await Promise.all(READABLE_EXPORTS.map(async ([, fileName]) => findFile(setup.drive, fileName, setup.ids.exports)));
+  const readableExportTimes = exportFiles.map(file => file?.modifiedTime ?? undefined);
+  if (shouldPreferReadableExports(file.modifiedTime ?? undefined, readableExportTimes)) {
+    await unlink(databasePath).catch(() => undefined);
+    await rename(tempPath, databasePath);
+    await import("./db").then(({ getDb }) => getDb());
+    const restoredRows = await restoreReadableExports(setup, databasePath, true);
+    console.log(`[Drive] Readable exports are newer than ${LATEST_SNAPSHOT_NAME}; rebuilt local SQLite from ${restoredRows} exported records.`);
+    return;
   }
   if (!databaseHasUserData(tempPath)) {
     await unlink(tempPath).catch(() => undefined);
