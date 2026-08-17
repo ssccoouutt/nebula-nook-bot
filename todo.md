@@ -444,3 +444,10 @@
 
 - [x] Fix redeploy restore precedence so the latest Google Drive users, orders, and product exports load instead of an older SQLite snapshot.
 - [x] Add restart-style regression coverage proving the newest Drive export state wins during recovery.
+
+- [x] Diagnose why the live Koyeb redeploy still restores 44 users, 5 orders, and 2 products despite newer Google Drive data.
+- [x] Verify the deployed runtime is running the persistence fix and loading the intended Drive folder/files.
+- [x] Add live restore diagnostics or regression coverage that prevents silent stale-source selection.
+
+- [x] Correct the authenticated Koyeb service deployment source or revision so it runs GitHub main commit 3467f9a.
+- [ ] Trigger the Koyeb redeploy and verify the live asset hash and dashboard counts after startup.

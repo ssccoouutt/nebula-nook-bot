@@ -169,6 +169,45 @@ export function shouldPreferReadableExports(snapshotModifiedTime: string | undef
   });
 }
 
+const DATA_AWARE_RESTORE_TABLES = ["users", "botUsers", "products", "orders", "walletLedger", "binancePayDeposits", "paymentIntents", "referrals", "freeClaims"] as const;
+type RestoreTable = typeof DATA_AWARE_RESTORE_TABLES[number];
+type RestoreCounts = Partial<Record<RestoreTable, number>>;
+
+export function shouldPreferReadableExportsByData(snapshotCounts: RestoreCounts, exportCounts: RestoreCounts) {
+  return DATA_AWARE_RESTORE_TABLES.some(table => (exportCounts[table] ?? 0) > (snapshotCounts[table] ?? 0));
+}
+
+function databaseTableCounts(databasePath: string): RestoreCounts {
+  const client = new DatabaseSync(databasePath);
+  try {
+    return Object.fromEntries(DATA_AWARE_RESTORE_TABLES.map(table => {
+      try {
+        const row = client.prepare(`SELECT COUNT(*) AS count FROM "${table}"`).get() as { count?: number | bigint };
+        return [table, Number(row?.count ?? 0)];
+      } catch {
+        return [table, 0];
+      }
+    })) as RestoreCounts;
+  } finally {
+    client.close();
+  }
+}
+
+async function readableExportCounts(setup: { drive: ReturnType<typeof google.drive>; ids: { exports: string } }): Promise<RestoreCounts> {
+  const counts: RestoreCounts = {};
+  await Promise.all(READABLE_EXPORTS.map(async ([table, fileName]) => {
+    const file = await findFile(setup.drive, fileName, setup.ids.exports);
+    if (!file?.id || !DATA_AWARE_RESTORE_TABLES.includes(table as RestoreTable)) return;
+    try {
+      const rows = JSON.parse(await downloadText(setup.drive, file.id));
+      counts[table as RestoreTable] = Array.isArray(rows) ? rows.length : 0;
+    } catch {
+      counts[table as RestoreTable] = 0;
+    }
+  }));
+  return counts;
+}
+
 async function restoreReadableExports(setup: { drive: ReturnType<typeof google.drive>; ids: { exports: string } }, databasePath: string, replaceExisting = false) {
   const downloaded: Array<[string, unknown[]]> = [];
   for (const [table, fileName] of READABLE_EXPORTS) {
@@ -244,12 +283,16 @@ async function restoreLatestSnapshot() {
   }
   const exportFiles = await Promise.all(READABLE_EXPORTS.map(async ([, fileName]) => findFile(setup.drive, fileName, setup.ids.exports)));
   const readableExportTimes = exportFiles.map(file => file?.modifiedTime ?? undefined);
-  if (shouldPreferReadableExports(file.modifiedTime ?? undefined, readableExportTimes)) {
+  const snapshotCounts = databaseTableCounts(tempPath);
+  const exportCounts = await readableExportCounts(setup);
+  const newerByTime = shouldPreferReadableExports(file.modifiedTime ?? undefined, readableExportTimes);
+  const newerByData = shouldPreferReadableExportsByData(snapshotCounts, exportCounts);
+  if (newerByTime || newerByData) {
     await unlink(databasePath).catch(() => undefined);
     await rename(tempPath, databasePath);
     await import("./db").then(({ getDb }) => getDb());
     const restoredRows = await restoreReadableExports(setup, databasePath, true);
-    console.log(`[Drive] Readable exports are newer than ${LATEST_SNAPSHOT_NAME}; rebuilt local SQLite from ${restoredRows} exported records.`);
+    console.log(`[Drive] Readable exports won restore over ${LATEST_SNAPSHOT_NAME} (${newerByData ? "larger dataset" : "newer modified time"}); rebuilt local SQLite from ${restoredRows} exported records.`);
     return;
   }
   if (!databaseHasUserData(tempPath)) {

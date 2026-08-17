@@ -3,7 +3,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { createRequire } from "node:module";
-import { DRIVE_SYNC_DEBOUNCE_MS, drivePersistenceStatus, databaseHasUserData, initializeDrivePersistence, isValidSqliteSnapshot, scheduleDriveSync, shouldPreferReadableExports, shouldRestoreReadableExportRow, withRetry } from "./googleDrivePersistence";
+import { DRIVE_SYNC_DEBOUNCE_MS, drivePersistenceStatus, databaseHasUserData, initializeDrivePersistence, isValidSqliteSnapshot, scheduleDriveSync, shouldPreferReadableExports, shouldPreferReadableExportsByData, shouldRestoreReadableExportRow, withRetry } from "./googleDrivePersistence";
 
 const require = createRequire(import.meta.url);
 const { DatabaseSync } = require("node:sqlite") as typeof import("node:sqlite");
@@ -57,6 +57,17 @@ describe("Google Drive persistence", () => {
     expect(shouldPreferReadableExports("2026-08-17T06:00:00.000Z", ["2026-08-17T06:00:01.000Z"])).toBe(true);
     expect(shouldPreferReadableExports("2026-08-17T06:00:00.000Z", ["2026-08-16T23:59:59.000Z"])).toBe(false);
     expect(shouldPreferReadableExports("2026-08-17T06:00:00.000Z", [undefined, "2026-08-17T06:00:02.000Z"])).toBe(true);
+  });
+
+  it("prefers a larger readable export dataset even when timestamps are not newer", () => {
+    expect(shouldPreferReadableExportsByData(
+      { botUsers: 44, orders: 5, products: 2 },
+      { botUsers: 45, orders: 7, products: 3 },
+    )).toBe(true);
+    expect(shouldPreferReadableExportsByData(
+      { botUsers: 45, orders: 7, products: 3 },
+      { botUsers: 44, orders: 7, products: 3 },
+    )).toBe(false);
   });
 
   it("does not restore a stale Telegram update cursor from readable exports", () => {
