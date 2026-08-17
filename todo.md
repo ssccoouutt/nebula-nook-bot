@@ -432,3 +432,7 @@
 - [x] Diagnose and fix the blank dashboard at the live Koyeb URL, including frontend bundle, API, and runtime deployment checks; live page renders, browser console is clean, and admin.overview returns HTTP 200 with current data after hydration.
 
 - [x] Fix the remaining stale dashboard activity for the existing user with one completed order and a 0.1 wallet balance, and add a targeted regression test; dashboard lastActivity now takes the maximum of canonical bot-user activity and related history timestamps.
+
+- [x] Allow arbitrary warranty text such as `no warranty` or `30 Minutes` instead of requiring a numeric day count.
+- [x] Add a freebies-only product availability mode that hides a product from the normal Shop catalog while keeping it visible in Freebies.
+- [x] Add regression coverage for warranty text validation and normal-Shop versus Freebies visibility.

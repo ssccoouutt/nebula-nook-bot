@@ -275,8 +275,9 @@ export function formatSupportSubmitted(ticketId: string) {
   return `✅ <b>Support request received</b>\n\nTicket: <b>#${ticketId}</b>\nOur team will review it shortly.`;
 }
 
-export function formatPurchaseConfirmation(orderId: string | number, productName: string, amountCents: number, delivery?: { mode: "automatic" | "manual"; items?: string[]; warrantyDays?: number }) {
-  const warranty = delivery?.warrantyDays ? `\n🛡️ Warranty: <b>${delivery.warrantyDays} days</b>` : "";
+export function formatPurchaseConfirmation(orderId: string | number, productName: string, amountCents: number, delivery?: { mode: "automatic" | "manual"; items?: string[]; warrantyDays?: string | number }) {
+  const warrantyText = typeof delivery?.warrantyDays === "number" ? (delivery.warrantyDays > 0 ? `${delivery.warrantyDays} days` : "") : delivery?.warrantyDays?.trim() ?? "";
+  const warranty = warrantyText ? `\n🛡️ Warranty: <b>${warrantyText.replace(/[<&>]/g, "")}</b>` : "";
   const delivered = delivery?.mode === "automatic" && delivery.items?.length
     ? `\n\n📦 <b>Your digital product</b>\n<blockquote>${delivery.items.map(item => item.replace(/[<&>]/g, "")).join("\n")}</blockquote>\n\nTap and hold the text above to copy it.${warranty}`
     : delivery?.mode === "manual"
@@ -730,6 +731,10 @@ export function isPurchasableProduct(product: { active: number | boolean; stock:
   return Boolean(product && (product.active === 1 || product.active === true) && product.stock > 0);
 }
 
+export function isShopEligibleProduct(product: { active: number | boolean; shopEligible?: number | boolean } | undefined) {
+  return Boolean(product && (product.active === 1 || product.active === true) && (product.shopEligible === undefined || product.shopEligible === 1 || product.shopEligible === true));
+}
+
 async function showFreebies(chatId: number, messageId?: number) {
   const db = await getDb();
   if (!db) throw new Error("Database is unavailable");
@@ -741,7 +746,7 @@ async function showFreebies(chatId: number, messageId?: number) {
 async function showShop(chatId: number, page = 0, messageId?: number) {
   const db = await getDb();
   if (!db) throw new Error("Database is unavailable");
-  const items = await db.select().from(products).where(eq(products.active, 1)).limit(60);
+  const items = await db.select().from(products).where(and(eq(products.active, 1), eq(products.shopEligible, 1))).limit(60);
   if (!items.length) return respond(chatId, "🛍️ <b>Shop</b>\n\nThe catalog is empty right now. Please check back soon.", undefined, messageId);
   const pageCount = Math.max(1, Math.ceil(items.length / SHOP_PAGE_SIZE));
   const safePage = Math.min(Math.max(page, 0), pageCount - 1);
@@ -758,7 +763,7 @@ async function showProduct(chatId: number, productId: number, messageId?: number
   const safeDescription = item.description.replace(/[<&>]/g, "");
   const deliveryFormat = item.deliveryFormat?.trim() ? `\n\n📋 <b>Delivery format</b>\n${item.deliveryFormat.replace(/[<&>]/g, "")}` : "";
   const delivery = item.deliveryMode === "manual" ? "🕐 Manual delivery" : "⚡ Automatic digital delivery";
-  const warranty = item.warrantyDays > 0 ? `\n🛡️ Warranty: <b>${item.warrantyDays} days</b>` : "";
+  const warranty = item.warrantyDays?.trim() ? `\n🛡️ Warranty: <b>${item.warrantyDays.trim().replace(/[<&>]/g, "")}</b>` : "";
   const productText = `✨ <b>${safeName}</b>\n\n${safeDescription}${deliveryFormat}\n\n━━━━━━━━━━━━━━\n💵 <b>$${(item.priceCents / 100).toFixed(2)}</b> per unit\n📦 <b>${item.stock}</b> available\n${delivery}${warranty}\n\nChoose an action below:`;
   const productKeyboard = buildProductKeyboard(item.id);
   if (hasProductImage(item.imageUrl)) {

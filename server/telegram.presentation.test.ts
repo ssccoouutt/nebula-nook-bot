@@ -51,6 +51,7 @@ import {
   parseTelegramCallbackAction,
   resolvePurchaseCallbackRoute,
   isPurchasableProduct,
+  isShopEligibleProduct,
   extractInsertedRowId,
   didInsertReferralRow,
   consumeDigitalInventory,
@@ -98,6 +99,11 @@ describe("Telegram presentation and notification helpers", () => {
     expect(automatic).toContain("<blockquote>activation-link</blockquote>");
     expect(automatic).toContain("30 days");
     expect(formatPurchaseConfirmation(43, "Gemini", 100, { mode: "manual", warrantyDays: 7 })).toContain("Manual delivery");
+    expect(formatPurchaseConfirmation(44, "Gemini", 100, { mode: "automatic", warrantyDays: "30 Minutes" })).toContain("30 Minutes");
+    expect(formatPurchaseConfirmation(45, "Gemini", 100, { mode: "automatic", warrantyDays: "no warranty" })).toContain("no warranty");
+    expect(isShopEligibleProduct({ active: 1, shopEligible: 1 })).toBe(true);
+    expect(isShopEligibleProduct({ active: 1, shopEligible: 0 })).toBe(false);
+    expect(isShopEligibleProduct({ active: 1 })).toBe(true);
     expect(buildPurchasePaymentFailureKeyboard(7).inline_keyboard[0][0]).toMatchObject({ text: "✖️ Cancel", callback_data: "buycancel:7" });
   });
 
