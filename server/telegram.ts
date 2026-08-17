@@ -1,5 +1,5 @@
 import type { Request, Response } from "express";
-import { and, desc, eq, gt, inArray, sql } from "drizzle-orm";
+import { and, desc, eq, gt, inArray, isNull, or, sql } from "drizzle-orm";
 import { getDb } from "./db";
 import { binancePayDeposits, botSettings, botUsers, freeClaims, notificationDeliveries, orders, paymentIntents, priceAlerts, products, referrals, supportTickets, walletLedger } from "../drizzle/schema";
 import { findBinancePayTransaction } from "./binancePay";
@@ -757,7 +757,7 @@ async function showFreebies(chatId: number, messageId?: number) {
 async function showShop(chatId: number, page = 0, messageId?: number) {
   const db = await getDb();
   if (!db) throw new Error("Database is unavailable");
-  const items = await db.select().from(products).where(and(eq(products.active, 1), eq(products.shopEligible, 1))).limit(60);
+  const items = await db.select().from(products).where(and(eq(products.active, 1), or(eq(products.shopEligible, 1), isNull(products.shopEligible)))).limit(60);
   if (!items.length) return respond(chatId, "🛍️ <b>Shop</b>\n\nThe catalog is empty right now. Please check back soon.", undefined, messageId);
   const pageCount = Math.max(1, Math.ceil(items.length / SHOP_PAGE_SIZE));
   const safePage = Math.min(Math.max(page, 0), pageCount - 1);

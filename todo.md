@@ -460,3 +460,7 @@
 - [x] Show total spent in the user-facing start/profile information.
 - [x] Render Telegram order history with product, delivered item, payment method, and exact purchase date/time.
 - [x] Add regression coverage for total spent and detailed order-history formatting.
+
+- [x] Fix editing of existing products from the dashboard.
+- [x] Fix the Telegram Available Products catalog so stocked products render when selected.
+- [x] Add regression coverage for product editing and available-catalog rendering.
