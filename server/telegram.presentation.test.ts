@@ -15,6 +15,7 @@ import {
   formatOrderStatus,
   formatDetailedOrder,
   formatPurchaseConfirmation,
+  normalizeWarrantyText,
   formatShopSummary,
   SHOP_PAGE_SIZE,
   formatSupportPrompt,
@@ -62,6 +63,19 @@ import {
 } from "./telegram";
 
 describe("Telegram presentation and notification helpers", () => {
+  it("normalizes legacy numeric and current text warranties safely", () => {
+    expect(normalizeWarrantyText(30)).toBe("30 days");
+    expect(normalizeWarrantyText(0)).toBe("");
+    expect(normalizeWarrantyText("30 Minutes")).toBe("30 Minutes");
+    expect(normalizeWarrantyText(" no warranty ")).toBe("no warranty");
+    expect(normalizeWarrantyText(null)).toBe("");
+  });
+
+  it("renders legacy numeric warranty values in purchase confirmations", () => {
+    const text = formatPurchaseConfirmation("42", "Gemini", 100, { mode: "automatic", items: ["activation-link"], warrantyDays: 30 });
+    expect(text).toContain("Warranty: <b>30 days</b>");
+  });
+
   it("rejects unavailable products consistently without rejecting stocked active items", () => {
     expect(isPurchasableProduct({ active: 1, stock: 12 })).toBe(true);
     expect(isPurchasableProduct({ active: 1, stock: 0 })).toBe(false);

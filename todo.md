@@ -464,3 +464,6 @@
 - [x] Fix editing of existing products from the dashboard.
 - [x] Fix the Telegram Available Products catalog so stocked products render when selected.
 - [x] Add regression coverage for product editing and available-catalog rendering.
+
+- [x] Normalize legacy numeric warranty values before Telegram product-detail rendering.
+- [x] Add regression coverage proving Available Products product clicks render for legacy numeric warranties.
