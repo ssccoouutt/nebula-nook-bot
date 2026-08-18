@@ -471,3 +471,12 @@
 - [x] Diagnose why dashboard Broadcast queue announcements are not delivered to bot users.
 - [x] Repair broadcast processing and expose delivery success/failure feedback.
 - [x] Add regression coverage for queued broadcast delivery and failure handling.
+
+- [ ] Fix Telegram callback responses for photo/non-text messages that fail with `there is no text in the message to edit`.
+- [ ] Fix callback keyboard/message-type fallback errors so product and menu actions always respond.
+- [ ] Add regression coverage for callback editing, photo messages, and fallback sends.
+
+- [x] Repair callback responses that attempt editMessageText on photo or non-text messages, including safe send fallback and invalid-keyboard handling.
+- [x] Normalize legacy product warranty and related fields at every Telegram rendering boundary.
+- [x] Add regression tests in server/telegram.presentation.test.ts for photo callbacks, empty/non-editable messages, and legacy values.
+- [x] Run focused tests, TypeScript validation, and production build for the callback outage repair.

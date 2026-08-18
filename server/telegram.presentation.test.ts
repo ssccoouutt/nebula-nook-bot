@@ -50,6 +50,7 @@ import {
   buildFreebiesKeyboard,
   telegramResponseMethod,
   respond,
+  rememberNonTextCallbackMessage,
   parseTelegramCallbackAction,
   resolvePurchaseCallbackRoute,
   isPurchasableProduct,
@@ -361,11 +362,24 @@ describe("Telegram presentation and notification helpers", () => {
     else process.env.TELEGRAM_BOT_TOKEN = previousToken;
   });
 
+  it("falls back to a fresh text message for photo or caption-only callback messages", async () => {
+    const previousToken = process.env.TELEGRAM_BOT_TOKEN;
+    process.env.TELEGRAM_BOT_TOKEN = "test-token";
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(JSON.stringify({ ok: true, result: { message_id: 99 } }), { status: 200 }));
+    rememberNonTextCallbackMessage({ message_id: 88, chat: { id: 123, type: "private" }, caption: "product", photo: [{ file_id: "photo" }] });
+    await respond(123, "🛍️ Shop", { inline_keyboard: [[{ text: "Home", callback_data: "home" }]] }, 88);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(String(fetchMock.mock.calls[0][0])).toContain("/sendMessage");
+    fetchMock.mockRestore();
+    if (previousToken === undefined) delete process.env.TELEGRAM_BOT_TOKEN;
+    else process.env.TELEGRAM_BOT_TOKEN = previousToken;
+  });
+
   it("does not send a duplicate when Telegram says the edit is already applied", async () => {
     const previousToken = process.env.TELEGRAM_BOT_TOKEN;
     process.env.TELEGRAM_BOT_TOKEN = "test-token";
     const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(JSON.stringify({ ok: false, description: "Bad Request: message is not modified: specified new message content and reply markup are exactly the same as a current content and reply markup of the message" }), { status: 200 }));
-    await respond(123, "🛍️ Shop", { inline_keyboard: [] }, 88);
+    await respond(123, "🛍️ Shop", { inline_keyboard: [] }, 188);
     expect(fetchMock).toHaveBeenCalledTimes(1);
     expect(String(fetchMock.mock.calls[0][0])).toContain("/editMessageText");
     fetchMock.mockRestore();

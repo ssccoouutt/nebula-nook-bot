@@ -8,7 +8,7 @@ import { scheduleDriveSync } from "./googleDrivePersistence";
 
 type TelegramUser = { id: number; username?: string; first_name?: string; last_name?: string };
 type TelegramChat = { id: number; type: string };
-type TelegramMessage = { message_id: number; from?: TelegramUser; chat: TelegramChat; text?: string; reply_to_message?: TelegramMessage };
+type TelegramMessage = { message_id: number; from?: TelegramUser; chat: TelegramChat; text?: string; caption?: string; photo?: Array<{ file_id: string }>; reply_markup?: unknown; reply_to_message?: TelegramMessage };
 type TelegramCallbackQuery = { id: string; from: TelegramUser; message?: TelegramMessage; data?: string };
 type TelegramUpdate = { update_id: number; message?: TelegramMessage; callback_query?: TelegramCallbackQuery; channel_post?: TelegramMessage };
 
@@ -29,6 +29,24 @@ const DEFAULT_CHANNEL_URL = process.env.TELEGRAM_CHANNEL_JOIN_URL ?? "https://t.
 const DEFAULT_GROUP_URL = process.env.TELEGRAM_GROUP_JOIN_URL ?? "https://t.me/+4I-HIdE73NIyMzI8";
 const PUBLIC_BOT_USERNAME = (process.env.TELEGRAM_BOT_USERNAME ?? "Toolsmania_bot").replace(/^@/, "");
 const recentRequests = new Map<number, number>();
+// Telegram photo messages expose a caption rather than editable text. Keep a small
+// bounded set of callback message keys so route handlers can retain their existing
+// messageId-only signatures while respond() avoids editMessageText on media messages.
+const nonTextCallbackMessages = new Set<string>();
+const NON_TEXT_CALLBACK_MESSAGE_LIMIT = 2_000;
+
+function callbackMessageKey(chatId: number, messageId: number) {
+  return `${chatId}:${messageId}`;
+}
+
+export function rememberNonTextCallbackMessage(message: TelegramMessage | undefined) {
+  if (!message || message.text !== undefined) return;
+  nonTextCallbackMessages.add(callbackMessageKey(message.chat.id, message.message_id));
+  if (nonTextCallbackMessages.size > NON_TEXT_CALLBACK_MESSAGE_LIMIT) {
+    const oldest = nonTextCallbackMessages.values().next().value;
+    if (oldest) nonTextCallbackMessages.delete(oldest);
+  }
+}
 const pendingCustomQuantities = new Map<number, { productId: number; expiresAt: number }>();
 const pendingBinancePayTopups = new Map<number, { amountCents?: number; method: "binance_pay" | "bep20"; createdAt?: number; expiresAt: number }>();
 const pendingBinancePayPurchases = new Map<number, { intentId: number; expiresAt: number }>();
@@ -183,12 +201,15 @@ export function isTelegramMessageNotModifiedError(error: unknown) {
 }
 
 export async function respond(chatId: number, text: string, replyMarkup?: unknown, messageId?: number) {
-  if (telegramResponseMethod(messageId) === "sendMessage") return sendMessage(chatId, text, replyMarkup);
+  const cannotEditText = messageId !== undefined && nonTextCallbackMessages.has(callbackMessageKey(chatId, messageId));
+  if (telegramResponseMethod(messageId) === "sendMessage" || cannotEditText) return sendMessage(chatId, text, replyMarkup);
   try {
     return await editMessage(chatId, messageId as number, text, replyMarkup);
   } catch (error) {
     if (isTelegramMessageNotModifiedError(error)) return undefined;
-    console.error("[Telegram] editMessageText failed; falling back to one sendMessage", error);
+    // This includes photo messages, empty messages, stale message IDs, and other
+    // Telegram edit constraints. A fresh text message is the reliable recovery.
+    console.error("[Telegram] editMessageText unavailable; sending a fresh response", error);
     return sendMessage(chatId, text, replyMarkup);
   }
 }
@@ -777,7 +798,8 @@ async function showProduct(chatId: number, productId: number, messageId?: number
   if (!isPurchasableProduct(item)) return respond(chatId, "⚠️ This product is currently unavailable.\n\nThis may be an old product button. Open the current Shop to see items that are in stock.", buildUnavailableProductKeyboard(), messageId);
   const safeName = item.name.replace(/[<&>]/g, "");
   const safeDescription = item.description.replace(/[<&>]/g, "");
-  const deliveryFormat = item.deliveryFormat?.trim() ? `\n\n📋 <b>Delivery format</b>\n${item.deliveryFormat.replace(/[<&>]/g, "")}` : "";
+  const deliveryFormatText = typeof item.deliveryFormat === "string" ? item.deliveryFormat.trim() : String(item.deliveryFormat ?? "").trim();
+  const deliveryFormat = deliveryFormatText ? `\n\n📋 <b>Delivery format</b>\n${deliveryFormatText.replace(/[<&>]/g, "")}` : "";
   const delivery = item.deliveryMode === "manual" ? "🕐 Manual delivery" : "⚡ Automatic digital delivery";
   const warrantyText = normalizeWarrantyText(item.warrantyDays);
   const warranty = warrantyText ? `\n🛡️ Warranty: <b>${warrantyText.replace(/[<&>]/g, "")}</b>` : "";
@@ -849,13 +871,14 @@ async function claimReferralReward(chatId: number, userId: number, productId: nu
     if (!user || !product || !product.active || !product.referralEligible || product.referralPriceCredits < 1) return { ok: false as const, reason: "unavailable" as const };
     if (user.referralCredits < product.referralPriceCredits) return { ok: false as const, reason: "credits" as const, credits: user.referralCredits, required: product.referralPriceCredits };
     if (product.stock < 1) return { ok: false as const, reason: "stock" as const };
-    const digital = product.inventoryText?.trim() ? consumeDigitalInventory(product.inventoryText, 1) : { ok: true as const, items: [] as string[], remaining: [] as string[] };
+    const inventoryText = String(product.inventoryText ?? "");
+    const digital = inventoryText.trim() ? consumeDigitalInventory(inventoryText, 1) : { ok: true as const, items: [] as string[], remaining: [] as string[] };
     if (!digital.ok) return { ok: false as const, reason: "stock" as const };
     const deliveryMode = product.deliveryMode === "manual" ? "manual" as const : "automatic" as const;
     const inserted = await tx.insert(orders).values({ botUserId: user.id, productId: product.id, kind: "referral", amountCents: 0, status: deliveryMode === "manual" ? "paid" : "fulfilled", deliveredItem: digital.items[0] ?? null, purchaseWarranty: normalizeWarrantyText(product.warrantyDays) || null, paymentMethod: "Referral credits", quantity: 1 });
     const orderId = String(extractInsertedRowId(inserted) || `${user.id}:referral:${product.id}:${Date.now()}`);
     await tx.update(botUsers).set({ referralCredits: sql`${botUsers.referralCredits} - ${product.referralPriceCredits}` }).where(eq(botUsers.id, user.id));
-    await tx.update(products).set({ stock: product.stock - 1, inventoryText: product.inventoryText?.trim() ? digital.remaining.join("\n") : product.inventoryText }).where(eq(products.id, product.id));
+    await tx.update(products).set({ stock: product.stock - 1, inventoryText: String(product.inventoryText ?? "").trim() ? digital.remaining.join("\n") : product.inventoryText }).where(eq(products.id, product.id));
     return { ok: true as const, orderId, product, deliveryMode, item: digital.items[0] ?? "", userFirstName: user.firstName ?? undefined, userUsername: user.username ?? undefined, userTelegramId: user.telegramUserId };
   });
   if (!outcome.ok) {
@@ -879,10 +902,11 @@ async function claimFree(chatId: number, userId: number, productId: number, mess
   const windowStart = freeWindowStart(now, product.freeWindowMs);
   const last = await db.select().from(freeClaims).where(and(eq(freeClaims.botUserId, user.id), eq(freeClaims.productId, product.id))).orderBy(desc(freeClaims.createdAt)).limit(1);
   if (!canClaimFreeItem(last[0] ? Number(last[0].windowStartMs) : null, now, product.freeWindowMs)) return respond(chatId, "⏳ You have already claimed this item during the current free window.", buildFreebiesKeyboard([{ id: product.id, name: product.name }]), messageId);
-  const digital = product.inventoryText?.trim() ? consumeDigitalInventory(product.inventoryText, 1) : { ok: true as const, items: [] as string[], remaining: [] as string[] };
+  const inventoryText = String(product.inventoryText ?? "");
+  const digital = inventoryText.trim() ? consumeDigitalInventory(inventoryText, 1) : { ok: true as const, items: [] as string[], remaining: [] as string[] };
   if (!digital.ok) return respond(chatId, "⚠️ This free item is currently unavailable.", buildFreebiesKeyboard([]), messageId);
   await db.insert(freeClaims).values({ botUserId: user.id, productId: product.id, windowStartMs: windowStart, status: "claimed" });
-  await db.update(products).set({ stock: product.stock - 1, inventoryText: product.inventoryText?.trim() ? digital.remaining.join("\n") : product.inventoryText }).where(eq(products.id, product.id));
+  await db.update(products).set({ stock: product.stock - 1, inventoryText: String(product.inventoryText ?? "").trim() ? digital.remaining.join("\n") : product.inventoryText }).where(eq(products.id, product.id));
   const order = await db.insert(orders).values({ botUserId: user.id, productId: product.id, kind: "free", amountCents: 0, status: "fulfilled", deliveredItem: digital.items[0] ?? null, purchaseWarranty: normalizeWarrantyText(product.warrantyDays) || null, paymentMethod: "Freebie", quantity: 1 });
   scheduleDriveSync("completed_order");
   const delivery = digital.items.length ? `\n\n📦 <b>Your digital item</b>\n<blockquote>${digital.items[0].replace(/[<&>]/g, "")}</blockquote>\n\nTap and hold the text above to copy it.` : "";
@@ -935,7 +959,7 @@ async function createPurchase(chatId: number, userId: number, productId: number,
     const result = await tx.insert(orders).values({ botUserId: user.id, productId: product.id, kind: "purchase", amountCents: purchase.totalCents, status: deliveryMode === "manual" ? "paid" : "fulfilled", deliveredItem: digital.items.length ? digital.items.join("\n") : null, purchaseWarranty: normalizeWarrantyText(product.warrantyDays) || null, paymentMethod: "Wallet", quantity: purchase.quantity });
     const orderId = String(extractInsertedRowId(result) || `${user.id}:${product.id}:${Date.now()}`);
     await tx.update(botUsers).set({ balanceCents: purchase.nextBalanceCents }).where(eq(botUsers.id, user.id));
-    await tx.update(products).set({ stock: purchase.nextStock, inventoryText: product.inventoryText?.trim() ? digital.remaining.join("\n") : product.inventoryText }).where(eq(products.id, product.id));
+    await tx.update(products).set({ stock: purchase.nextStock, inventoryText: String(product.inventoryText ?? "").trim() ? digital.remaining.join("\n") : product.inventoryText }).where(eq(products.id, product.id));
     await tx.insert(walletLedger).values({ botUserId: user.id, amountCents: -purchase.totalCents, kind: "purchase", referenceId: orderId, note: `${deliveryMode === "manual" ? "Manual" : "Automatic"} purchase (${purchase.quantity}×): ${product.name}` });
     return { ok: true as const, orderId, productId: product.id, productName: product.name, quantity: purchase.quantity, totalCents: purchase.totalCents, buyerName: user.firstName ?? user.username ?? "User", telegramUserId: user.telegramUserId, deliveryMode, deliveredItems: digital.items, warrantyDays: product.warrantyDays };
   });
@@ -1007,6 +1031,7 @@ export function resolvePurchaseCallbackRoute(action: TelegramCallbackAction) {
 }
 
 export async function handleCallback(query: TelegramCallbackQuery, options: { skipAccess?: boolean } = {}) {
+  rememberNonTextCallbackMessage(query.message);
   const chatId = query.message?.chat.id;
   const messageId = query.message?.message_id;
   if (!chatId) return;
@@ -1118,7 +1143,7 @@ async function verifyAndFulfillBinancePurchase(chatId: number, userId: number, i
     const deliveryMode = product.deliveryMode === "manual" ? "manual" as const : "automatic" as const;
     const inserted = await tx.insert(orders).values({ botUserId: account.id, productId: product.id, kind: "purchase", amountCents: current.amountCents, status: deliveryMode === "manual" ? "paid" : "fulfilled", deliveredItem: digital.items.length ? digital.items.join("\n") : null, purchaseWarranty: normalizeWarrantyText(product.warrantyDays) || null, paymentMethod: isBep20 ? "USDT BEP20" : "Binance Pay", quantity: current.quantity });
     const orderId = extractInsertedRowId(inserted) || Number(`${Date.now()}`.slice(-9));
-    await tx.update(products).set({ stock: sql`${products.stock} - ${current.quantity}`, inventoryText: product.inventoryText?.trim() ? digital.remaining.join("\n") : product.inventoryText }).where(eq(products.id, product.id));
+    await tx.update(products).set({ stock: sql`${products.stock} - ${current.quantity}`, inventoryText: String(product.inventoryText ?? "").trim() ? digital.remaining.join("\n") : product.inventoryText }).where(eq(products.id, product.id));
     await tx.update(paymentIntents).set({ status: "fulfilled", transactionId: transactionRef }).where(eq(paymentIntents.id, current.id));
     return { ok: true as const, orderId, product, quantity: current.quantity, amountCents: current.amountCents, deliveryMode, deliveredItems: digital.items, warrantyDays: product.warrantyDays };
   });
