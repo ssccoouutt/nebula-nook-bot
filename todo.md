@@ -480,3 +480,16 @@
 - [x] Normalize legacy product warranty and related fields at every Telegram rendering boundary.
 - [x] Add regression tests in server/telegram.presentation.test.ts for photo callbacks, empty/non-editable messages, and legacy values.
 - [x] Run focused tests, TypeScript validation, and production build for the callback outage repair.
+
+- [x] Determine the confirmed cause of the newly reported ToolsMania outage from current runtime/webhook diagnostics.
+- [x] Repair the outage if project code or deployment configuration is confirmed responsible, with regression coverage.
+- [x] Validate the repair and document confirmed versus unverified causes.
+
+- [x] Investigate the broadcast-triggered outage using the attached runtime evidence, including blocked-user delivery handling and callback edit errors.
+- [x] Fix any confirmed broadcast or callback failure that can leave Telegram updates unresponsive, with regression coverage.
+- [x] Validate the fix and document the exact confirmed cause from logs.
+
+- [x] Add durable, structured Telegram/webhook error diagnostics with update and route context.
+- [x] Add bounded retry and recovery behavior for transient Telegram/API failures without duplicate user replies.
+- [x] Add process-level crash safeguards and health visibility so Koyeb can restart unhealthy instances and operators can identify the last failure.
+- [x] Add regression tests and validate the resilience update with TypeScript, full tests, and a production build.

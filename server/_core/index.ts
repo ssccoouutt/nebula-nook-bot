@@ -8,6 +8,7 @@ import { appRouter } from "../routers";
 import { configureKoyebWebhookOnStartup, getTelegramBotIdentity, telegramWebhookConfigure, telegramWebhookHandler, telegramWebhookHealth } from "../telegram";
 import { initializeDrivePersistence, drivePersistenceStatus } from "../googleDrivePersistence";
 import { createContext } from "./context";
+import { recordTelegramFailure } from "../telegram";
 import { serveStatic, setupVite } from "./vite";
 
 function isPortAvailable(port: number): Promise<boolean> {
@@ -27,6 +28,21 @@ async function findAvailablePort(startPort: number = 3000): Promise<number> {
     }
   }
   throw new Error(`No available port found starting from ${startPort}`);
+}
+
+let fatalShutdownStarted = false;
+
+function installProcessRecovery() {
+  const exitAfterLogging = (scope: string, error: unknown) => {
+    recordTelegramFailure(scope, error, { process: process.pid, nodeEnv: process.env.NODE_ENV, action: "exit_for_platform_restart" });
+    if (fatalShutdownStarted) return;
+    fatalShutdownStarted = true;
+    // Give stdout/stderr a brief opportunity to flush; Koyeb restarts the
+    // container after the non-zero exit and the structured error remains in logs.
+    setTimeout(() => process.exit(1), 100);
+  };
+  process.on("uncaughtException", (error) => exitAfterLogging("uncaught_exception", error));
+  process.on("unhandledRejection", (reason) => exitAfterLogging("unhandled_rejection", reason));
 }
 
 async function startServer() {
@@ -81,4 +97,8 @@ async function startServer() {
   });
 }
 
-startServer().catch(console.error);
+installProcessRecovery();
+startServer().catch((error) => {
+  recordTelegramFailure("startup_failure", error, { process: process.pid, nodeEnv: process.env.NODE_ENV, action: "exit_for_platform_restart" });
+  process.exitCode = 1;
+});

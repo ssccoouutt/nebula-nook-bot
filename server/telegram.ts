@@ -29,6 +29,46 @@ const DEFAULT_CHANNEL_URL = process.env.TELEGRAM_CHANNEL_JOIN_URL ?? "https://t.
 const DEFAULT_GROUP_URL = process.env.TELEGRAM_GROUP_JOIN_URL ?? "https://t.me/+4I-HIdE73NIyMzI8";
 const PUBLIC_BOT_USERNAME = (process.env.TELEGRAM_BOT_USERNAME ?? "Toolsmania_bot").replace(/^@/, "");
 const recentRequests = new Map<number, number>();
+
+type TelegramRuntimeFailure = {
+  at: string;
+  scope: string;
+  message: string;
+  context: Record<string, unknown>;
+};
+
+let lastTelegramFailure: TelegramRuntimeFailure | null = null;
+
+function errorMessage(error: unknown) {
+  return error instanceof Error ? error.message : String(error);
+}
+
+export function recordTelegramFailure(scope: string, error: unknown, context: Record<string, unknown> = {}) {
+  const failure: TelegramRuntimeFailure = {
+    at: new Date().toISOString(),
+    scope,
+    message: errorMessage(error),
+    context,
+  };
+  lastTelegramFailure = failure;
+  console.error(`[Telegram][Failure] ${JSON.stringify(failure)}`);
+  return failure;
+}
+
+export function telegramRuntimeDiagnostics() {
+  return { lastFailure: lastTelegramFailure };
+}
+
+function updateContext(update: TelegramUpdate) {
+  return {
+    updateId: update.update_id,
+    updateType: update.callback_query ? "callback_query" : update.message ? "message" : update.channel_post ? "channel_post" : "unknown",
+    chatId: update.callback_query?.message?.chat.id ?? update.message?.chat.id ?? update.channel_post?.chat.id,
+    messageId: update.callback_query?.message?.message_id ?? update.message?.message_id ?? update.channel_post?.message_id,
+    callbackData: update.callback_query?.data,
+    text: update.message?.text,
+  };
+}
 // Telegram photo messages expose a caption rather than editable text. Keep a small
 // bounded set of callback message keys so route handlers can retain their existing
 // messageId-only signatures while respond() avoids editMessageText on media messages.
@@ -127,7 +167,10 @@ async function telegramCall<T>(method: string, body: Record<string, unknown>): P
       return json.result as T;
     } catch (error) {
       lastError = error;
-      if (!isTelegramTransientNetworkError(error) || attempt === TELEGRAM_RETRY_DELAYS_MS.length) throw error;
+      if (!isTelegramTransientNetworkError(error) || attempt === TELEGRAM_RETRY_DELAYS_MS.length) {
+        recordTelegramFailure("telegram_api", error, { method, chatId: body.chat_id, messageId: body.message_id, attempt: attempt + 1 });
+        throw error;
+      }
       await new Promise((resolve) => setTimeout(resolve, TELEGRAM_RETRY_DELAYS_MS[attempt]));
     } finally {
       clearTimeout(timeout);
@@ -1335,7 +1378,7 @@ export async function telegramWebhookHealth(_req: Request, res: Response) {
       telegramCall<{ url: string; pending_update_count: number; max_connections?: number; ip_address?: string; last_error_date?: number; last_error_message?: string }>("getWebhookInfo", {}),
       getTelegramBotIdentity(),
     ]);
-    return res.json({ ok: true, active: true, runtime: "koyeb", bot: { id: bot.id, username: bot.username ?? null, first_name: bot.first_name }, webhook: info });
+    return res.json({ ok: true, active: true, runtime: "koyeb", bot: { id: bot.id, username: bot.username ?? null, first_name: bot.first_name }, webhook: info, diagnostics: telegramRuntimeDiagnostics() });
   } catch (error) {
     return res.status(503).json({ ok: false, error: error instanceof Error ? error.message : "Telegram unavailable" });
   }
@@ -1375,10 +1418,10 @@ export async function telegramWebhookHandler(req: Request, res: Response) {
     res.json({ ok: true });
     if (!update || typeof update.update_id !== "number") return;
     void processTelegramWebhookUpdate(update).catch((error) => {
-      console.error("[Telegram] asynchronous webhook error", error);
+      recordTelegramFailure("webhook_update", error, updateContext(update));
     });
   } catch (error) {
-    console.error("[Telegram] webhook validation error", error);
-    return res.status(500).json({ ok: false, error: error instanceof Error ? error.message : "unknown error" });
+    recordTelegramFailure("webhook_validation", error, { method: req.method, path: req.path });
+    return res.status(500).json({ ok: false, error: errorMessage(error) });
   }
 }
