@@ -472,9 +472,9 @@
 - [x] Repair broadcast processing and expose delivery success/failure feedback.
 - [x] Add regression coverage for queued broadcast delivery and failure handling.
 
-- [ ] Fix Telegram callback responses for photo/non-text messages that fail with `there is no text in the message to edit`.
-- [ ] Fix callback keyboard/message-type fallback errors so product and menu actions always respond.
-- [ ] Add regression coverage for callback editing, photo messages, and fallback sends.
+- [x] Fix Telegram callback responses for photo/non-text messages that fail with `there is no text in the message to edit`.
+- [x] Fix callback keyboard/message-type fallback errors so product and menu actions always respond.
+- [x] Add regression coverage for callback editing, photo messages, and fallback sends.
 
 - [x] Repair callback responses that attempt editMessageText on photo or non-text messages, including safe send fallback and invalid-keyboard handling.
 - [x] Normalize legacy product warranty and related fields at every Telegram rendering boundary.
