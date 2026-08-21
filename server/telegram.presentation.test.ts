@@ -74,6 +74,7 @@ import {
   hasProductImage,
   isHttpProductImageUrl,
   enabledPaymentOptions,
+  parsePaymentOptionsList,
   isPaymentOptionEnabled,
   paymentOptionForCallback,
   formatPaymentUnavailableMessage,
@@ -250,6 +251,11 @@ describe("Telegram presentation and notification helpers", () => {
     expect(parseTelegramCallbackAction("customqty:7")).toEqual({ kind: "customqty", id: 7 });
     expect(parseTelegramCallbackAction("pricealert:7")).toEqual({ kind: "pricealert", id: 7 });
     expect(parseTelegramCallbackAction("walletamount:1000")).toEqual({ kind: "walletamount", amountCents: 1000 });
+    expect(parseTelegramCallbackAction("admin_tickets")).toEqual({ kind: "admin_tickets" });
+    expect(parseTelegramCallbackAction("admin_broadcast_help")).toEqual({ kind: "admin_broadcast_help" });
+    expect(parseTelegramCallbackAction("admin_settings")).toEqual({ kind: "admin_settings" });
+    expect(parseTelegramCallbackAction("admin_diagnostics")).toEqual({ kind: "admin_diagnostics" });
+    expect(parseTelegramCallbackAction("admin_delete_help")).toEqual({ kind: "admin_delete_help" });
     expect(parseTelegramCallbackAction("unknown:7")).toBeNull();
     expect(parseTelegramCallbackAction("product:nope")).toBeNull();
   });
@@ -335,6 +341,11 @@ describe("Telegram presentation and notification helpers", () => {
     expect(walletRows[3][0]).toMatchObject({ callback_data: "home" });
     const depositRows = buildWalletDepositAmountKeyboard().inline_keyboard;
     expect(depositRows).toEqual([[expect.objectContaining({ callback_data: "walletcancel" })]]);
+  });
+
+  it("parses administrator payment-option settings with aliases and keeps Stars last", () => {
+    expect([...parsePaymentOptionsList("wallet,binance,bep20,stars")]).toEqual(["wallet", "binance_pay", "bep20", "telegram_stars"]);
+    expect([...parsePaymentOptionsList("all")]).toEqual(["wallet", "binance_pay", "bep20", "telegram_stars"]);
   });
 
   it("keeps all payment methods visible while labeling configured-disabled methods unavailable", () => {
@@ -524,7 +535,7 @@ describe("Telegram presentation and notification helpers", () => {
     const previous = process.env.TELEGRAM_ADMIN_CHAT_ID;
     process.env.TELEGRAM_ADMIN_CHAT_ID = "990321391";
     const adminKeyboard = buildAdminKeyboard().inline_keyboard;
-    expect(adminKeyboard.flat().map((button) => button.callback_data)).toEqual(["admin_stats"]);
+    expect(adminKeyboard.flat().map((button) => button.callback_data)).toEqual(["admin_stats", "admin_tickets", "admin_broadcast_help", "admin_settings", "admin_diagnostics", "admin_delete_help"]);
     expect(adminKeyboard.flat().some((button) => button.web_app || button.url)).toBe(false);
     expect(adminKeyboard.flat().some((button) => ["shop", "wallet", "orders", "profile", "support", "home"].includes(button.callback_data ?? ""))).toBe(false);
     expect(formatAdminHomeMessage()).toContain("Admin Control Center");

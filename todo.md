@@ -548,3 +548,9 @@
 - [x] Fix admin /reply parsing so valid ticket replies are handled instead of returning usage with the admin menu.
 - [x] Fix admin Bot Statistics callbacks so they show only admin statistics and never enter the normal-user menu.
 - [x] Add regression tests proving valid admin reply routing and admin statistics isolation while normal-user routes remain unchanged.
+
+- [x] Add admin-only open-ticket listing with username and Telegram ID, plus reply access.
+- [x] Add admin-only broadcast composer and per-recipient failure reasons, including blocked/deleted-account distinctions when Telegram provides them.
+- [x] Add admin-only bot settings controls for supported runtime options such as payment visibility and membership requirements, with persistence and safe validation.
+- [x] Add admin-only user account diagnostics and guarded deletion from bot data, preserving referential integrity and auditability.
+- [x] Add regression tests, persistence verification, TypeScript/build checks, and publish the expanded admin controls.

@@ -155,7 +155,7 @@ export const appRouter = router({
       const enriched = rows.map((row) => { const stats = byUser.get(row.id) ?? { orders: 0, referrals: 0, lastActivity: 0 }; return { ...row, orderCount: stats.orders, referralCount: stats.referrals, lastActivity: dashboardLastActivity(row.updatedAt.getTime(), stats.lastActivity) }; });
       const direction = input?.direction === "asc" ? 1 : -1;
       const sort = input?.sort ?? "lastActivity";
-      enriched.sort((a, b) => { const av = sort === "balance" ? a.balanceCents : sort === "createdAt" ? a.createdAt.getTime() : sort === "orders" ? a.orderCount : sort === "referrals" ? a.referralCount : a.lastActivity; const bv = sort === "balance" ? b.balanceCents : sort === "createdAt" ? b.createdAt.getTime() : sort === "orders" ? b.orderCount : sort === "referrals" ? b.referralCount : b.lastActivity; return (av - bv) * direction; });
+      enriched.sort((a, b) => { const av = sort === "balance" ? a.balanceCents : sort === "createdAt" ? (a.createdAt instanceof Date ? a.createdAt.getTime() : Number(a.createdAt ?? 0)) : sort === "orders" ? a.orderCount : sort === "referrals" ? a.referralCount : a.lastActivity; const bv = sort === "balance" ? b.balanceCents : sort === "createdAt" ? (b.createdAt instanceof Date ? b.createdAt.getTime() : Number(b.createdAt ?? 0)) : sort === "orders" ? b.orderCount : sort === "referrals" ? b.referralCount : b.lastActivity; return (av - bv) * direction; });
       return enriched;
     }),
     activitySummary: adminProcedure.input(z.object({ day: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional() }).optional()).query(async ({ input }) => {
@@ -177,8 +177,8 @@ export const appRouter = router({
       const todayActiveIds = new Set<number>(); const selectedDayIds = new Set<number>(); const last30Ids = new Set<number>();
       for (const event of events) { const timestamp = event.at instanceof Date ? event.at.getTime() : Number(event.at); if (timestamp >= thirtyDaysAgo) last30Ids.add(event.botUserId); if (timestamp >= dayStart && timestamp < dayEnd) selectedDayIds.add(event.botUserId); }
       for (const user of users) {
-        const created = user.createdAt.getTime();
-        const updated = user.updatedAt.getTime();
+        const created = user.createdAt instanceof Date ? user.createdAt.getTime() : Number(user.createdAt ?? 0);
+        const updated = user.updatedAt instanceof Date ? user.updatedAt.getTime() : Number(user.updatedAt ?? 0);
         if (created >= thirtyDaysAgo || updated >= thirtyDaysAgo) last30Ids.add(user.id);
         if ((created >= dayStart && created < dayEnd) || (updated >= dayStart && updated < dayEnd)) { selectedDayIds.add(user.id); todayActiveIds.add(user.id); }
       }

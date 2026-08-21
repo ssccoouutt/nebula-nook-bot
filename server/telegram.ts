@@ -1,7 +1,7 @@
 import type { Request, Response } from "express";
 import { and, desc, eq, gt, inArray, isNull, or, sql } from "drizzle-orm";
 import { getDb } from "./db";
-import { binancePayDeposits, botSettings, botUsers, freeClaims, notificationDeliveries, orders, paymentIntents, priceAlerts, products, referrals, supportTickets, telegramStarsWalletPayments, walletLedger } from "../drizzle/schema";
+import { binancePayDeposits, botSettings, botUsers, broadcasts, freeClaims, notificationDeliveries, orders, paymentIntents, priceAlerts, products, referrals, supportTickets, telegramStarsWalletPayments, walletLedger } from "../drizzle/schema";
 import { findBinancePayTransaction } from "./binancePay";
 import { canClaimFreeItem, freeWindowStart, hasAccess, referralCodeForTelegramId, tierForReferralCount } from "../shared/botLogic";
 import { scheduleDriveSync } from "./googleDrivePersistence";
@@ -35,10 +35,12 @@ const recentRequests = new Map<number, number>();
 
 export type PaymentOption = "wallet" | "binance_pay" | "bep20" | "telegram_stars";
 const ALL_PAYMENT_OPTIONS: PaymentOption[] = ["wallet", "binance_pay", "bep20", "telegram_stars"];
+let runtimePaymentOptionsOverride: Set<PaymentOption> | null = null;
 
-export function enabledPaymentOptions(): Set<PaymentOption> {
-  const raw = (process.env.ENABLED_PAYMENT_OPTIONS ?? "").trim();
-  if (!raw) return new Set(ALL_PAYMENT_OPTIONS);
+export function parsePaymentOptionsList(raw: string): Set<PaymentOption> {
+  const value = raw.trim();
+  if (!value) return new Set(ALL_PAYMENT_OPTIONS);
+
   const aliases: Record<string, PaymentOption | "all"> = {
     all: "all", wallet: "wallet", binance: "binance_pay", binancepay: "binance_pay", binance_pay: "binance_pay",
     bep20: "bep20", usdt_bep20: "bep20", "usdt-bep20": "bep20",
@@ -51,6 +53,18 @@ export function enabledPaymentOptions(): Set<PaymentOption> {
     if (option) parsed.add(option);
   }
   return parsed.size ? parsed : new Set(ALL_PAYMENT_OPTIONS);
+}
+
+export function setRuntimePaymentOptions(raw: string) {
+  const parsed = parsePaymentOptionsList(raw);
+  if (!raw.trim()) throw new Error("Payment options cannot be blank; use all or a comma-separated list.");
+  runtimePaymentOptionsOverride = parsed;
+  return parsed;
+}
+
+export function enabledPaymentOptions(): Set<PaymentOption> {
+  if (runtimePaymentOptionsOverride) return new Set(runtimePaymentOptionsOverride);
+  return parsePaymentOptionsList(process.env.ENABLED_PAYMENT_OPTIONS ?? "");
 }
 
 export function isPaymentOptionEnabled(option: PaymentOption) {
@@ -487,7 +501,131 @@ export function parseAdminReplyCommand(text?: string) {
 export function buildAdminKeyboard() {
   return keyboard([
     [{ text: "ℹ️ Bot Statistics", callback_data: "admin_stats", style: "primary" }],
+    [{ text: "🆘 Open Tickets", callback_data: "admin_tickets", style: "danger" }],
+    [{ text: "📢 Broadcast Help", callback_data: "admin_broadcast_help", style: "primary" }],
+    [{ text: "⚙️ Bot Settings", callback_data: "admin_settings", style: "primary" }],
+    [{ text: "🔎 Account Diagnostics", callback_data: "admin_diagnostics", style: "primary" }],
+    [{ text: "🗑️ Delete User Help", callback_data: "admin_delete_help", style: "danger" }],
   ]);
+}
+
+function telegramDeliveryFailureCategory(error: unknown) {
+  const message = error instanceof Error ? error.message : String(error);
+  if (/blocked by the user|bot was blocked/i.test(message)) return "blocked the bot";
+  if (/chat not found|user not found/i.test(message)) return "chat not found (possibly deleted account or invalid chat)";
+  if (/deactivated/i.test(message)) return "Telegram account deactivated";
+  return message.slice(0, 180);
+}
+
+async function showAdminTickets(chatId: number) {
+  const db = await getDb();
+  if (!db) throw new Error("Database is unavailable");
+  const rows = await db.select({ ticket: supportTickets, user: botUsers }).from(supportTickets).leftJoin(botUsers, eq(supportTickets.botUserId, botUsers.id)).where(eq(supportTickets.status, "open")).orderBy(desc(supportTickets.createdAt)).limit(1000);
+  if (!rows.length) return sendMessage(chatId, "✅ <b>Open tickets</b>\\n\\nThere are no open support tickets.", buildAdminKeyboard());
+  const text = rows.map(({ ticket, user }) => `🆘 <b>Ticket #${ticket.id}</b>\\n👤 Username: <b>${user?.username ? `@${user.username}` : "No username"}</b>\\n🆔 Telegram ID: <code>${user?.telegramUserId ?? "unknown"}</code>\\n🗓️ ${ticket.createdAt.toISOString()}\\n\\n${ticket.message.replace(/[<&>]/g, "") }\\n\\nReply: <code>/reply ${ticket.id} your response</code>`).join("\\n\\n━━━━━━━━━━━━━━\\n\\n");
+  return sendMessage(chatId, `<b>🆘 Open support tickets</b>\\n\\n${text}`, buildAdminKeyboard());
+}
+
+async function showAdminSettings(chatId: number) {
+  const db = await getDb();
+  if (!db) throw new Error("Database is unavailable");
+  const rows = await db.select().from(botSettings).orderBy(botSettings.key);
+  const configured = rows.length ? rows.map((row) => `• <code>${row.key}</code> = <code>${row.value.replace(/[<&>]/g, "")}</code>`).join("\\n") : "• No database overrides";
+  return sendMessage(chatId, `<b>⚙️ Bot settings</b>\\n\\n${configured}\\n\\nPayment visibility: <code>${process.env.ENABLED_PAYMENT_OPTIONS ?? "all"}</code> or the persisted database override.\\n\\nUse <code>/setsetting payment_options wallet,binance,bep20,stars</code> or <code>/setsetting key value</code> for supported settings.`, buildAdminKeyboard());
+}
+
+async function setAdminSetting(chatId: number, text: string) {
+  const match = text.match(/^\/setsetting(?:@[^\s]+)?\s+(\S+)\s+(.+)$/i);
+  if (!match) return sendMessage(chatId, "Usage: <code>/setsetting &lt;key&gt; &lt;value&gt;</code>\\n\\nSupported: membership_channel_id, membership_group_id, membership_channel_url, membership_group_url, notification_chat_id, payment_options", buildAdminKeyboard());
+  const key = match[1];
+  const value = match[2].trim();
+  const allowed = new Set(["membership_channel_id", "membership_group_id", "membership_channel_url", "membership_group_url", "notification_chat_id", "payment_options"]);
+  if (!allowed.has(key)) return sendMessage(chatId, "⚠️ Unsupported setting key.", buildAdminKeyboard());
+  if (key === "payment_options") {
+    try { setRuntimePaymentOptions(value); } catch (error) { return sendMessage(chatId, `⚠️ ${String(error instanceof Error ? error.message : error)}`, buildAdminKeyboard()); }
+  } else if (key.endsWith("_id") && !/^-?\d+$/.test(value)) return sendMessage(chatId, "⚠️ Chat IDs must contain only numbers, optionally prefixed with -.", buildAdminKeyboard());
+  else if (key.endsWith("_url") && !validTelegramJoinUrl(value)) return sendMessage(chatId, "⚠️ Use a valid Telegram public or invite URL.", buildAdminKeyboard());
+  const db = await getDb();
+  if (!db) throw new Error("Database is unavailable");
+  await db.insert(botSettings).values({ key, value }).onConflictDoUpdate({ target: botSettings.key, set: { value } });
+  scheduleDriveSync("wallet_balance");
+  return sendMessage(chatId, `✅ Setting <code>${key}</code> updated.`, buildAdminKeyboard());
+}
+
+async function showAdminDiagnostics(chatId: number) {
+  const db = await getDb();
+  if (!db) throw new Error("Database is unavailable");
+  const users = await db.select().from(botUsers).orderBy(desc(botUsers.updatedAt));
+  const failures = await db.select({ botUserId: notificationDeliveries.botUserId, error: notificationDeliveries.error, createdAt: notificationDeliveries.createdAt }).from(notificationDeliveries).where(and(eq(notificationDeliveries.status, "failed"), isNull(notificationDeliveries.adminChatId))).orderBy(desc(notificationDeliveries.createdAt)).limit(500);
+  const latest = new Map<number, string>();
+  for (const failure of failures) if (failure.botUserId && !latest.has(failure.botUserId)) latest.set(failure.botUserId, telegramDeliveryFailureCategory(failure.error ?? "delivery failed"));
+  const known = users.filter((user) => latest.has(user.id)).slice(0, 30).map((user) => `• <code>${user.telegramUserId}</code> ${user.username ? `@${user.username}` : "no username"} — ${latest.get(user.id)}`).join("\\n");
+  return sendMessage(chatId, `<b>🔎 Telegram account diagnostics</b>\\n\\nTelegram does not provide a non-message API to scan every user for blocked/deleted status. The list below contains the latest known delivery failures from notifications/broadcasts.\\n\\n${known || "No known failed deliveries."}`, buildAdminKeyboard());
+}
+
+async function runAdminBroadcast(chatId: number, messageText: string) {
+  const db = await getDb();
+  if (!db) throw new Error("Database is unavailable");
+  const body = messageText.replace(/^\/broadcast(?:@[^\s]+)?\s*/i, "").trim();
+  if (!body) return sendMessage(chatId, "Usage: <code>/broadcast your message</code>", buildAdminKeyboard());
+  const inserted = await db.insert(broadcasts).values({ message: body, status: "sending" });
+  const broadcastId = extractInsertedRowId(inserted);
+  if (!broadcastId) throw new Error("Could not create broadcast record");
+  const users = await db.select().from(botUsers);
+  let sent = 0; let failed = 0; const failures: string[] = [];
+  for (const user of users) {
+    try {
+      await sendMessage(user.telegramUserId, body);
+      sent += 1;
+      await db.insert(notificationDeliveries).values({ botUserId: user.id, eventType: "broadcast", referenceId: `${broadcastId}:${user.id}`, status: "sent", sentAt: new Date(), error: null }).onConflictDoUpdate({ target: [notificationDeliveries.eventType, notificationDeliveries.referenceId], set: { status: "sent", sentAt: new Date(), error: null } });
+    } catch (error) {
+      failed += 1;
+      const reason = telegramDeliveryFailureCategory(error);
+      failures.push(`• <code>${user.telegramUserId}</code> ${user.username ? `@${user.username}` : "no username"} — ${reason}`);
+      await db.insert(notificationDeliveries).values({ botUserId: user.id, eventType: "broadcast", referenceId: `${broadcastId}:${user.id}`, status: "failed", error: reason }).onConflictDoUpdate({ target: [notificationDeliveries.eventType, notificationDeliveries.referenceId], set: { status: "failed", error: reason } });
+    }
+  }
+  await db.update(broadcasts).set({ status: "completed", sentCount: sent, failedCount: failed, completedAt: new Date() }).where(eq(broadcasts.id, broadcastId));
+  const failureReport = failures.length ? `\\n\\n<b>Failed recipients</b>\\n${failures.slice(0, 50).join("\\n")}` : "";
+  return sendMessage(chatId, `✅ <b>Broadcast #${broadcastId} completed</b>\\n\\n📨 Sent: <b>${sent}</b>\\n❌ Failed: <b>${failed}</b>${failureReport}`, buildAdminKeyboard());
+}
+
+async function deleteAdminUser(chatId: number, text: string) {
+  const match = text.match(/^\/deleteuser(?:@[^\s]+)?\s+(\d+)$/i);
+  if (!match) return sendMessage(chatId, "Usage: <code>/deleteuser &lt;telegram-user-id&gt;</code>", buildAdminKeyboard());
+  const telegramUserId = Number(match[1]);
+  const db = await getDb();
+  if (!db) throw new Error("Database is unavailable");
+  const user = (await db.select().from(botUsers).where(eq(botUsers.telegramUserId, telegramUserId)).limit(1))[0];
+  if (!user) return sendMessage(chatId, "⚠️ No bot user exists with that Telegram ID.", buildAdminKeyboard());
+  await db.transaction(async (tx) => {
+    await tx.delete(supportTickets).where(eq(supportTickets.botUserId, user.id));
+    await tx.delete(orders).where(eq(orders.botUserId, user.id));
+    await tx.delete(walletLedger).where(eq(walletLedger.botUserId, user.id));
+    await tx.delete(binancePayDeposits).where(eq(binancePayDeposits.botUserId, user.id));
+    await tx.delete(paymentIntents).where(eq(paymentIntents.botUserId, user.id));
+    await tx.delete(telegramStarsWalletPayments).where(eq(telegramStarsWalletPayments.botUserId, user.id));
+    await tx.delete(freeClaims).where(eq(freeClaims.botUserId, user.id));
+    await tx.delete(priceAlerts).where(eq(priceAlerts.botUserId, user.id));
+    await tx.delete(notificationDeliveries).where(eq(notificationDeliveries.botUserId, user.id));
+    await tx.delete(referrals).where(or(eq(referrals.referrerId, user.id), eq(referrals.referredUserId, user.id)));
+    await tx.delete(botUsers).where(eq(botUsers.id, user.id));
+  });
+  scheduleDriveSync("wallet_balance");
+  return sendMessage(chatId, `✅ Deleted bot user <code>${telegramUserId}</code> and associated data.`, buildAdminKeyboard());
+}
+
+async function handleAdminCommand(message: TelegramMessage) {
+  if (!message.text || !isAuthorizedAdminMessage(message)) return false;
+  const text = message.text.trim();
+  const command = text.split(/\s+/)[0]?.toLowerCase().replace(/@[^\s]+$/, "");
+  if (command === "/tickets") { await showAdminTickets(message.chat.id); return true; }
+  if (command === "/settings") { await showAdminSettings(message.chat.id); return true; }
+  if (command === "/setsetting") { await setAdminSetting(message.chat.id, text); return true; }
+  if (command === "/diagnostics" || command === "/accountstatus") { await showAdminDiagnostics(message.chat.id); return true; }
+  if (command === "/broadcast") { await runAdminBroadcast(message.chat.id, text); return true; }
+  if (command === "/deleteuser") { await deleteAdminUser(message.chat.id, text); return true; }
+  return false;
 }
 
 async function handleAdminReply(message: TelegramMessage) {
@@ -840,8 +978,11 @@ export function parseUsdAmountInput(text: string) {
 async function runtimeGate() {
   const db = await getDb();
   if (!db) return { channelId: DEFAULT_CHANNEL_ID, groupId: DEFAULT_GROUP_ID, channelUrl: DEFAULT_CHANNEL_URL, groupUrl: DEFAULT_GROUP_URL };
-  const rows = await db.select().from(botSettings).where(sql`\`key\` in ('membership_channel_id', 'membership_group_id', 'membership_channel_url', 'membership_group_url', 'notification_chat_id')`);
+  const rows = await db.select().from(botSettings).where(sql`\`key\` in ('membership_channel_id', 'membership_group_id', 'membership_channel_url', 'membership_group_url', 'notification_chat_id', 'payment_options')`);
   const values = Object.fromEntries(rows.map((row) => [row.key, row.value]));
+  if (values.payment_options) {
+    try { setRuntimePaymentOptions(values.payment_options); } catch (error) { console.warn("[Telegram] Ignoring invalid persisted payment_options", error); }
+  }
   return {
     channelId: values.membership_channel_id || DEFAULT_CHANNEL_ID,
     groupId: values.membership_group_id || DEFAULT_GROUP_ID,
@@ -1226,7 +1367,7 @@ async function createBinancePayPurchaseIntent(chatId: number, userId: number, pr
 }
 
 export type TelegramCallbackAction =
-  | { kind: "verify_membership" | "home" | "freebies" | "wallet" | "walletadd" | "walletbep20" | "walletstars" | "walletstars_pay" | "walletcancel" | "orders" | "profile" | "referrals" | "support" | "botinfo" | "admin_stats" }
+  | { kind: "verify_membership" | "home" | "freebies" | "wallet" | "walletadd" | "walletbep20" | "walletstars" | "walletstars_pay" | "walletcancel" | "orders" | "profile" | "referrals" | "support" | "botinfo" | "admin_stats" | "admin_tickets" | "admin_broadcast_help" | "admin_settings" | "admin_diagnostics" | "admin_delete_help" }
   | { kind: "shop" | "product" | "claim" | "reward" | "buy" | "customqty" | "pricealert"; id: number }
   | { kind: "walletamount"; amountCents: number }
   | { kind: "buyqty" | "buyconfirm" | "paywallet" | "paybinance" | "paybep20" | "paystars"; id: number; quantity: number }
@@ -1234,7 +1375,7 @@ export type TelegramCallbackAction =
 
 export function parseTelegramCallbackAction(data?: string): TelegramCallbackAction | null {
   const value = data ?? "";
-  if (["verify_membership", "home", "freebies", "wallet", "walletadd", "walletbep20", "walletstars", "walletstars_pay", "walletcancel", "orders", "profile", "referrals", "support", "botinfo", "admin_stats"].includes(value)) return { kind: value as TelegramCallbackAction["kind"] } as TelegramCallbackAction;
+  if (["verify_membership", "home", "freebies", "wallet", "walletadd", "walletbep20", "walletstars", "walletstars_pay", "walletcancel", "orders", "profile", "referrals", "support", "botinfo", "admin_stats", "admin_tickets", "admin_broadcast_help", "admin_settings", "admin_diagnostics", "admin_delete_help"].includes(value)) return { kind: value as TelegramCallbackAction["kind"] } as TelegramCallbackAction;
   const walletAmountMatch = value.match(/^walletamount:(\d+)$/);
   if (walletAmountMatch) return { kind: "walletamount", amountCents: Number(walletAmountMatch[1]) };
   const quantityMatch = value.match(/^(buyqty|buyconfirm|paywallet|paybinance|paybep20|paystars):([0-9]+):([0-9]+)$/);
@@ -1273,9 +1414,14 @@ export async function handleCallback(query: TelegramCallbackQuery, options: { sk
   void recordBotActivity(userId).catch((error) => console.error("[Telegram] callback activity touch failed", error));
   const action = parseTelegramCallbackAction(query.data);
   if (!action) return;
-  if (action.kind === "admin_stats") {
+  if (["admin_stats", "admin_tickets", "admin_broadcast_help", "admin_settings", "admin_diagnostics", "admin_delete_help"].includes(action.kind)) {
     if (!isAuthorizedAdminMessage({ chat: { id: chatId, type: query.message?.chat.type ?? "" }, from: query.from })) return respond(chatId, "⚠️ This administrator action is not available.", undefined, messageId);
-    return showBotInfo(chatId, messageId, true);
+    if (action.kind === "admin_stats") return showBotInfo(chatId, messageId, true);
+    if (action.kind === "admin_tickets") { await showAdminTickets(chatId); return; }
+    if (action.kind === "admin_settings") { await showAdminSettings(chatId); return; }
+    if (action.kind === "admin_diagnostics") { await showAdminDiagnostics(chatId); return; }
+    if (action.kind === "admin_broadcast_help") return respond(chatId, "<b>📢 Broadcast</b>\\n\\nSend <code>/broadcast your message</code> to deliver it to all known bot users. The completion report includes sent count, failed count, Telegram ID, username, and the exact failure reason returned by Telegram.", buildAdminKeyboard(), messageId);
+    return respond(chatId, "<b>🗑️ Delete a bot user</b>\\n\\nSend <code>/deleteuser &lt;telegram-user-id&gt;</code>. This permanently removes the user and associated bot records from the database and synchronizes the change to Drive.", buildAdminKeyboard(), messageId);
   }
   const paymentOption = paymentOptionForCallback(action);
   if (paymentOption && !isPaymentOptionEnabled(paymentOption)) {
@@ -1551,6 +1697,7 @@ async function restorePendingBinancePurchase(userId: number) {
 export async function handleMessage(message: TelegramMessage) {
   if (isAuthorizedAdminMessage(message)) {
     if (await handleAdminReply(message)) return;
+    if (await handleAdminCommand(message)) return;
     const adminCommand = message.text?.trim().split(/\s+/)[0]?.toLowerCase();
     if (adminCommand === "/start" || adminCommand === "/admin") return sendMessage(message.chat.id, formatAdminHomeMessage(), buildAdminKeyboard());
     if (adminCommand === "/reply") return sendMessage(message.chat.id, "Usage: <code>/reply &lt;ticket-id&gt; &lt;message&gt;</code>", buildAdminKeyboard());
