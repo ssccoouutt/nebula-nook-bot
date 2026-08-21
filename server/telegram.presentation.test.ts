@@ -144,6 +144,8 @@ describe("Telegram presentation and notification helpers", () => {
     expect(home).toContain("✅ Membership active");
     expect(formatMembershipMessage()).toContain("🔐 <b>Membership required</b>");
     expect(formatSupportPrompt()).toContain("🆘 <b>Support</b>");
+    expect(formatSupportPrompt()).toContain("next message");
+    expect(formatSupportPrompt()).not.toContain("/support your message");
     expect(formatSupportSubmitted("42")).toContain("✅ <b>Support request received</b>");
     expect(formatExtraDeviceMessage()).toContain("📱 <b>Extra device request</b>");
     expect(formatPurchaseConfirmation(42, "Premium", 100)).toContain("✅ <b>Order completed</b>");

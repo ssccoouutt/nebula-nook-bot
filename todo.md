@@ -510,3 +510,7 @@
 - [x] Fix Telegram Stars wallet deposits failing while inserting pending wallet-payment records.
 - [x] Place Telegram Stars as the last payment option in wallet deposits and direct product checkout.
 - [x] Add regression coverage and validate the wallet Stars repair and keyboard ordering.
+
+- [x] Route support tickets only to the private TELEGRAM_ADMIN_CHAT_ID and handle invalid or stale notification targets without breaking the user flow.
+- [x] Change Support and /support to prompt for a separate user message instead of parsing `/support ...` inline text.
+- [x] Add regression coverage and validate the corrected support flow with TypeScript, tests, and a production build.

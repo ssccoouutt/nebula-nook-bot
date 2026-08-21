@@ -92,6 +92,8 @@ export function rememberNonTextCallbackMessage(message: TelegramMessage | undefi
 const pendingCustomQuantities = new Map<number, { productId: number; expiresAt: number }>();
 const pendingBinancePayTopups = new Map<number, { amountCents?: number; method: "binance_pay" | "bep20"; createdAt?: number; expiresAt: number }>();
 const pendingTelegramStarsWalletTopups = new Map<number, { amountCents?: number; createdAt?: number; expiresAt: number }>();
+const pendingSupportMessages = new Map<number, { expiresAt: number }>();
+const SUPPORT_MESSAGE_WINDOW_MS = 20 * 60 * 1000;
 const pendingBinancePayPurchases = new Map<number, { intentId: number; expiresAt: number }>();
 export const BINANCE_PAY_PURCHASE_WINDOW_MS = 20 * 60 * 1000;
 export const BEP20_PURCHASE_WINDOW_MS = 30 * 60 * 1000;
@@ -349,7 +351,7 @@ export function formatMembershipMessage() {
 }
 
 export function formatSupportPrompt() {
-  return "🆘 <b>Support</b>\n\nSend your request like this:\n<code>/support your message</code>";
+  return "🆘 <b>Support</b>\n\nPlease send your support message in your next message.\n\nThis request window expires in 20 minutes.";
 }
 
 export function formatSupportSubmitted(ticketId: string) {
@@ -361,14 +363,27 @@ export function formatBotInfoMessage(totalUsers: number, completedOrders: number
 }
 
 function configuredAdminChatId() {
-  const value = Number(process.env.TELEGRAM_ADMIN_CHAT_ID);
-  return Number.isSafeInteger(value) && value !== 0 ? value : null;
+  const configured = process.env.TELEGRAM_SUPPORT_ADMIN_CHAT_ID ?? process.env.TELEGRAM_ADMIN_CHAT_ID;
+  const value = Number(configured);
+  // Support must target a private administrator account, not a group/channel ID.
+  return Number.isSafeInteger(value) && value > 0 ? value : null;
 }
 
 async function deliverSupportTicket(ticketId: string, user: TelegramUser, body: string) {
   const adminChatId = configuredAdminChatId();
-  if (adminChatId === null) throw new Error("TELEGRAM_ADMIN_CHAT_ID is not configured for private support delivery");
+  if (adminChatId === null) throw new Error("A positive private TELEGRAM_SUPPORT_ADMIN_CHAT_ID (or TELEGRAM_ADMIN_CHAT_ID) is required for support delivery");
   await sendMessage(adminChatId, `<b>New support ticket #${ticketId}</b>\nFrom: ${user.first_name ?? "User"}${user.username ? ` (@${user.username})` : ""}\nTelegram ID: <code>${user.id}</code>\n\n${body}\n\nReply with:\n<code>/reply ${ticketId} your response</code>`);
+}
+
+async function submitSupportTicket(user: TelegramUser, body: string) {
+  const db = await getDb();
+  if (!db) throw new Error("Database is unavailable");
+  const botUser = (await db.select().from(botUsers).where(eq(botUsers.telegramUserId, user.id)).limit(1))[0];
+  if (!botUser) throw new Error("Support user account is unavailable");
+  const ticketResult = await db.insert(supportTickets).values({ botUserId: botUser.id, message: body, status: "open" });
+  const ticketId = String((ticketResult as any)[0]?.insertId ?? `${user.id}:${Date.now()}`);
+  await deliverSupportTicket(ticketId, user, body);
+  return ticketId;
 }
 
 async function handleAdminReply(message: TelegramMessage) {
@@ -1194,7 +1209,10 @@ export async function handleCallback(query: TelegramCallbackQuery, options: { sk
   if (action.kind === "profile") return showProfile(chatId, userId, messageId);
   if (action.kind === "referrals") return showReferrals(chatId, userId, messageId);
   if (action.kind === "botinfo") return showBotInfo(chatId, messageId);
-  if (action.kind === "support") return respond(chatId, formatSupportPrompt(), buildHomeKeyboard(), messageId);
+  if (action.kind === "support") {
+    pendingSupportMessages.set(userId, { expiresAt: Date.now() + SUPPORT_MESSAGE_WINDOW_MS });
+    return respond(chatId, formatSupportPrompt(), buildHomeKeyboard(), messageId);
+  }
   if (action.kind === "claim") return claimFree(chatId, userId, action.id, messageId);
   if (action.kind === "reward") return claimReferralReward(chatId, userId, action.id, messageId);
   if (purchaseRoute === "quantity_prompt" && (action.kind === "buy" || (action.kind === "buyqty" && action.quantity === 0))) return showQuantityPrompt(chatId, action.id, messageId);
@@ -1491,6 +1509,18 @@ export async function handleMessage(message: TelegramMessage) {
     scheduleDriveSync("wallet_balance");
     return respond(message.chat.id, `✅ <b>Wallet credited</b>\n\n💰 Added: <b>$${(credited.amountCents / 100).toFixed(2)} ${credited.asset}</b>\n🧾 Transaction: <code>${credited.transactionId}</code>\n\nYour new balance is available in Wallet.`, buildWalletKeyboard());
   }
+  const pendingSupport = pendingSupportMessages.get(user.id);
+  if (pendingSupport && pendingSupport.expiresAt > Date.now() && !message.text.trim().startsWith("/")) {
+    pendingSupportMessages.delete(user.id);
+    try {
+      const ticketId = await submitSupportTicket(user, message.text.trim());
+      return sendMessage(message.chat.id, formatSupportSubmitted(ticketId));
+    } catch (error) {
+      recordTelegramFailure("support_ticket", error, { userId: user.id, chatId: message.chat.id });
+      return sendMessage(message.chat.id, "⚠️ Support is temporarily unavailable. Please try again later or contact the administrator directly.");
+    }
+  }
+  if (pendingSupport && pendingSupport.expiresAt <= Date.now()) pendingSupportMessages.delete(user.id);
   const pending = pendingCustomQuantities.get(user.id);
   if (pending && pending.expiresAt > Date.now()) {
     const db = await getDb();
@@ -1525,15 +1555,8 @@ export async function handleMessage(message: TelegramMessage) {
   if (command === "/orders") return showOrders(message.chat.id, user.id);
   if (command === "/profile") return showProfile(message.chat.id, user.id);
   if (command === "/support") {
-    const body = rest.filter((part) => !part.startsWith("ref_")).join(" ").trim();
-    if (!body) return sendMessage(message.chat.id, formatSupportPrompt());
-    const db = await getDb();
-    if (!db) throw new Error("Database is unavailable");
-    const botUser = (await db.select().from(botUsers).where(eq(botUsers.telegramUserId, user.id)).limit(1))[0];
-    const ticketResult = await db.insert(supportTickets).values({ botUserId: botUser.id, message: body, status: "open" });
-    const ticketId = String((ticketResult as any)[0]?.insertId ?? `${user.id}:${Date.now()}`);
-    await deliverSupportTicket(ticketId, user, body);
-    return sendMessage(message.chat.id, formatSupportSubmitted(ticketId));
+    pendingSupportMessages.set(user.id, { expiresAt: Date.now() + SUPPORT_MESSAGE_WINDOW_MS });
+    return sendMessage(message.chat.id, formatSupportPrompt());
   }
   if (command === "/extra_device") return sendMessage(message.chat.id, formatExtraDeviceMessage());
   return showHome(message.chat.id, user.id);
