@@ -27,6 +27,7 @@ import {
   buildHomeKeyboard,
   buildAdminKeyboard,
   formatAdminHomeMessage,
+  parseAdminReplyCommand,
   isAuthorizedAdminMessage,
   buildMembershipKeyboard,
   buildShopKeyboard,
@@ -364,6 +365,19 @@ describe("Telegram presentation and notification helpers", () => {
       if (previous === undefined) delete process.env.ENABLED_PAYMENT_OPTIONS;
       else process.env.ENABLED_PAYMENT_OPTIONS = previous;
     }
+  });
+
+  it("parses administrator replies with numeric ticket IDs and bot command mentions", () => {
+    expect(parseAdminReplyCommand("/reply 42 We are checking this now")).toEqual({ ticketId: 42, response: "We are checking this now" });
+    expect(parseAdminReplyCommand("/reply@Toolsmania_bot #42  Please wait a moment. ")).toEqual({ ticketId: 42, response: "Please wait a moment." });
+    expect(parseAdminReplyCommand("/reply 42")).toBeNull();
+    expect(parseAdminReplyCommand("/reply ticket hello")).toBeNull();
+  });
+
+  it("keeps Bot Statistics on the administrator keyboard instead of the normal-user menu", () => {
+    const adminRows = buildAdminKeyboard().inline_keyboard;
+    expect(adminRows.flat().some((button) => button.callback_data === "admin_stats")).toBe(true);
+    expect(adminRows.flat().some((button) => ["shop", "wallet", "orders", "profile", "freebies", "support"].includes(button.callback_data ?? ""))).toBe(false);
   });
 
   it("keeps BEP20 invoice expiry at 30 minutes and Binance Pay at 20 minutes", () => {

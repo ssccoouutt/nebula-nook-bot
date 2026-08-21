@@ -545,3 +545,6 @@
 - [x] Admin Web App button intentionally not included; revised requirement is an admin-only Telegram control menu without the dashboard button.
 - [x] Preserve normal-user behavior unchanged: existing user menus, membership checks, callbacks, support prompts, and payment flows must not route through admin-only logic.
 - [x] Remove the admin dashboard button and ensure admin /start shows only the dedicated admin control menu, with no normal-user features.
+- [x] Fix admin /reply parsing so valid ticket replies are handled instead of returning usage with the admin menu.
+- [x] Fix admin Bot Statistics callbacks so they show only admin statistics and never enter the normal-user menu.
+- [x] Add regression tests proving valid admin reply routing and admin statistics isolation while normal-user routes remain unchanged.

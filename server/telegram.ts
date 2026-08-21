@@ -458,7 +458,9 @@ async function submitSupportTicket(user: TelegramUser, body: string) {
   const botUser = (await db.select().from(botUsers).where(eq(botUsers.telegramUserId, user.id)).limit(1))[0];
   if (!botUser) throw new Error("Support user account is unavailable");
   const ticketResult = await db.insert(supportTickets).values({ botUserId: botUser.id, message: body, status: "open" });
-  const ticketId = String((ticketResult as any)[0]?.insertId ?? `${user.id}:${Date.now()}`);
+  const insertedTicketId = extractInsertedRowId(ticketResult);
+  if (!insertedTicketId) throw new Error("Failed to create support ticket ID");
+  const ticketId = String(insertedTicketId);
   await deliverSupportTicket(ticketId, user, body);
   return ticketId;
 }
@@ -472,6 +474,16 @@ export function formatAdminHomeMessage() {
   return "🔐 <b>ToolsMania Admin Control Center</b>\n\nThis private menu is visible only to the configured administrator.\n\nUse <code>/reply &lt;ticket-id&gt; &lt;message&gt;</code> to answer a support ticket. Use the admin controls below to view bot statistics.";
 }
 
+export function parseAdminReplyCommand(text?: string) {
+  const normalized = String(text ?? "").trim();
+  const match = normalized.match(/^\/reply(?:@[^\s]+)?\s+#?(\d+)\s+([\s\S]+)$/i);
+  if (!match) return null;
+  const ticketId = Number(match[1]);
+  const response = match[2].trim();
+  if (!Number.isSafeInteger(ticketId) || ticketId < 1 || !response) return null;
+  return { ticketId, response };
+}
+
 export function buildAdminKeyboard() {
   return keyboard([
     [{ text: "ℹ️ Bot Statistics", callback_data: "admin_stats", style: "primary" }],
@@ -481,12 +493,12 @@ export function buildAdminKeyboard() {
 async function handleAdminReply(message: TelegramMessage) {
   const adminChatId = configuredAdminChatId();
   if (!isAuthorizedAdminMessage(message) || !adminChatId || !message.text) return false;
-  const match = message.text.match(/^\/reply(?:@[^\s]+)?\s+(\d+)\s+([\s\S]+)$/i);
-  if (!match) return false;
+  const parsed = parseAdminReplyCommand(message.text);
+  if (!parsed) return false;
   const db = await getDb();
   if (!db) throw new Error("Database is unavailable");
-  const ticketId = Number(match[1]);
-  const response = match[2].trim();
+  const ticketId = parsed.ticketId;
+  const response = parsed.response;
   const ticket = (await db.select().from(supportTickets).where(eq(supportTickets.id, ticketId)).limit(1))[0];
   if (!ticket) return sendMessage(adminChatId, `⚠️ Support ticket #${ticketId} was not found.`).then(() => true);
   const user = (await db.select().from(botUsers).where(eq(botUsers.id, ticket.botUserId)).limit(1))[0];
@@ -983,12 +995,12 @@ export function isShopEligibleProduct(product: { active: number | boolean; shopE
   return Boolean(product && (product.active === 1 || product.active === true) && (product.shopEligible === undefined || product.shopEligible === 1 || product.shopEligible === true));
 }
 
-async function showBotInfo(chatId: number, messageId?: number) {
+async function showBotInfo(chatId: number, messageId?: number, admin = false) {
   const db = await getDb();
   if (!db) throw new Error("Database is unavailable");
   const userRows = await db.select({ count: sql<number>`count(*)` }).from(botUsers);
   const orderRows = await db.select({ count: sql<number>`count(*)` }).from(orders).where(or(eq(orders.status, "fulfilled"), eq(orders.status, "paid")));
-  return respond(chatId, formatBotInfoMessage(Number(userRows[0]?.count ?? 0), Number(orderRows[0]?.count ?? 0)), buildHomeKeyboard(), messageId);
+  return respond(chatId, formatBotInfoMessage(Number(userRows[0]?.count ?? 0), Number(orderRows[0]?.count ?? 0)), admin ? buildAdminKeyboard() : buildHomeKeyboard(), messageId);
 }
 
 async function showFreebies(chatId: number, messageId?: number) {
@@ -1263,7 +1275,7 @@ export async function handleCallback(query: TelegramCallbackQuery, options: { sk
   if (!action) return;
   if (action.kind === "admin_stats") {
     if (!isAuthorizedAdminMessage({ chat: { id: chatId, type: query.message?.chat.type ?? "" }, from: query.from })) return respond(chatId, "⚠️ This administrator action is not available.", undefined, messageId);
-    return showBotInfo(chatId, messageId);
+    return showBotInfo(chatId, messageId, true);
   }
   const paymentOption = paymentOptionForCallback(action);
   if (paymentOption && !isPaymentOptionEnabled(paymentOption)) {
