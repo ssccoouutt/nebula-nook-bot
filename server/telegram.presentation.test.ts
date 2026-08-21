@@ -43,6 +43,9 @@ import {
   BINANCE_PAY_PURCHASE_WINDOW_MS,
   formatBinancePayTopupPrompt,
   formatBep20TopupPrompt,
+  formatTelegramStarsTopupPrompt,
+  buildTelegramStarsTopupKeyboard,
+  buildWalletKeyboard,
   buildWalletDepositAmountKeyboard,
   buildWalletDepositInvoiceKeyboard,
   formatWalletDepositAmountPrompt,
@@ -246,6 +249,8 @@ describe("Telegram presentation and notification helpers", () => {
     expect(resolvePurchaseCallbackRoute({ kind: "customqty", id: 7 })).toBe("custom_quantity");
     expect(resolvePurchaseCallbackRoute({ kind: "pricealert", id: 7 })).toBe("price_alert");
     expect(resolvePurchaseCallbackRoute({ kind: "walletamount", amountCents: 1000 })).toBe("wallet_amount");
+    expect(parseTelegramCallbackAction("walletstars")).toEqual({ kind: "walletstars" });
+    expect(parseTelegramCallbackAction("walletstars_pay")).toEqual({ kind: "walletstars_pay" });
     expect(resolvePurchaseCallbackRoute({ kind: "home" })).toBeNull();
     expect(resolvePurchaseCallbackRoute({ kind: "reward", id: 7 })).toBeNull();
   });
@@ -302,6 +307,9 @@ describe("Telegram presentation and notification helpers", () => {
     expect(bep20Prompt).toContain("Deposit address (BEP20):</b> <code>0xbep20-test</code>");
     expect(formatBinancePayTopupPrompt(1000)).toContain("$10.00 USDT");
     expect(formatBep20TopupPrompt(1000)).toContain("<code>0xbep20-test</code>");
+    expect(formatTelegramStarsTopupPrompt(12000, 100)).toContain("100 Telegram Stars");
+    expect(buildTelegramStarsTopupKeyboard().inline_keyboard[0][0]).toMatchObject({ text: "⭐ Pay with Telegram Stars", callback_data: "walletstars_pay" });
+    expect(buildWalletKeyboard().inline_keyboard.flat().some((button) => button.callback_data === "walletstars")).toBe(true);
     const depositRows = buildWalletDepositAmountKeyboard().inline_keyboard;
     expect(depositRows).toEqual([[expect.objectContaining({ callback_data: "walletcancel" })]]);
   });

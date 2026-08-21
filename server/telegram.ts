@@ -1,7 +1,7 @@
 import type { Request, Response } from "express";
 import { and, desc, eq, gt, inArray, isNull, or, sql } from "drizzle-orm";
 import { getDb } from "./db";
-import { binancePayDeposits, botSettings, botUsers, freeClaims, notificationDeliveries, orders, paymentIntents, priceAlerts, products, referrals, supportTickets, walletLedger } from "../drizzle/schema";
+import { binancePayDeposits, botSettings, botUsers, freeClaims, notificationDeliveries, orders, paymentIntents, priceAlerts, products, referrals, supportTickets, telegramStarsWalletPayments, walletLedger } from "../drizzle/schema";
 import { findBinancePayTransaction } from "./binancePay";
 import { canClaimFreeItem, freeWindowStart, hasAccess, referralCodeForTelegramId, tierForReferralCount } from "../shared/botLogic";
 import { scheduleDriveSync } from "./googleDrivePersistence";
@@ -91,6 +91,7 @@ export function rememberNonTextCallbackMessage(message: TelegramMessage | undefi
 }
 const pendingCustomQuantities = new Map<number, { productId: number; expiresAt: number }>();
 const pendingBinancePayTopups = new Map<number, { amountCents?: number; method: "binance_pay" | "bep20"; createdAt?: number; expiresAt: number }>();
+const pendingTelegramStarsWalletTopups = new Map<number, { amountCents?: number; createdAt?: number; expiresAt: number }>();
 const pendingBinancePayPurchases = new Map<number, { intentId: number; expiresAt: number }>();
 export const BINANCE_PAY_PURCHASE_WINDOW_MS = 20 * 60 * 1000;
 export const BEP20_PURCHASE_WINDOW_MS = 30 * 60 * 1000;
@@ -195,7 +196,7 @@ async function sendMessage(chatId: number, text: string, replyMarkup?: unknown) 
 }
 
 async function sendStarsInvoice(chatId: number, title: string, description: string, payload: string, stars: number) {
-  return telegramCall("sendInvoice", { chat_id: chatId, title, description, payload, currency: "XTR", prices: [{ label: title, amount: stars }], start_parameter: payload });
+  return telegramCall("sendInvoice", { chat_id: chatId, title, description, payload, provider_token: "", currency: "XTR", prices: [{ label: title, amount: stars }] });
 }
 
 async function editMessage(chatId: number, messageId: number, text: string, replyMarkup?: unknown) {
@@ -551,6 +552,7 @@ export function buildWalletKeyboard() {
   return keyboard([
     [{ text: "➕ Add funds with Binance Pay (USDT)", callback_data: "walletadd", style: "success" }],
     [{ text: "➕ Add funds with USDT (BEP20)", callback_data: "walletbep20", style: "primary" }],
+    [{ text: "⭐ Add funds with Telegram Stars", callback_data: "walletstars", style: "primary" }],
     [{ text: "🏠 Back to home", callback_data: "home", style: "primary" }],
   ]);
 }
@@ -662,6 +664,11 @@ export function formatBep20TopupPrompt(amountCents: number) {
   return `💰 <b>Amount to send:</b> ${amount} USDT\n💳 <b>Deposit address (BEP20):</b> <code>${bep20DepositAddress()}</code>\n━━━━━━━━━━━━━━━━━━\n\n<b>Important:</b>\n• Send the exact amount shown.\n• Use the BEP20 network only — wrong-network funds are unrecoverable.\n• After sending, send the Transaction Hash (TxID) here as your next message.\n\nThis invoice expires in <b>20 minutes</b>.`;
 }
 
+export function formatTelegramStarsTopupPrompt(amountCents: number, stars: number) {
+  const amount = `$${(amountCents / 100).toFixed(2)}`;
+  return `⭐ <b>Telegram Stars wallet deposit</b>\n\n💰 Wallet credit: <b>${amount}</b>\n⭐ Price: <b>${stars} Telegram Stars</b>\n\nTap the payment button below to complete the deposit. Your wallet is credited only after Telegram confirms the payment.`;
+}
+
 export function buildPurchasePaymentFailureKeyboard(productId: number) {
   return keyboard([[{ text: "✖️ Cancel", callback_data: `buycancel:${productId}` }]]);
 }
@@ -693,9 +700,13 @@ export function buildWalletDepositInvoiceKeyboard(method: "binance_pay" | "bep20
   return keyboard([[{ text: label, copy_text: { text: value } }], [{ text: "✖️ Cancel", callback_data: "walletcancel" }]]);
 }
 
-export function formatWalletDepositAmountPrompt(error?: "invalid" | "range", method: "binance_pay" | "bep20" = "binance_pay") {
+export function buildTelegramStarsTopupKeyboard() {
+  return keyboard([[{ text: "⭐ Pay with Telegram Stars", callback_data: "walletstars_pay" }], [{ text: "✖️ Cancel", callback_data: "walletcancel" }]]);
+}
+
+export function formatWalletDepositAmountPrompt(error?: "invalid" | "range", method: "binance_pay" | "bep20" | "telegram_stars" = "binance_pay") {
   const notice = error === "invalid" ? "⚠️ Enter a valid USD amount, for example <b>10</b> or <b>10.50</b>.\n\n" : error === "range" ? "⚠️ Enter an amount from <b>$0.01</b> to <b>$1,000.00</b>.\n\n" : "";
-  const title = method === "bep20" ? "🟢 <b>Add funds with USDT (BEP20)</b>" : "💳 <b>Add funds with Binance Pay (USDT)</b>";
+  const title = method === "bep20" ? "🟢 <b>Add funds with USDT (BEP20)</b>" : method === "telegram_stars" ? "⭐ <b>Add funds with Telegram Stars</b>\n\nFixed rate: <b>100 Stars = $120.00</b>" : "💳 <b>Add funds with Binance Pay (USDT)</b>";
   return `${notice}${title}\n\nEnter the amount in USD you want to add.\n\nExample: <b>10</b> for $10.00`;
 }
 
@@ -1096,7 +1107,7 @@ async function createBinancePayPurchaseIntent(chatId: number, userId: number, pr
 }
 
 export type TelegramCallbackAction =
-  | { kind: "verify_membership" | "home" | "freebies" | "wallet" | "walletadd" | "walletbep20" | "walletcancel" | "orders" | "profile" | "referrals" | "support" | "botinfo" }
+  | { kind: "verify_membership" | "home" | "freebies" | "wallet" | "walletadd" | "walletbep20" | "walletstars" | "walletstars_pay" | "walletcancel" | "orders" | "profile" | "referrals" | "support" | "botinfo" }
   | { kind: "shop" | "product" | "claim" | "reward" | "buy" | "customqty" | "pricealert"; id: number }
   | { kind: "walletamount"; amountCents: number }
   | { kind: "buyqty" | "buyconfirm" | "paywallet" | "paybinance" | "paybep20" | "paystars"; id: number; quantity: number }
@@ -1104,7 +1115,7 @@ export type TelegramCallbackAction =
 
 export function parseTelegramCallbackAction(data?: string): TelegramCallbackAction | null {
   const value = data ?? "";
-  if (["verify_membership", "home", "freebies", "wallet", "walletadd", "walletbep20", "walletcancel", "orders", "profile", "referrals", "support", "botinfo"].includes(value)) return { kind: value as TelegramCallbackAction["kind"] } as TelegramCallbackAction;
+  if (["verify_membership", "home", "freebies", "wallet", "walletadd", "walletbep20", "walletstars", "walletstars_pay", "walletcancel", "orders", "profile", "referrals", "support", "botinfo"].includes(value)) return { kind: value as TelegramCallbackAction["kind"] } as TelegramCallbackAction;
   const walletAmountMatch = value.match(/^walletamount:(\d+)$/);
   if (walletAmountMatch) return { kind: "walletamount", amountCents: Number(walletAmountMatch[1]) };
   const quantityMatch = value.match(/^(buyqty|buyconfirm|paywallet|paybinance|paybep20|paystars):([0-9]+):([0-9]+)$/);
@@ -1154,6 +1165,12 @@ export async function handleCallback(query: TelegramCallbackQuery, options: { sk
   if (action.kind === "shop") return showShop(chatId, action.id, messageId);
   if (action.kind === "product") return showProduct(chatId, action.id, messageId);
   if (action.kind === "wallet") return showWallet(chatId, userId, messageId);
+  if (action.kind === "walletstars") {
+    const openedAt = Date.now();
+    pendingTelegramStarsWalletTopups.set(userId, { expiresAt: openedAt + 30 * 60 * 1000 });
+    return respond(chatId, formatWalletDepositAmountPrompt(undefined, "telegram_stars"), buildWalletDepositAmountKeyboard(), messageId);
+  }
+  if (action.kind === "walletstars_pay") return sendTelegramStarsWalletInvoice(chatId, userId, messageId);
   if (action.kind === "walletadd" || action.kind === "walletbep20") {
     const method = action.kind === "walletbep20" ? "bep20" as const : "binance_pay" as const;
     const openedAt = Date.now();
@@ -1162,10 +1179,11 @@ export async function handleCallback(query: TelegramCallbackQuery, options: { sk
   }
   if (action.kind === "walletcancel") {
     pendingBinancePayTopups.delete(userId);
+    pendingTelegramStarsWalletTopups.delete(userId);
     return showWallet(chatId, userId, messageId);
   }
   if (purchaseRoute === "wallet_amount" && action.kind === "walletamount") {
-    if (!Number.isSafeInteger(action.amountCents) || action.amountCents < 100) return respond(chatId, formatWalletDepositAmountPrompt("range"), buildWalletDepositAmountKeyboard(), messageId);
+    if (!Number.isSafeInteger(action.amountCents) || action.amountCents < 1) return respond(chatId, formatWalletDepositAmountPrompt("range"), buildWalletDepositAmountKeyboard(), messageId);
     const method = pendingBinancePayTopups.get(userId)?.method ?? "binance_pay";
     const invoiceCreatedAt = Date.now();
     pendingBinancePayTopups.set(userId, { amountCents: action.amountCents, method, createdAt: invoiceCreatedAt, expiresAt: invoiceCreatedAt + (method === "bep20" ? BEP20_PURCHASE_WINDOW_MS : BINANCE_PAY_PURCHASE_WINDOW_MS) });
@@ -1211,6 +1229,20 @@ export async function handleCallback(query: TelegramCallbackQuery, options: { sk
   }
 }
 
+async function sendTelegramStarsWalletInvoice(chatId: number, userId: number, messageId?: number) {
+  const pending = pendingTelegramStarsWalletTopups.get(userId);
+  if (!pending || pending.expiresAt <= Date.now() || pending.amountCents === undefined) return respond(chatId, formatWalletDepositAmountPrompt("invalid", "telegram_stars"), buildWalletDepositAmountKeyboard(), messageId);
+  const db = await getDb();
+  if (!db) throw new Error("Database is unavailable");
+  const account = (await db.select().from(botUsers).where(eq(botUsers.telegramUserId, userId)).limit(1))[0];
+  if (!account) return respond(chatId, "⚠️ Your bot account is not ready yet. Send /start and try again.", buildWalletKeyboard(), messageId);
+  const starsAmount = usdCentsToTelegramStars(pending.amountCents);
+  const payload = `toolsmania-wallet-stars:${userId}:${Date.now()}`;
+  await db.insert(telegramStarsWalletPayments).values({ botUserId: account.id, amountCents: pending.amountCents, starsAmount, payload, status: "pending", createdAt: new Date(), updatedAt: new Date() });
+  pendingTelegramStarsWalletTopups.delete(userId);
+  await sendStarsInvoice(chatId, "ToolsMania wallet deposit", `Wallet credit: $${(pending.amountCents / 100).toFixed(2)}`, payload, starsAmount);
+}
+
 async function createTelegramStarsPurchaseIntent(chatId: number, userId: number, productId: number, quantity: number) {
   const db = await getDb();
   if (!db) throw new Error("Database is unavailable");
@@ -1234,6 +1266,15 @@ async function answerPreCheckoutQuery(queryId: string, ok: boolean, errorMessage
 }
 
 async function handleStarsPreCheckout(query: TelegramPreCheckoutQuery) {
+  const walletMatch = query.invoice_payload.match(/^toolsmania-wallet-stars:(\d+):(\d+)$/);
+  if (walletMatch) {
+    if (query.currency !== "XTR") return answerPreCheckoutQuery(query.id, false, "This Telegram Stars invoice is invalid.");
+    const db = await getDb();
+    if (!db) return answerPreCheckoutQuery(query.id, false, "The wallet is temporarily unavailable.");
+    const walletPayment = (await db.select().from(telegramStarsWalletPayments).where(eq(telegramStarsWalletPayments.payload, query.invoice_payload)).limit(1))[0];
+    if (!walletPayment || walletPayment.status !== "pending" || query.total_amount !== walletPayment.starsAmount) return answerPreCheckoutQuery(query.id, false, "This wallet invoice is no longer available. Please create a new one.");
+    return answerPreCheckoutQuery(query.id, true);
+  }
   const match = query.invoice_payload.match(/^toolsmania-stars:(\d+)$/);
   if (!match || query.currency !== "XTR") return answerPreCheckoutQuery(query.id, false, "This Telegram Stars invoice is invalid.");
   const db = await getDb();
@@ -1244,6 +1285,31 @@ async function handleStarsPreCheckout(query: TelegramPreCheckoutQuery) {
     return answerPreCheckoutQuery(query.id, false, "This invoice is no longer available. Please create a new invoice.");
   }
   return answerPreCheckoutQuery(query.id, true);
+}
+
+async function verifyAndFulfillTelegramStarsWalletDeposit(chatId: number, userId: number, payment: TelegramSuccessfulPayment) {
+  if (payment.currency !== "XTR") return sendMessage(chatId, "⚠️ This Telegram Stars wallet payment is invalid.");
+  const db = await getDb();
+  if (!db) throw new Error("Database is unavailable");
+  const current = (await db.select().from(telegramStarsWalletPayments).where(eq(telegramStarsWalletPayments.payload, payment.invoice_payload)).limit(1))[0];
+  if (!current || current.status !== "pending") return sendMessage(chatId, "ℹ️ This Telegram Stars wallet payment was already processed or is no longer pending.");
+  if (payment.total_amount !== current.starsAmount) return sendMessage(chatId, "⚠️ The Telegram Stars amount did not match the wallet invoice.");
+  const outcome = await db.transaction(async (tx) => {
+    const row = (await tx.select().from(telegramStarsWalletPayments).where(eq(telegramStarsWalletPayments.id, current.id)).limit(1))[0];
+    if (!row || row.status !== "pending") return { ok: false as const, reason: "already_processed" as const };
+    const reused = (await tx.select().from(telegramStarsWalletPayments).where(eq(telegramStarsWalletPayments.transactionId, payment.telegram_payment_charge_id)).limit(1))[0];
+    if (reused) return { ok: false as const, reason: "already_used" as const };
+    const account = (await tx.select().from(botUsers).where(eq(botUsers.id, row.botUserId)).limit(1))[0];
+    const sender = (await tx.select({ id: botUsers.id }).from(botUsers).where(eq(botUsers.telegramUserId, userId)).limit(1))[0];
+    if (!account || account.id !== sender?.id) return { ok: false as const, reason: "user_mismatch" as const };
+    await tx.update(botUsers).set({ balanceCents: account.balanceCents + row.amountCents }).where(eq(botUsers.id, account.id));
+    await tx.insert(walletLedger).values({ botUserId: account.id, amountCents: row.amountCents, kind: "topup", referenceId: payment.telegram_payment_charge_id, note: `Telegram Stars deposit (${row.starsAmount} XTR)` });
+    await tx.update(telegramStarsWalletPayments).set({ status: "credited", transactionId: payment.telegram_payment_charge_id, updatedAt: new Date() }).where(eq(telegramStarsWalletPayments.id, row.id));
+    return { ok: true as const, amountCents: row.amountCents };
+  });
+  if (!outcome.ok) return sendMessage(chatId, outcome.reason === "user_mismatch" ? "⚠️ This wallet invoice belongs to a different account." : "ℹ️ This Telegram Stars wallet payment was already processed.");
+  scheduleDriveSync("wallet_balance");
+  return sendMessage(chatId, `✅ <b>Wallet credited</b>\n\nAdded <b>$${(outcome.amountCents / 100).toFixed(2)}</b> using Telegram Stars.`, buildWalletKeyboard());
 }
 
 async function verifyAndFulfillTelegramStarsPurchase(chatId: number, userId: number, payment: TelegramSuccessfulPayment) {
@@ -1358,6 +1424,7 @@ export async function handleMessage(message: TelegramMessage) {
   const messageText = message.text;
   const isCommandMessage = messageText.trim().startsWith("/");
   const pendingTopup = pendingBinancePayTopups.get(user.id);
+  const pendingStarsTopup = pendingTelegramStarsWalletTopups.get(user.id);
   const pendingPurchase = pendingBinancePayPurchases.get(user.id) ?? await restorePendingBinancePurchase(user.id);
   const pendingPurchaseExpired = pendingPurchase?.expiresAt !== undefined && pendingPurchase.expiresAt <= Date.now();
   if (pendingPurchase && shouldRoutePendingBinancePurchase(messageText, isCommandMessage, Boolean(pendingTopup), true)) {
@@ -1368,6 +1435,20 @@ export async function handleMessage(message: TelegramMessage) {
     const completed = await verifyAndFulfillBinancePurchase(message.chat.id, user.id, pendingPurchase.intentId, messageText);
     if (completed) pendingBinancePayPurchases.delete(user.id);
     return;
+  }
+  if (!isCommandMessage && pendingStarsTopup) {
+    if (pendingStarsTopup.expiresAt <= Date.now()) {
+      pendingTelegramStarsWalletTopups.delete(user.id);
+      return respond(message.chat.id, "⌛ <b>Stars deposit invoice expired</b>\n\nOpen Wallet and tap Add funds with Telegram Stars to try again.", buildWalletKeyboard());
+    }
+    if (pendingStarsTopup.amountCents === undefined) {
+      const parsed = parseUsdAmountInput(messageText);
+      if (!parsed.ok) return respond(message.chat.id, formatWalletDepositAmountPrompt(parsed.reason, "telegram_stars"), buildWalletDepositAmountKeyboard());
+      pendingStarsTopup.amountCents = parsed.amountCents;
+      pendingStarsTopup.createdAt = Date.now();
+      pendingStarsTopup.expiresAt = pendingStarsTopup.createdAt + 30 * 60 * 1000;
+      return respond(message.chat.id, formatTelegramStarsTopupPrompt(parsed.amountCents, usdCentsToTelegramStars(parsed.amountCents)), buildTelegramStarsTopupKeyboard());
+    }
   }
   if (!isCommandMessage && pendingTopup) {
     if (pendingTopup.expiresAt <= Date.now()) {
@@ -1539,7 +1620,10 @@ async function processTelegramWebhookUpdate(update: TelegramUpdate) {
   }
   if (update.pre_checkout_query) await handleStarsPreCheckout(update.pre_checkout_query);
   else if (update.callback_query) await handleCallback(update.callback_query);
-  else if (update.message?.successful_payment) await verifyAndFulfillTelegramStarsPurchase(update.message.chat.id, update.message.from?.id ?? 0, update.message.successful_payment);
+  else if (update.message?.successful_payment) {
+    if (update.message.successful_payment.invoice_payload.startsWith("toolsmania-wallet-stars:")) await verifyAndFulfillTelegramStarsWalletDeposit(update.message.chat.id, update.message.from?.id ?? 0, update.message.successful_payment);
+    else await verifyAndFulfillTelegramStarsPurchase(update.message.chat.id, update.message.from?.id ?? 0, update.message.successful_payment);
+  }
   else if (update.message) await handleMessage(update.message);
 }
 

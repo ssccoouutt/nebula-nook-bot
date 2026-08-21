@@ -499,3 +499,8 @@
 - [x] Add a Bot Info button and statistics view showing total bot users and completed orders.
 - [x] Verify Telegram Stars payment constraints and implement the requested fixed conversion if supported.
 - [x] Add regression tests, run TypeScript/full validation, and publish the support, stats, and payment update.
+
+- [x] Fix Telegram Stars `START_PARAM_INVALID` invoice creation by removing or correcting the invalid invoice parameter.
+- [x] Add Telegram Stars as a wallet deposit method with the fixed 120 USD = 100 Stars conversion and idempotent crediting.
+- [x] Ensure product checkout exposes Wallet balance, Binance Pay, USDT BEP20, and Telegram Stars options.
+- [x] Add regression coverage and validate the Stars invoice, wallet deposit, and checkout changes.
