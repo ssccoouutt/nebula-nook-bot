@@ -506,3 +506,7 @@
 - [x] Add regression coverage and validate the Stars invoice, wallet deposit, and checkout changes.
 
 - [x] Correct the Telegram Stars conversion to 100 Stars = $1.20 across prompts, invoices, wallet credits, product payments, and tests.
+
+- [x] Fix Telegram Stars wallet deposits failing while inserting pending wallet-payment records.
+- [x] Place Telegram Stars as the last payment option in wallet deposits and direct product checkout.
+- [x] Add regression coverage and validate the wallet Stars repair and keyboard ordering.

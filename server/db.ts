@@ -53,6 +53,7 @@ CREATE TABLE IF NOT EXISTS priceAlerts (id INTEGER PRIMARY KEY AUTOINCREMENT, bo
 CREATE TABLE IF NOT EXISTS supportTickets (id INTEGER PRIMARY KEY AUTOINCREMENT, botUserId INTEGER NOT NULL, message TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'open', createdAt INTEGER NOT NULL DEFAULT (strftime('%s','now') * 1000), updatedAt INTEGER NOT NULL DEFAULT (strftime('%s','now') * 1000));
 CREATE TABLE IF NOT EXISTS broadcasts (id INTEGER PRIMARY KEY AUTOINCREMENT, message TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'queued', sentCount INTEGER NOT NULL DEFAULT 0, failedCount INTEGER NOT NULL DEFAULT 0, createdAt INTEGER NOT NULL DEFAULT (strftime('%s','now') * 1000), completedAt INTEGER, scheduleCronTaskUid TEXT);
 CREATE TABLE IF NOT EXISTS notificationDeliveries (id INTEGER PRIMARY KEY AUTOINCREMENT, botUserId INTEGER, adminChatId INTEGER, eventType TEXT NOT NULL, referenceId TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'queued', error TEXT, createdAt INTEGER NOT NULL DEFAULT (strftime('%s','now') * 1000), sentAt INTEGER, UNIQUE (eventType, referenceId));
+CREATE TABLE IF NOT EXISTS telegramStarsWalletPayments (id INTEGER PRIMARY KEY AUTOINCREMENT, botUserId INTEGER NOT NULL, amountCents INTEGER NOT NULL, starsAmount INTEGER NOT NULL, payload TEXT NOT NULL UNIQUE, transactionId TEXT UNIQUE, status TEXT NOT NULL DEFAULT 'pending', createdAt INTEGER NOT NULL DEFAULT (strftime('%s','now') * 1000), updatedAt INTEGER NOT NULL DEFAULT (strftime('%s','now') * 1000));
 `;
 
 function ensureReferralColumns(client: DatabaseClient) {

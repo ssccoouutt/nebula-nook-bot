@@ -289,9 +289,9 @@ describe("Telegram presentation and notification helpers", () => {
     expect(formatPurchaseReview("Gemini Pro", 299, 3, 1000)).toContain("Choose a payment method");
     const reviewRows = buildPaymentMethodKeyboard(7, 3).inline_keyboard;
     expect(reviewRows[0][0]).toMatchObject({ text: "💳 Pay with Wallet", callback_data: "paywallet:7:3", style: "success" });
-    expect(reviewRows[1][0]).toMatchObject({ text: "⭐ Pay with Telegram Stars", callback_data: "paystars:7:3", style: "primary" });
-    expect(reviewRows[2][0]).toMatchObject({ text: "🟡 Pay with Binance Pay (USDT)", callback_data: "paybinance:7:3", style: "primary" });
-    expect(reviewRows[3][0]).toMatchObject({ text: "🟢 Pay with USDT (BEP20)", callback_data: "paybep20:7:3", style: "primary" });
+    expect(reviewRows[1][0]).toMatchObject({ text: "🟡 Pay with Binance Pay (USDT)", callback_data: "paybinance:7:3", style: "primary" });
+    expect(reviewRows[2][0]).toMatchObject({ text: "🟢 Pay with USDT (BEP20)", callback_data: "paybep20:7:3", style: "primary" });
+    expect(reviewRows[3][0]).toMatchObject({ text: "⭐ Pay with Telegram Stars", callback_data: "paystars:7:3", style: "primary" });
     expect(reviewRows[4][0]).toMatchObject({ callback_data: "buycancel:7" });
     expect(reviewRows[4][0]).not.toHaveProperty("style");
     process.env.BEP20 = "0xbep20-test";
@@ -310,7 +310,11 @@ describe("Telegram presentation and notification helpers", () => {
     expect(formatBep20TopupPrompt(1000)).toContain("<code>0xbep20-test</code>");
     expect(formatTelegramStarsTopupPrompt(120, 100)).toContain("100 Telegram Stars");
     expect(buildTelegramStarsTopupKeyboard().inline_keyboard[0][0]).toMatchObject({ text: "⭐ Pay with Telegram Stars", callback_data: "walletstars_pay" });
-    expect(buildWalletKeyboard().inline_keyboard.flat().some((button) => button.callback_data === "walletstars")).toBe(true);
+    const walletRows = buildWalletKeyboard().inline_keyboard;
+    expect(walletRows[0][0]).toMatchObject({ callback_data: "walletadd" });
+    expect(walletRows[1][0]).toMatchObject({ callback_data: "walletbep20" });
+    expect(walletRows[2][0]).toMatchObject({ callback_data: "walletstars" });
+    expect(walletRows[3][0]).toMatchObject({ callback_data: "home" });
     const depositRows = buildWalletDepositAmountKeyboard().inline_keyboard;
     expect(depositRows).toEqual([[expect.objectContaining({ callback_data: "walletcancel" })]]);
   });

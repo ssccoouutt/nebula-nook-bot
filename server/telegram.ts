@@ -584,9 +584,9 @@ export function buildQuantityKeyboard(productId: number, stock: number) {
 export function buildPaymentMethodKeyboard(productId: number, quantity: number) {
   return keyboard([
     [{ text: "💳 Pay with Wallet", callback_data: `paywallet:${productId}:${quantity}`, style: "success" }],
-    [{ text: "⭐ Pay with Telegram Stars", callback_data: `paystars:${productId}:${quantity}`, style: "primary" }],
     [{ text: "🟡 Pay with Binance Pay (USDT)", callback_data: `paybinance:${productId}:${quantity}`, style: "primary" }],
     [{ text: "🟢 Pay with USDT (BEP20)", callback_data: `paybep20:${productId}:${quantity}`, style: "primary" }],
+    [{ text: "⭐ Pay with Telegram Stars", callback_data: `paystars:${productId}:${quantity}`, style: "primary" }],
     [{ text: "✖️ Cancel", callback_data: `buycancel:${productId}` }],
   ]);
 }
