@@ -585,3 +585,7 @@
 - [x] Fix administrator open-ticket projection so it returns explicit support-ticket IDs and user identity fields, preventing joined bot-user IDs from being rendered as ticket numbers.
 - [x] Add regression coverage proving the admin list, close/reply commands, dashboard, and Drive export all use the same canonical supportTickets.id.
 - [x] Verify and publish the support-ticket identity repair.
+
+- [x] Normalize literal escaped newlines in every administrator-facing Telegram response, including Bot settings and other admin buttons.
+- [x] Make `/close` and inline ticket closure acknowledge immediately while Drive synchronization runs asynchronously and still reports failures safely.
+- [x] Add regression tests for admin newline rendering and non-blocking ticket closure, then run the full validation suite and publish.

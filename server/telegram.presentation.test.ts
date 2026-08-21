@@ -30,7 +30,9 @@ import {
   parseAdminReplyCommand,
   parseAdminCloseTicketCommand,
   normalizeAdminTicketText,
+  normalizeTelegramMessageText,
   formatAdminTelegramId,
+  formatAdminTicketClosedMessage,
   formatAdminTicketRecord,
   isAuthorizedAdminMessage,
   buildMembershipKeyboard,
@@ -537,6 +539,7 @@ describe("Telegram presentation and notification helpers", () => {
   });
 
   it("normalizes admin ticket text and validates close-ticket commands", () => {
+    expect(normalizeTelegramMessageText("first\\nsecond\\r\\nthird")).toBe("first\nsecond\nthird");
     expect(normalizeAdminTicketText("first\\nsecond")).toBe("first\nsecond");
     expect(normalizeAdminTicketText("<unsafe> & text")).toBe("unsafe  text");
     expect(formatAdminTelegramId(990321391)).toBe("990321391");
@@ -544,6 +547,7 @@ describe("Telegram presentation and notification helpers", () => {
     expect(parseAdminCloseTicketCommand("/close 46")).toBe(46);
     expect(parseAdminCloseTicketCommand("/close@Toolsmania_bot #84")).toBe(84);
     expect(parseAdminCloseTicketCommand("/close nope")).toBeNull();
+    expect(formatAdminTicketClosedMessage(46)).toContain("Google Drive synchronization is queued in the background");
   });
 
   it("renders the canonical support ticket ID independently from the joined bot-user ID", () => {

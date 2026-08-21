@@ -254,8 +254,11 @@ async function telegramCall<T>(method: string, body: Record<string, unknown>): P
   throw lastError instanceof Error ? lastError : new Error(`Telegram ${method} failed`);
 }
 
+export function normalizeTelegramMessageText(text: string) {
+  return text.replace(/\\r\\n/g, "\n").replace(/\\n/g, "\n");
+}
 async function sendMessage(chatId: number, text: string, replyMarkup?: unknown) {
-  return telegramCall("sendMessage", { chat_id: chatId, text, parse_mode: "HTML", reply_markup: replyMarkup });
+  return telegramCall("sendMessage", { chat_id: chatId, text: normalizeTelegramMessageText(text), parse_mode: "HTML", reply_markup: replyMarkup });
 }
 
 async function sendStarsInvoice(chatId: number, title: string, description: string, payload: string, stars: number) {
@@ -263,7 +266,7 @@ async function sendStarsInvoice(chatId: number, title: string, description: stri
 }
 
 async function editMessage(chatId: number, messageId: number, text: string, replyMarkup?: unknown) {
-  return telegramCall("editMessageText", { chat_id: chatId, message_id: messageId, text, parse_mode: "HTML", reply_markup: replyMarkup });
+  return telegramCall("editMessageText", { chat_id: chatId, message_id: messageId, text: normalizeTelegramMessageText(text), parse_mode: "HTML", reply_markup: replyMarkup });
 }
 
 async function sendPhoto(chatId: number, photo: string, caption: string, replyMarkup?: unknown) {
@@ -574,6 +577,9 @@ async function showAdminTickets(chatId: number) {
   return sendMessage(chatId, `<b>🆘 Open support tickets</b>\n\n${text}`, buildAdminTicketKeyboard(rows.map((row) => row.ticketId)));
 }
 
+export function formatAdminTicketClosedMessage(ticketId: number) {
+  return `✅ Support ticket #${ticketId} was closed. Google Drive synchronization is queued in the background.`;
+}
 async function closeAdminTicket(chatId: number, ticketId: number) {
   const db = await getDb();
   if (!db) throw new Error("Database is unavailable");
@@ -584,13 +590,10 @@ async function closeAdminTicket(chatId: number, ticketId: number) {
   const changedCount = Number((changed as { changes?: unknown }).changes ?? 0);
   if (changedCount > 0) {
     scheduleDriveSync("support_ticket");
-    try {
-      await flushDriveSync();
-    } catch (error) {
-      console.error(`[Telegram][Support] ticket #${ticketId} closed locally but Drive synchronization failed: ${error instanceof Error ? error.message : String(error)}`);
-      return sendMessage(chatId, `⚠️ Support ticket #${ticketId} was closed in the bot and dashboard, but Google Drive synchronization failed. It will retry automatically.`, buildAdminKeyboard());
-    }
-    return sendMessage(chatId, `✅ Support ticket #${ticketId} was closed and synchronized to Google Drive.`, buildAdminKeyboard());
+    void flushDriveSync().catch((error) => {
+      console.error(`[Telegram][Support] ticket #${ticketId} closed locally; asynchronous Drive synchronization failed: ${error instanceof Error ? error.message : String(error)}`);
+    });
+    return sendMessage(chatId, formatAdminTicketClosedMessage(ticketId), buildAdminKeyboard());
   }
   const ticket = (await db.select({ id: supportTickets.id, status: supportTickets.status }).from(supportTickets).where(eq(supportTickets.id, ticketId)).limit(1))[0];
   if (!ticket) {
