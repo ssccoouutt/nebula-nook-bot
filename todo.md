@@ -565,3 +565,6 @@
 
 - [x] Unify displayed, replied, and closed support-ticket IDs so legacy tickets #46 and #84 can be acted on using those exact numbers.
 - [x] Prevent new support tickets from displaying a conflicting sequence number and add regression coverage for legacy/new ticket ID consistency.
+
+- [x] Repair Koyeb/Drive ticket restore identity mapping so legacy tickets shown as #46 and #84 resolve to the same rows for /reply and /close.
+- [x] Add regression coverage for restored legacy ticket IDs and cross-instance ticket actions.

@@ -68,6 +68,10 @@ describe("Google Drive persistence", () => {
       { botUsers: 45, orders: 7, products: 3 },
       { botUsers: 44, orders: 7, products: 3 },
     )).toBe(false);
+    expect(shouldPreferReadableExportsByData(
+      { botUsers: 45, supportTickets: 2 },
+      { botUsers: 45, supportTickets: 3 },
+    )).toBe(true);
   });
 
   it("does not restore a stale Telegram update cursor from readable exports", () => {

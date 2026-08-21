@@ -169,7 +169,7 @@ export function shouldPreferReadableExports(snapshotModifiedTime: string | undef
   });
 }
 
-const DATA_AWARE_RESTORE_TABLES = ["users", "botUsers", "products", "orders", "walletLedger", "binancePayDeposits", "paymentIntents", "referrals", "freeClaims"] as const;
+const DATA_AWARE_RESTORE_TABLES = ["users", "botUsers", "products", "orders", "walletLedger", "binancePayDeposits", "paymentIntents", "referrals", "freeClaims", "supportTickets"] as const;
 type RestoreTable = typeof DATA_AWARE_RESTORE_TABLES[number];
 type RestoreCounts = Partial<Record<RestoreTable, number>>;
 
