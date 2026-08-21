@@ -69,6 +69,10 @@ import {
   buildPurchasePaymentFailureKeyboard,
   hasProductImage,
   isHttpProductImageUrl,
+  enabledPaymentOptions,
+  isPaymentOptionEnabled,
+  paymentOptionForCallback,
+  formatPaymentUnavailableMessage,
 } from "./telegram";
 
 describe("Telegram presentation and notification helpers", () => {
@@ -327,6 +331,36 @@ describe("Telegram presentation and notification helpers", () => {
     expect(walletRows[3][0]).toMatchObject({ callback_data: "home" });
     const depositRows = buildWalletDepositAmountKeyboard().inline_keyboard;
     expect(depositRows).toEqual([[expect.objectContaining({ callback_data: "walletcancel" })]]);
+  });
+
+  it("keeps all payment methods visible while labeling configured-disabled methods unavailable", () => {
+    const previous = process.env.ENABLED_PAYMENT_OPTIONS;
+    try {
+      process.env.ENABLED_PAYMENT_OPTIONS = "wallet,binance_pay,bep20,telegram_stars";
+      expect([...enabledPaymentOptions()]).toEqual(["wallet", "binance_pay", "bep20", "telegram_stars"]);
+      expect(isPaymentOptionEnabled("telegram_stars")).toBe(true);
+      expect(buildPaymentMethodKeyboard(7, 3).inline_keyboard[3][0]).toMatchObject({ text: "⭐ Pay with Telegram Stars", callback_data: "paystars:7:3" });
+
+      process.env.ENABLED_PAYMENT_OPTIONS = "wallet,binance_pay";
+      const purchaseRows = buildPaymentMethodKeyboard(7, 3).inline_keyboard;
+      expect(purchaseRows).toHaveLength(5);
+      expect(purchaseRows[0][0].text).toBe("💳 Pay with Wallet");
+      expect(purchaseRows[2][0].text).toContain("USDT (BEP20)");
+      expect(purchaseRows[2][0].text).toContain("unavailable");
+      expect(purchaseRows[3][0].text).toContain("Telegram Stars");
+      expect(purchaseRows[3][0].text).toContain("unavailable");
+
+      const walletRows = buildWalletKeyboard().inline_keyboard;
+      expect(walletRows[0][0].text).toBe("➕ Add funds with Binance Pay (USDT)");
+      expect(walletRows[1][0].text).toContain("unavailable");
+      expect(walletRows[2][0].text).toContain("unavailable");
+      expect(paymentOptionForCallback(parseTelegramCallbackAction("walletstars")!)).toBe("telegram_stars");
+      expect(paymentOptionForCallback(parseTelegramCallbackAction("paybep20:7:3")!)).toBe("bep20");
+      expect(formatPaymentUnavailableMessage("telegram_stars")).toContain("temporarily unavailable");
+    } finally {
+      if (previous === undefined) delete process.env.ENABLED_PAYMENT_OPTIONS;
+      else process.env.ENABLED_PAYMENT_OPTIONS = previous;
+    }
   });
 
   it("keeps BEP20 invoice expiry at 30 minutes and Binance Pay at 20 minutes", () => {

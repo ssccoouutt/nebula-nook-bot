@@ -33,6 +33,52 @@ const DEFAULT_GROUP_URL = process.env.TELEGRAM_GROUP_JOIN_URL ?? "https://t.me/+
 const PUBLIC_BOT_USERNAME = (process.env.TELEGRAM_BOT_USERNAME ?? "Toolsmania_bot").replace(/^@/, "");
 const recentRequests = new Map<number, number>();
 
+export type PaymentOption = "wallet" | "binance_pay" | "bep20" | "telegram_stars";
+const ALL_PAYMENT_OPTIONS: PaymentOption[] = ["wallet", "binance_pay", "bep20", "telegram_stars"];
+
+export function enabledPaymentOptions(): Set<PaymentOption> {
+  const raw = (process.env.ENABLED_PAYMENT_OPTIONS ?? "").trim();
+  if (!raw) return new Set(ALL_PAYMENT_OPTIONS);
+  const aliases: Record<string, PaymentOption | "all"> = {
+    all: "all", wallet: "wallet", binance: "binance_pay", binancepay: "binance_pay", binance_pay: "binance_pay",
+    bep20: "bep20", usdt_bep20: "bep20", "usdt-bep20": "bep20",
+    stars: "telegram_stars", telegramstars: "telegram_stars", telegram_stars: "telegram_stars", "telegram-stars": "telegram_stars",
+  };
+  const parsed = new Set<PaymentOption>();
+  for (const token of raw.toLowerCase().split(/[\s,;]+/).filter(Boolean)) {
+    const option = aliases[token];
+    if (option === "all") return new Set(ALL_PAYMENT_OPTIONS);
+    if (option) parsed.add(option);
+  }
+  return parsed.size ? parsed : new Set(ALL_PAYMENT_OPTIONS);
+}
+
+export function isPaymentOptionEnabled(option: PaymentOption) {
+  return enabledPaymentOptions().has(option);
+}
+
+function paymentButtonLabel(label: string, option: PaymentOption) {
+  return isPaymentOptionEnabled(option) ? label : `${label} — unavailable`;
+}
+
+type PurchasePaymentCallback = { kind: "paywallet" | "paybinance" | "paybep20" | "paystars"; id: number; quantity: number };
+function isPurchasePaymentCallback(action: TelegramCallbackAction): action is PurchasePaymentCallback {
+  return ["paywallet", "paybinance", "paybep20", "paystars"].includes(action.kind);
+}
+
+export function paymentOptionForCallback(action: TelegramCallbackAction): PaymentOption | null {
+  if (action.kind === "walletadd" || action.kind === "paybinance") return "binance_pay";
+  if (action.kind === "walletbep20" || action.kind === "paybep20") return "bep20";
+  if (action.kind === "walletstars" || action.kind === "walletstars_pay" || action.kind === "paystars") return "telegram_stars";
+  if (action.kind === "paywallet") return "wallet";
+  return null;
+}
+
+export function formatPaymentUnavailableMessage(option: PaymentOption) {
+  const labels: Record<PaymentOption, string> = { wallet: "Wallet balance", binance_pay: "Binance Pay", bep20: "USDT (BEP20)", telegram_stars: "Telegram Stars" };
+  return `⚠️ <b>${labels[option]}</b> is temporarily unavailable. Please choose another payment method.`;
+}
+
 type TelegramRuntimeFailure = {
   at: string;
   scope: string;
@@ -596,9 +642,9 @@ export function buildShopKeyboard(items: Array<{ id: number; name: string; price
 
 export function buildWalletKeyboard() {
   return keyboard([
-    [{ text: "➕ Add funds with Binance Pay (USDT)", callback_data: "walletadd", style: "success" }],
-    [{ text: "➕ Add funds with USDT (BEP20)", callback_data: "walletbep20", style: "primary" }],
-    [{ text: "⭐ Add funds with Telegram Stars", callback_data: "walletstars", style: "primary" }],
+    [{ text: paymentButtonLabel("➕ Add funds with Binance Pay (USDT)", "binance_pay"), callback_data: "walletadd", style: "success" }],
+    [{ text: paymentButtonLabel("➕ Add funds with USDT (BEP20)", "bep20"), callback_data: "walletbep20", style: "primary" }],
+    [{ text: paymentButtonLabel("⭐ Add funds with Telegram Stars", "telegram_stars"), callback_data: "walletstars", style: "primary" }],
     [{ text: "🏠 Back to home", callback_data: "home", style: "primary" }],
   ]);
 }
@@ -629,10 +675,10 @@ export function buildQuantityKeyboard(productId: number, stock: number) {
 
 export function buildPaymentMethodKeyboard(productId: number, quantity: number) {
   return keyboard([
-    [{ text: "💳 Pay with Wallet", callback_data: `paywallet:${productId}:${quantity}`, style: "success" }],
-    [{ text: "🟡 Pay with Binance Pay (USDT)", callback_data: `paybinance:${productId}:${quantity}`, style: "primary" }],
-    [{ text: "🟢 Pay with USDT (BEP20)", callback_data: `paybep20:${productId}:${quantity}`, style: "primary" }],
-    [{ text: "⭐ Pay with Telegram Stars", callback_data: `paystars:${productId}:${quantity}`, style: "primary" }],
+    [{ text: paymentButtonLabel("💳 Pay with Wallet", "wallet"), callback_data: `paywallet:${productId}:${quantity}`, style: "success" }],
+    [{ text: paymentButtonLabel("🟡 Pay with Binance Pay (USDT)", "binance_pay"), callback_data: `paybinance:${productId}:${quantity}`, style: "primary" }],
+    [{ text: paymentButtonLabel("🟢 Pay with USDT (BEP20)", "bep20"), callback_data: `paybep20:${productId}:${quantity}`, style: "primary" }],
+    [{ text: paymentButtonLabel("⭐ Pay with Telegram Stars", "telegram_stars"), callback_data: `paystars:${productId}:${quantity}`, style: "primary" }],
     [{ text: "✖️ Cancel", callback_data: `buycancel:${productId}` }],
   ]);
 }
@@ -1200,6 +1246,11 @@ export async function handleCallback(query: TelegramCallbackQuery, options: { sk
   void recordBotActivity(userId).catch((error) => console.error("[Telegram] callback activity touch failed", error));
   const action = parseTelegramCallbackAction(query.data);
   if (!action) return;
+  const paymentOption = paymentOptionForCallback(action);
+  if (paymentOption && !isPaymentOptionEnabled(paymentOption)) {
+    const unavailableKeyboard = isPurchasePaymentCallback(action) ? buildPaymentMethodKeyboard(action.id, action.quantity) : buildWalletKeyboard();
+    return respond(chatId, formatPaymentUnavailableMessage(paymentOption), unavailableKeyboard, messageId);
+  }
   const purchaseRoute = resolvePurchaseCallbackRoute(action);
   if (action.kind === "verify_membership") {
     clearMembershipCache(userId);

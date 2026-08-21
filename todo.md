@@ -522,3 +522,16 @@
 
 - [x] Add safe source-aware diagnostics for TELEGRAM_ADMIN_CHAT_ID resolution, including cfg.enc key presence, normalization status, masked preview, and exact rejection reason.
 - [x] Add regression coverage and validate the diagnostic repair with tests, TypeScript, and production build.
+
+- [x] Prepare a redacted config.txt template with all current Koyeb variable names, excluding PASS and secret values.
+
+- [x] Replace the oversized config template with a concise required/optional version containing only the original essentials, three added Koyeb values, Stars rate, group notifications, and membership requirement settings.
+
+- [x] Add a shared ENABLED_PAYMENT_OPTIONS setting controlling wallet deposits and direct product checkout.
+
+- [x] Keep all payment methods visible, mark disabled methods unavailable on selection, and prevent disabled payment processing in wallet and product checkout.
+
+- [x] Add visible-but-unavailable labels for disabled Wallet, Binance Pay, USDT BEP20, and Telegram Stars methods while preserving method order and Stars last.
+- [x] Reject disabled payment callbacks with a temporary-unavailable response before creating invoices or payment intents.
+- [x] Add regression coverage for enabled-payment parsing, disabled labels, and disabled callback guards.
+- [x] Run the full test suite, TypeScript check, production build, and save a published checkpoint for the payment availability release.
