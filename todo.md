@@ -519,3 +519,6 @@
 - [x] Add regression coverage for legacy admin ID resolution and validate the support correction.
 
 - [x] Remove every TELEGRAM_SUPPORT_ADMIN_CHAT_ID dependency from support delivery and resolve only TELEGRAM_ADMIN_CHAT_ID from cfg.enc, with regression coverage.
+
+- [x] Add safe source-aware diagnostics for TELEGRAM_ADMIN_CHAT_ID resolution, including cfg.enc key presence, normalization status, masked preview, and exact rejection reason.
+- [x] Add regression coverage and validate the diagnostic repair with tests, TypeScript, and production build.

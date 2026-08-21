@@ -5,6 +5,7 @@ import { binancePayDeposits, botSettings, botUsers, freeClaims, notificationDeli
 import { findBinancePayTransaction } from "./binancePay";
 import { canClaimFreeItem, freeWindowStart, hasAccess, referralCodeForTelegramId, tierForReferralCount } from "../shared/botLogic";
 import { scheduleDriveSync } from "./googleDrivePersistence";
+import { encryptedConfigDiagnostics } from "./configFile";
 
 type TelegramUser = { id: number; username?: string; first_name?: string; last_name?: string };
 type TelegramChat = { id: number; type: string };
@@ -362,13 +363,35 @@ export function formatBotInfoMessage(totalUsers: number, completedOrders: number
   return `ℹ️ <b>ToolsMania Bot Info</b>\n\n👥 Total bot users: <b>${totalUsers}</b>\n✅ Total completed orders: <b>${completedOrders}</b>`;
 }
 
+export function diagnoseConfiguredAdminChatId(values: { legacy?: string } = {}) {
+  const source = values.legacy !== undefined ? "explicit" : "process.env.TELEGRAM_ADMIN_CHAT_ID";
+  const configured = values.legacy !== undefined ? values.legacy : process.env.TELEGRAM_ADMIN_CHAT_ID;
+  const raw = configured == null ? "" : String(configured);
+  const trimmed = raw.trim();
+  const numeric = trimmed === "" ? null : Number(trimmed);
+  const valid = numeric !== null && Number.isSafeInteger(numeric) && numeric > 0;
+  const masked = trimmed.length > 4 ? `${trimmed.slice(0, 2)}••••${trimmed.slice(-2)}` : trimmed ? "••••" : null;
+  let reason = "valid positive private chat ID";
+  if (configured == null) reason = "TELEGRAM_ADMIN_CHAT_ID is absent from process.env; cfg.enc did not apply that key at startup";
+  else if (!trimmed) reason = "TELEGRAM_ADMIN_CHAT_ID is blank after trimming";
+  else if (!/^\d+$/.test(trimmed)) reason = "TELEGRAM_ADMIN_CHAT_ID must contain digits only; group/channel IDs beginning with '-' are rejected for private support";
+  else if (!valid) reason = "TELEGRAM_ADMIN_CHAT_ID is not a positive safe integer";
+  return {
+    source,
+    rawPresent: raw.length > 0,
+    rawLength: raw.length,
+    trimmedLength: trimmed.length,
+    masked,
+    numeric,
+    valid,
+    reason,
+    encryptedConfig: encryptedConfigDiagnostics(),
+  };
+}
+
 export function resolveConfiguredAdminChatId(values: { legacy?: string } = {}) {
-  // Support uses the existing cfg.enc-backed TELEGRAM_ADMIN_CHAT_ID contract only.
-  // Do not introduce a second support-specific variable that can shadow or replace it.
-  const configured = values.legacy ?? process.env.TELEGRAM_ADMIN_CHAT_ID;
-  const value = Number(typeof configured === "string" ? configured.trim() : configured);
-  // Support must target a private administrator account, not a group/channel ID.
-  return Number.isSafeInteger(value) && value > 0 ? value : null;
+  const diagnostic = diagnoseConfiguredAdminChatId(values);
+  return diagnostic.valid ? diagnostic.numeric : null;
 }
 function configuredAdminChatId() {
   return resolveConfiguredAdminChatId();
@@ -376,7 +399,10 @@ function configuredAdminChatId() {
 
 async function deliverSupportTicket(ticketId: string, user: TelegramUser, body: string) {
   const adminChatId = configuredAdminChatId();
-  if (adminChatId === null) throw new Error("A positive private TELEGRAM_ADMIN_CHAT_ID from cfg.enc is required for support delivery");
+  if (adminChatId === null) {
+    const diagnostic = diagnoseConfiguredAdminChatId();
+    throw new Error(`Support admin ID rejected: ${diagnostic.reason}; source=${diagnostic.source}; rawPresent=${diagnostic.rawPresent}; rawLength=${diagnostic.rawLength}; trimmedLength=${diagnostic.trimmedLength}; masked=${diagnostic.masked ?? "<none>"}; cfgPath=${diagnostic.encryptedConfig.path}; cfgLoaded=${diagnostic.encryptedConfig.loaded}; cfgAdminKey=${diagnostic.encryptedConfig.keys.includes("TELEGRAM_ADMIN_CHAT_ID")}`);
+  }
   await sendMessage(adminChatId, `<b>New support ticket #${ticketId}</b>\nFrom: ${user.first_name ?? "User"}${user.username ? ` (@${user.username})` : ""}\nTelegram ID: <code>${user.id}</code>\n\n${body}\n\nReply with:\n<code>/reply ${ticketId} your response</code>`);
 }
 

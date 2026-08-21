@@ -51,8 +51,23 @@ export function decryptConfigPayload(encodedFile: Buffer, password: string) {
   return xorKeystream(ciphertext, encryptionKey, nonce).toString("utf8");
 }
 
+type EncryptedConfigDiagnostics = {
+  loaded: boolean;
+  path: string;
+  applied: number;
+  keys: string[];
+};
+
+let lastEncryptedConfigDiagnostics: EncryptedConfigDiagnostics = {
+  loaded: false,
+  path: resolve(process.env.CONFIG_FILE_PATH ?? "cfg.enc"),
+  applied: 0,
+  keys: [],
+};
+
 function applyEnvText(text: string) {
   let applied = 0;
+  const keys: string[] = [];
   for (const rawLine of text.split(/\r?\n/)) {
     const line = rawLine.trim();
     if (!line || line.startsWith("#")) continue;
@@ -62,24 +77,35 @@ function applyEnvText(text: string) {
     const value = line.slice(separator + 1).trim();
     if (!/^[A-Z_][A-Z0-9_]*$/.test(key) || !value) continue;
     process.env[key] = value;
+    keys.push(key);
     applied += 1;
   }
-  return applied;
+  return { applied, keys };
+}
+
+export function encryptedConfigDiagnostics(): EncryptedConfigDiagnostics {
+  return { ...lastEncryptedConfigDiagnostics, keys: [...lastEncryptedConfigDiagnostics.keys] };
 }
 
 export function loadEncryptedConfig() {
   const configPath = resolve(process.env.CONFIG_FILE_PATH ?? "cfg.enc");
-  if (!existsSync(configPath)) return { loaded: false, applied: 0 };
+  if (!existsSync(configPath)) {
+    lastEncryptedConfigDiagnostics = { loaded: false, path: configPath, applied: 0, keys: [] };
+    return { loaded: false, applied: 0 };
+  }
   const password = process.env.PASS;
   if (!password) {
     if (process.env.NODE_ENV === "production") {
       throw new Error("PASS is required when cfg.enc exists.");
     }
     console.warn(`Encrypted config found at ${configPath}, but PASS is not set; continuing without it.`);
+    lastEncryptedConfigDiagnostics = { loaded: false, path: configPath, applied: 0, keys: [] };
     return { loaded: false, applied: 0 };
   }
   const plaintext = decryptConfigPayload(readFileSync(configPath), password);
-  const applied = applyEnvText(plaintext);
-  console.log(`Loaded ${applied} encrypted configuration values.`);
-  return { loaded: true, applied };
+  const result = applyEnvText(plaintext);
+  lastEncryptedConfigDiagnostics = { loaded: true, path: configPath, applied: result.applied, keys: result.keys };
+  console.log(`Loaded ${result.applied} encrypted configuration values.`);
+  console.log(`[Config] TELEGRAM_ADMIN_CHAT_ID key ${result.keys.includes("TELEGRAM_ADMIN_CHAT_ID") ? "loaded" : "not loaded"} from ${configPath}`);
+  return { loaded: true, applied: result.applied };
 }

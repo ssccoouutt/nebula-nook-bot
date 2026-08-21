@@ -21,7 +21,9 @@ import {
   formatSupportPrompt,
   formatSupportSubmitted,
   resolveNotificationChatId,
-  resolveConfiguredAdminChatId,
+      diagnoseConfiguredAdminChatId,
+    resolveConfiguredAdminChatId,
+
   buildHomeKeyboard,
   buildMembershipKeyboard,
   buildShopKeyboard,
@@ -150,6 +152,9 @@ describe("Telegram presentation and notification helpers", () => {
     expect(formatSupportSubmitted("42")).toContain("✅ <b>Support request received</b>");
     expect(resolveConfiguredAdminChatId({ legacy: "7729451498" })).toBe(7729451498);
     expect(resolveConfiguredAdminChatId({ legacy: "" })).toBeNull();
+    expect(diagnoseConfiguredAdminChatId({ legacy: "7729451498" })).toMatchObject({ source: "explicit", rawPresent: true, rawLength: 10, trimmedLength: 10, masked: "77••••98", valid: true, reason: "valid positive private chat ID" });
+    expect(diagnoseConfiguredAdminChatId({ legacy: "-7729451498" }).reason).toContain("digits only");
+    expect(diagnoseConfiguredAdminChatId({ legacy: "" }).reason).toContain("blank");
     expect(formatExtraDeviceMessage()).toContain("📱 <b>Extra device request</b>");
     expect(formatPurchaseConfirmation(42, "Premium", 100)).toContain("✅ <b>Order completed</b>");
     expect(formatOrderStatus(42, "purchase", "fulfilled", 100)).toContain("✅ #42 · purchase · fulfilled");
