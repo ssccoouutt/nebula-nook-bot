@@ -517,3 +517,5 @@
 
 - [x] Restore support delivery to the existing cfg.enc-backed TELEGRAM_ADMIN_CHAT_ID without requiring a new variable.
 - [x] Add regression coverage for legacy admin ID resolution and validate the support correction.
+
+- [x] Remove every TELEGRAM_SUPPORT_ADMIN_CHAT_ID dependency from support delivery and resolve only TELEGRAM_ADMIN_CHAT_ID from cfg.enc, with regression coverage.

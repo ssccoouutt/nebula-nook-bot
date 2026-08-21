@@ -362,12 +362,11 @@ export function formatBotInfoMessage(totalUsers: number, completedOrders: number
   return `ℹ️ <b>ToolsMania Bot Info</b>\n\n👥 Total bot users: <b>${totalUsers}</b>\n✅ Total completed orders: <b>${completedOrders}</b>`;
 }
 
-export function resolveConfiguredAdminChatId(values: { support?: string; legacy?: string } = {}) {
-  // Preserve the existing cfg.enc-backed TELEGRAM_ADMIN_CHAT_ID contract. A blank
-  // optional override must never shadow the legacy value loaded from cfg.enc.
-  const configured = [values.support ?? process.env.TELEGRAM_SUPPORT_ADMIN_CHAT_ID, values.legacy ?? process.env.TELEGRAM_ADMIN_CHAT_ID]
-    .find(value => typeof value === "string" && value.trim().length > 0);
-  const value = Number(configured);
+export function resolveConfiguredAdminChatId(values: { legacy?: string } = {}) {
+  // Support uses the existing cfg.enc-backed TELEGRAM_ADMIN_CHAT_ID contract only.
+  // Do not introduce a second support-specific variable that can shadow or replace it.
+  const configured = values.legacy ?? process.env.TELEGRAM_ADMIN_CHAT_ID;
+  const value = Number(typeof configured === "string" ? configured.trim() : configured);
   // Support must target a private administrator account, not a group/channel ID.
   return Number.isSafeInteger(value) && value > 0 ? value : null;
 }
@@ -377,7 +376,7 @@ function configuredAdminChatId() {
 
 async function deliverSupportTicket(ticketId: string, user: TelegramUser, body: string) {
   const adminChatId = configuredAdminChatId();
-  if (adminChatId === null) throw new Error("A positive private TELEGRAM_SUPPORT_ADMIN_CHAT_ID (or TELEGRAM_ADMIN_CHAT_ID) is required for support delivery");
+  if (adminChatId === null) throw new Error("A positive private TELEGRAM_ADMIN_CHAT_ID from cfg.enc is required for support delivery");
   await sendMessage(adminChatId, `<b>New support ticket #${ticketId}</b>\nFrom: ${user.first_name ?? "User"}${user.username ? ` (@${user.username})` : ""}\nTelegram ID: <code>${user.id}</code>\n\n${body}\n\nReply with:\n<code>/reply ${ticketId} your response</code>`);
 }
 
