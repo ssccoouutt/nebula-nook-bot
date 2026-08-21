@@ -562,3 +562,6 @@
 - [x] Fix stale or inconsistent admin ticket close behavior so every ticket shown as open can be closed by command or inline action.
 - [x] Make closing an already-closed or missing ticket idempotent and refresh the admin ticket list after the action.
 - [x] Add regression coverage for ticket listing-to-close ID consistency and stale-ticket handling.
+
+- [x] Unify displayed, replied, and closed support-ticket IDs so legacy tickets #46 and #84 can be acted on using those exact numbers.
+- [x] Prevent new support tickets from displaying a conflicting sequence number and add regression coverage for legacy/new ticket ID consistency.
