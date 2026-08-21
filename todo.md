@@ -537,3 +537,11 @@
 - [x] Run the full test suite, TypeScript check, production build, and save a published checkpoint for the payment availability release.
 
 - [x] Sync the user-uploaded encrypted cfg.enc to the connected GitHub repository after verifying it is treated as an encrypted file and no plaintext secrets are exposed.
+
+- [x] Route admin commands, especially /reply, before normal-user command handling so admin messages never fall through to the user start menu.
+- [x] Add a private admin-only /start menu with admin controls and keep it hidden from normal users.
+- [x] Add authorization and regression coverage for admin menu visibility, /reply behavior, and normal-user isolation.
+- [x] Run the full test suite, TypeScript check, production build, and publish the admin experience update.
+- [x] Admin Web App button intentionally not included; revised requirement is an admin-only Telegram control menu without the dashboard button.
+- [x] Preserve normal-user behavior unchanged: existing user menus, membership checks, callbacks, support prompts, and payment flows must not route through admin-only logic.
+- [x] Remove the admin dashboard button and ensure admin /start shows only the dedicated admin control menu, with no normal-user features.

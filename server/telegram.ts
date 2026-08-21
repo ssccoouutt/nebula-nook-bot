@@ -463,9 +463,24 @@ async function submitSupportTicket(user: TelegramUser, body: string) {
   return ticketId;
 }
 
+export function isAuthorizedAdminMessage(message: Pick<TelegramMessage, "chat" | "from">) {
+  const adminChatId = configuredAdminChatId();
+  return Boolean(adminChatId && message.chat.type === "private" && message.chat.id === adminChatId && message.from?.id === adminChatId);
+}
+
+export function formatAdminHomeMessage() {
+  return "🔐 <b>ToolsMania Admin Control Center</b>\n\nThis private menu is visible only to the configured administrator.\n\nUse <code>/reply &lt;ticket-id&gt; &lt;message&gt;</code> to answer a support ticket. Use the admin controls below to view bot statistics.";
+}
+
+export function buildAdminKeyboard() {
+  return keyboard([
+    [{ text: "ℹ️ Bot Statistics", callback_data: "admin_stats", style: "primary" }],
+  ]);
+}
+
 async function handleAdminReply(message: TelegramMessage) {
   const adminChatId = configuredAdminChatId();
-  if (!adminChatId || message.chat.id !== adminChatId || !message.text) return false;
+  if (!isAuthorizedAdminMessage(message) || !adminChatId || !message.text) return false;
   const match = message.text.match(/^\/reply(?:@[^\s]+)?\s+(\d+)\s+([\s\S]+)$/i);
   if (!match) return false;
   const db = await getDb();
@@ -603,7 +618,7 @@ async function answerCallback(id: string, text?: string) {
   await telegramCall("answerCallbackQuery", { callback_query_id: id, text, show_alert: false });
 }
 
-type TelegramButton = { text: string; callback_data?: string; url?: string; copy_text?: { text: string }; style?: "danger" | "success" | "primary" };
+type TelegramButton = { text: string; callback_data?: string; url?: string; web_app?: { url: string }; copy_text?: { text: string }; style?: "danger" | "success" | "primary" };
 
 function keyboard(rows: Array<Array<TelegramButton>>) {
   return { inline_keyboard: rows };
@@ -1199,7 +1214,7 @@ async function createBinancePayPurchaseIntent(chatId: number, userId: number, pr
 }
 
 export type TelegramCallbackAction =
-  | { kind: "verify_membership" | "home" | "freebies" | "wallet" | "walletadd" | "walletbep20" | "walletstars" | "walletstars_pay" | "walletcancel" | "orders" | "profile" | "referrals" | "support" | "botinfo" }
+  | { kind: "verify_membership" | "home" | "freebies" | "wallet" | "walletadd" | "walletbep20" | "walletstars" | "walletstars_pay" | "walletcancel" | "orders" | "profile" | "referrals" | "support" | "botinfo" | "admin_stats" }
   | { kind: "shop" | "product" | "claim" | "reward" | "buy" | "customqty" | "pricealert"; id: number }
   | { kind: "walletamount"; amountCents: number }
   | { kind: "buyqty" | "buyconfirm" | "paywallet" | "paybinance" | "paybep20" | "paystars"; id: number; quantity: number }
@@ -1207,7 +1222,7 @@ export type TelegramCallbackAction =
 
 export function parseTelegramCallbackAction(data?: string): TelegramCallbackAction | null {
   const value = data ?? "";
-  if (["verify_membership", "home", "freebies", "wallet", "walletadd", "walletbep20", "walletstars", "walletstars_pay", "walletcancel", "orders", "profile", "referrals", "support", "botinfo"].includes(value)) return { kind: value as TelegramCallbackAction["kind"] } as TelegramCallbackAction;
+  if (["verify_membership", "home", "freebies", "wallet", "walletadd", "walletbep20", "walletstars", "walletstars_pay", "walletcancel", "orders", "profile", "referrals", "support", "botinfo", "admin_stats"].includes(value)) return { kind: value as TelegramCallbackAction["kind"] } as TelegramCallbackAction;
   const walletAmountMatch = value.match(/^walletamount:(\d+)$/);
   if (walletAmountMatch) return { kind: "walletamount", amountCents: Number(walletAmountMatch[1]) };
   const quantityMatch = value.match(/^(buyqty|buyconfirm|paywallet|paybinance|paybep20|paystars):([0-9]+):([0-9]+)$/);
@@ -1246,6 +1261,10 @@ export async function handleCallback(query: TelegramCallbackQuery, options: { sk
   void recordBotActivity(userId).catch((error) => console.error("[Telegram] callback activity touch failed", error));
   const action = parseTelegramCallbackAction(query.data);
   if (!action) return;
+  if (action.kind === "admin_stats") {
+    if (!isAuthorizedAdminMessage({ chat: { id: chatId, type: query.message?.chat.type ?? "" }, from: query.from })) return respond(chatId, "⚠️ This administrator action is not available.", undefined, messageId);
+    return showBotInfo(chatId, messageId);
+  }
   const paymentOption = paymentOptionForCallback(action);
   if (paymentOption && !isPaymentOptionEnabled(paymentOption)) {
     const unavailableKeyboard = isPurchasePaymentCallback(action) ? buildPaymentMethodKeyboard(action.id, action.quantity) : buildWalletKeyboard();
@@ -1518,6 +1537,13 @@ async function restorePendingBinancePurchase(userId: number) {
 }
 
 export async function handleMessage(message: TelegramMessage) {
+  if (isAuthorizedAdminMessage(message)) {
+    if (await handleAdminReply(message)) return;
+    const adminCommand = message.text?.trim().split(/\s+/)[0]?.toLowerCase();
+    if (adminCommand === "/start" || adminCommand === "/admin") return sendMessage(message.chat.id, formatAdminHomeMessage(), buildAdminKeyboard());
+    if (adminCommand === "/reply") return sendMessage(message.chat.id, "Usage: <code>/reply &lt;ticket-id&gt; &lt;message&gt;</code>", buildAdminKeyboard());
+    return sendMessage(message.chat.id, formatAdminHomeMessage(), buildAdminKeyboard());
+  }
   if (await handleAdminReply(message)) return;
   const user = message.from;
   if (!user || !message.text) return;

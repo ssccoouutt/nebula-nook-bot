@@ -25,6 +25,9 @@ import {
     resolveConfiguredAdminChatId,
 
   buildHomeKeyboard,
+  buildAdminKeyboard,
+  formatAdminHomeMessage,
+  isAuthorizedAdminMessage,
   buildMembershipKeyboard,
   buildShopKeyboard,
   buildProductKeyboard,
@@ -501,6 +504,21 @@ describe("Telegram presentation and notification helpers", () => {
     expect(buildConfirmedPurchasePlan(1000, 299, 25, 3)).toEqual({ ok: true, quantity: 3, totalCents: 897, nextBalanceCents: 103, nextStock: 22 });
     expect(buildConfirmedPurchasePlan(100, 299, 25, 3)).toEqual({ ok: false, status: "insufficient_balance", totalCents: 897 });
     expect(buildConfirmedPurchasePlan(1000, 299, 2, 3)).toEqual({ ok: false, status: "out_of_stock", totalCents: 897 });
+  });
+
+  it("keeps the administrator menu isolated from normal-user features", () => {
+    const previous = process.env.TELEGRAM_ADMIN_CHAT_ID;
+    process.env.TELEGRAM_ADMIN_CHAT_ID = "990321391";
+    const adminKeyboard = buildAdminKeyboard().inline_keyboard;
+    expect(adminKeyboard.flat().map((button) => button.callback_data)).toEqual(["admin_stats"]);
+    expect(adminKeyboard.flat().some((button) => button.web_app || button.url)).toBe(false);
+    expect(adminKeyboard.flat().some((button) => ["shop", "wallet", "orders", "profile", "support", "home"].includes(button.callback_data ?? ""))).toBe(false);
+    expect(formatAdminHomeMessage()).toContain("Admin Control Center");
+    expect(isAuthorizedAdminMessage({ chat: { id: 990321391, type: "private" }, from: { id: 990321391 } })).toBe(true);
+    expect(isAuthorizedAdminMessage({ chat: { id: 990321391, type: "group" }, from: { id: 990321391 } })).toBe(false);
+    expect(isAuthorizedAdminMessage({ chat: { id: 990321391, type: "private" }, from: { id: 123 } })).toBe(false);
+    if (previous === undefined) delete process.env.TELEGRAM_ADMIN_CHAT_ID;
+    else process.env.TELEGRAM_ADMIN_CHAT_ID = previous;
   });
 
   it("builds a group completion notice without requiring a customer DM", () => {
