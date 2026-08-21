@@ -504,3 +504,5 @@
 - [x] Add Telegram Stars as a wallet deposit method with the fixed 120 USD = 100 Stars conversion and idempotent crediting.
 - [x] Ensure product checkout exposes Wallet balance, Binance Pay, USDT BEP20, and Telegram Stars options.
 - [x] Add regression coverage and validate the Stars invoice, wallet deposit, and checkout changes.
+
+- [x] Correct the Telegram Stars conversion to 100 Stars = $1.20 across prompts, invoices, wallet credits, product payments, and tests.

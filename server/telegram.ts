@@ -95,10 +95,10 @@ const pendingTelegramStarsWalletTopups = new Map<number, { amountCents?: number;
 const pendingBinancePayPurchases = new Map<number, { intentId: number; expiresAt: number }>();
 export const BINANCE_PAY_PURCHASE_WINDOW_MS = 20 * 60 * 1000;
 export const BEP20_PURCHASE_WINDOW_MS = 30 * 60 * 1000;
-export const TELEGRAM_STARS_PER_USD = 100 / 120;
-
+export const TELEGRAM_STARS_PER_USD = 100 / 1.2;
 export function usdCentsToTelegramStars(amountCents: number) {
-  return Math.max(1, Math.round((Math.max(0, amountCents) / 100) * TELEGRAM_STARS_PER_USD));
+  // 100 XTR = $1.20, or 5 Stars per 6 cents. Integer arithmetic avoids floating-point drift.
+  return Math.max(1, Math.ceil((Math.max(0, amountCents) * 5) / 6));
 }
 
 export function telegramStarsToUsdEquivalent(stars: number) {
@@ -706,7 +706,7 @@ export function buildTelegramStarsTopupKeyboard() {
 
 export function formatWalletDepositAmountPrompt(error?: "invalid" | "range", method: "binance_pay" | "bep20" | "telegram_stars" = "binance_pay") {
   const notice = error === "invalid" ? "⚠️ Enter a valid USD amount, for example <b>10</b> or <b>10.50</b>.\n\n" : error === "range" ? "⚠️ Enter an amount from <b>$0.01</b> to <b>$1,000.00</b>.\n\n" : "";
-  const title = method === "bep20" ? "🟢 <b>Add funds with USDT (BEP20)</b>" : method === "telegram_stars" ? "⭐ <b>Add funds with Telegram Stars</b>\n\nFixed rate: <b>100 Stars = $120.00</b>" : "💳 <b>Add funds with Binance Pay (USDT)</b>";
+  const title = method === "bep20" ? "🟢 <b>Add funds with USDT (BEP20)</b>" : method === "telegram_stars" ? "⭐ <b>Add funds with Telegram Stars</b>\n\nFixed rate: <b>100 Stars = $1.20</b>" : "💳 <b>Add funds with Binance Pay (USDT)</b>";
   return `${notice}${title}\n\nEnter the amount in USD you want to add.\n\nExample: <b>10</b> for $10.00`;
 }
 

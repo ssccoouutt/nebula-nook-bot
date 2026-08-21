@@ -256,8 +256,9 @@ describe("Telegram presentation and notification helpers", () => {
   });
 
   it("uses the requested Stars conversion and renders public Bot Info stats", () => {
-    expect(usdCentsToTelegramStars(12000)).toBe(100);
-    expect(usdCentsToTelegramStars(299)).toBe(2);
+    expect(usdCentsToTelegramStars(120)).toBe(100);
+    expect(usdCentsToTelegramStars(1000)).toBe(834);
+    expect(usdCentsToTelegramStars(299)).toBe(250);
     expect(formatBotInfoMessage(45, 7)).toContain("Total bot users: <b>45</b>");
     expect(formatBotInfoMessage(45, 7)).toContain("Total completed orders: <b>7</b>");
   });
@@ -307,7 +308,7 @@ describe("Telegram presentation and notification helpers", () => {
     expect(bep20Prompt).toContain("Deposit address (BEP20):</b> <code>0xbep20-test</code>");
     expect(formatBinancePayTopupPrompt(1000)).toContain("$10.00 USDT");
     expect(formatBep20TopupPrompt(1000)).toContain("<code>0xbep20-test</code>");
-    expect(formatTelegramStarsTopupPrompt(12000, 100)).toContain("100 Telegram Stars");
+    expect(formatTelegramStarsTopupPrompt(120, 100)).toContain("100 Telegram Stars");
     expect(buildTelegramStarsTopupKeyboard().inline_keyboard[0][0]).toMatchObject({ text: "⭐ Pay with Telegram Stars", callback_data: "walletstars_pay" });
     expect(buildWalletKeyboard().inline_keyboard.flat().some((button) => button.callback_data === "walletstars")).toBe(true);
     const depositRows = buildWalletDepositAmountKeyboard().inline_keyboard;
