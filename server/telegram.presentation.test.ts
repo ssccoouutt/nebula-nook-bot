@@ -21,6 +21,7 @@ import {
   formatSupportPrompt,
   formatSupportSubmitted,
   resolveNotificationChatId,
+  resolveConfiguredAdminChatId,
   buildHomeKeyboard,
   buildMembershipKeyboard,
   buildShopKeyboard,
@@ -147,6 +148,8 @@ describe("Telegram presentation and notification helpers", () => {
     expect(formatSupportPrompt()).toContain("next message");
     expect(formatSupportPrompt()).not.toContain("/support your message");
     expect(formatSupportSubmitted("42")).toContain("✅ <b>Support request received</b>");
+    expect(resolveConfiguredAdminChatId({ support: "", legacy: "7729451498" })).toBe(7729451498);
+    expect(resolveConfiguredAdminChatId({ legacy: "7729451498" })).toBe(7729451498);
     expect(formatExtraDeviceMessage()).toContain("📱 <b>Extra device request</b>");
     expect(formatPurchaseConfirmation(42, "Premium", 100)).toContain("✅ <b>Order completed</b>");
     expect(formatOrderStatus(42, "purchase", "fulfilled", 100)).toContain("✅ #42 · purchase · fulfilled");

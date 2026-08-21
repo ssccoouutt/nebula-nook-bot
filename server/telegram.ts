@@ -362,11 +362,17 @@ export function formatBotInfoMessage(totalUsers: number, completedOrders: number
   return `ℹ️ <b>ToolsMania Bot Info</b>\n\n👥 Total bot users: <b>${totalUsers}</b>\n✅ Total completed orders: <b>${completedOrders}</b>`;
 }
 
-function configuredAdminChatId() {
-  const configured = process.env.TELEGRAM_SUPPORT_ADMIN_CHAT_ID ?? process.env.TELEGRAM_ADMIN_CHAT_ID;
+export function resolveConfiguredAdminChatId(values: { support?: string; legacy?: string } = {}) {
+  // Preserve the existing cfg.enc-backed TELEGRAM_ADMIN_CHAT_ID contract. A blank
+  // optional override must never shadow the legacy value loaded from cfg.enc.
+  const configured = [values.support ?? process.env.TELEGRAM_SUPPORT_ADMIN_CHAT_ID, values.legacy ?? process.env.TELEGRAM_ADMIN_CHAT_ID]
+    .find(value => typeof value === "string" && value.trim().length > 0);
   const value = Number(configured);
   // Support must target a private administrator account, not a group/channel ID.
   return Number.isSafeInteger(value) && value > 0 ? value : null;
+}
+function configuredAdminChatId() {
+  return resolveConfiguredAdminChatId();
 }
 
 async function deliverSupportTicket(ticketId: string, user: TelegramUser, body: string) {

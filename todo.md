@@ -514,3 +514,6 @@
 - [x] Route support tickets only to the private TELEGRAM_ADMIN_CHAT_ID and handle invalid or stale notification targets without breaking the user flow.
 - [x] Change Support and /support to prompt for a separate user message instead of parsing `/support ...` inline text.
 - [x] Add regression coverage and validate the corrected support flow with TypeScript, tests, and a production build.
+
+- [x] Restore support delivery to the existing cfg.enc-backed TELEGRAM_ADMIN_CHAT_ID without requiring a new variable.
+- [x] Add regression coverage for legacy admin ID resolution and validate the support correction.
