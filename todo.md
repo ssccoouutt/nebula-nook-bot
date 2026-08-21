@@ -558,3 +558,7 @@
 - [x] Render stored escaped newlines as real line breaks in the admin open-ticket list.
 - [x] Show the actual numeric Telegram ID in the ticket identity section and add regression coverage.
 - [x] Add an admin-only close-ticket action that closes an open ticket without sending a reply and preserves the closed history.
+
+- [x] Fix stale or inconsistent admin ticket close behavior so every ticket shown as open can be closed by command or inline action.
+- [x] Make closing an already-closed or missing ticket idempotent and refresh the admin ticket list after the action.
+- [x] Add regression coverage for ticket listing-to-close ID consistency and stale-ticket handling.

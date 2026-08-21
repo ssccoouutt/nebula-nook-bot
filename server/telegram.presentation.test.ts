@@ -259,6 +259,7 @@ describe("Telegram presentation and notification helpers", () => {
     expect(parseTelegramCallbackAction("admin_settings")).toEqual({ kind: "admin_settings" });
     expect(parseTelegramCallbackAction("admin_diagnostics")).toEqual({ kind: "admin_diagnostics" });
     expect(parseTelegramCallbackAction("admin_delete_help")).toEqual({ kind: "admin_delete_help" });
+    expect(parseTelegramCallbackAction("admin_close_ticket:2")).toEqual({ kind: "admin_close_ticket", id: 2 });
     expect(parseTelegramCallbackAction("unknown:7")).toBeNull();
     expect(parseTelegramCallbackAction("product:nope")).toBeNull();
   });

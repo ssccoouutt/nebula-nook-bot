@@ -561,12 +561,21 @@ async function showAdminTickets(chatId: number) {
 async function closeAdminTicket(chatId: number, ticketId: number) {
   const db = await getDb();
   if (!db) throw new Error("Database is unavailable");
+  const updatedAt = new Date();
+  const changed = await db.update(supportTickets)
+    .set({ status: "closed", updatedAt })
+    .where(and(eq(supportTickets.id, ticketId), eq(supportTickets.status, "open")));
+  const changedCount = Number((changed as { changes?: unknown }).changes ?? 0);
+  if (changedCount > 0) {
+    scheduleDriveSync("wallet_balance");
+    return sendMessage(chatId, `✅ Support ticket #${ticketId} was closed without sending a reply.`, buildAdminKeyboard());
+  }
   const ticket = (await db.select({ id: supportTickets.id, status: supportTickets.status }).from(supportTickets).where(eq(supportTickets.id, ticketId)).limit(1))[0];
-  if (!ticket) return sendMessage(chatId, `⚠️ Support ticket #${ticketId} was not found.`, buildAdminKeyboard());
-  if (ticket.status !== "open") return sendMessage(chatId, `ℹ️ Support ticket #${ticketId} is already ${ticket.status}.`, buildAdminKeyboard());
-  await db.update(supportTickets).set({ status: "closed", updatedAt: new Date() }).where(eq(supportTickets.id, ticketId));
-  scheduleDriveSync("wallet_balance");
-  return sendMessage(chatId, `✅ Support ticket #${ticketId} was closed without sending a reply.`, buildAdminKeyboard());
+  if (!ticket) {
+    console.error(`[Telegram][Support] close ticket lookup failed: ticketId=${ticketId}; the ticket list may be from a different restored database instance`);
+    return sendMessage(chatId, `⚠️ Support ticket #${ticketId} was not found in the active database. Refresh tickets and try again.`, buildAdminKeyboard());
+  }
+  return sendMessage(chatId, `ℹ️ Support ticket #${ticketId} is already ${ticket.status}.`, buildAdminKeyboard());
 }
 
 async function showAdminSettings(chatId: number) {
@@ -1426,7 +1435,7 @@ export type TelegramCallbackAction =
 export function parseTelegramCallbackAction(data?: string): TelegramCallbackAction | null {
   const value = data ?? "";
   if (["verify_membership", "home", "freebies", "wallet", "walletadd", "walletbep20", "walletstars", "walletstars_pay", "walletcancel", "orders", "profile", "referrals", "support", "botinfo", "admin_stats", "admin_tickets", "admin_broadcast_help", "admin_settings", "admin_diagnostics", "admin_delete_help"].includes(value)) return { kind: value as TelegramCallbackAction["kind"] } as TelegramCallbackAction;
-  const adminCloseTicketMatch = value.match(/^admin_close_ticket:(\\d+)$/);
+  const adminCloseTicketMatch = value.match(/^admin_close_ticket:(\d+)$/);
   if (adminCloseTicketMatch) return { kind: "admin_close_ticket", id: Number(adminCloseTicketMatch[1]) };
   const walletAmountMatch = value.match(/^walletamount:(\d+)$/);
   if (walletAmountMatch) return { kind: "walletamount", amountCents: Number(walletAmountMatch[1]) };
