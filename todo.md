@@ -568,3 +568,9 @@
 
 - [x] Repair Koyeb/Drive ticket restore identity mapping so legacy tickets shown as #46 and #84 resolve to the same rows for /reply and /close.
 - [x] Add regression coverage for restored legacy ticket IDs and cross-instance ticket actions.
+
+- [ ] Fix the open-ticket list showing #2 when the newly created ticket is reported as #4, so listing, creation notice, /reply, and /close all use one canonical ID.
+- [ ] Add a regression test for a newly created ticket appearing with its canonical ID in the admin open-ticket list.
+
+- [x] Ensure admin ticket closure persists the closed status in bot SQLite, appears closed in the web dashboard, and is synchronized to the Google Drive support-ticket export.
+- [x] Add regression coverage proving close-ticket synchronization uses the support-ticket persistence path rather than an unrelated sync reason.

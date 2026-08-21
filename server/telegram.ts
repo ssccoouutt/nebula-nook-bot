@@ -4,7 +4,7 @@ import { getDb } from "./db";
 import { binancePayDeposits, botSettings, botUsers, broadcasts, freeClaims, notificationDeliveries, orders, paymentIntents, priceAlerts, products, referrals, supportTickets, telegramStarsWalletPayments, walletLedger } from "../drizzle/schema";
 import { findBinancePayTransaction } from "./binancePay";
 import { canClaimFreeItem, freeWindowStart, hasAccess, referralCodeForTelegramId, tierForReferralCount } from "../shared/botLogic";
-import { scheduleDriveSync } from "./googleDrivePersistence";
+import { flushDriveSync, scheduleDriveSync } from "./googleDrivePersistence";
 import { encryptedConfigDiagnostics } from "./configFile";
 
 type TelegramUser = { id: number; username?: string; first_name?: string; last_name?: string };
@@ -574,8 +574,14 @@ async function closeAdminTicket(chatId: number, ticketId: number) {
     .where(and(eq(supportTickets.id, ticketId), eq(supportTickets.status, "open")));
   const changedCount = Number((changed as { changes?: unknown }).changes ?? 0);
   if (changedCount > 0) {
-    scheduleDriveSync("wallet_balance");
-    return sendMessage(chatId, `✅ Support ticket #${ticketId} was closed without sending a reply.`, buildAdminKeyboard());
+    scheduleDriveSync("support_ticket");
+    try {
+      await flushDriveSync();
+    } catch (error) {
+      console.error(`[Telegram][Support] ticket #${ticketId} closed locally but Drive synchronization failed: ${error instanceof Error ? error.message : String(error)}`);
+      return sendMessage(chatId, `⚠️ Support ticket #${ticketId} was closed in the bot and dashboard, but Google Drive synchronization failed. It will retry automatically.`, buildAdminKeyboard());
+    }
+    return sendMessage(chatId, `✅ Support ticket #${ticketId} was closed and synchronized to Google Drive.`, buildAdminKeyboard());
   }
   const ticket = (await db.select({ id: supportTickets.id, status: supportTickets.status }).from(supportTickets).where(eq(supportTickets.id, ticketId)).limit(1))[0];
   if (!ticket) {

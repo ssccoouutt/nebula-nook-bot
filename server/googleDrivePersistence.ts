@@ -402,7 +402,7 @@ export async function initializeDrivePersistence() {
   await initPromise;
 }
 
-export type DriveSyncReason = "new_user" | "completed_order" | "new_stock" | "wallet_balance" | "referral_update";
+export type DriveSyncReason = "new_user" | "completed_order" | "new_stock" | "wallet_balance" | "referral_update" | "support_ticket";
 
 export function scheduleDriveSync(reason?: DriveSyncReason) {
   if (!configured() || !initialized) return;
