@@ -575,12 +575,12 @@
 - [x] Ensure admin ticket closure persists the closed status in bot SQLite, appears closed in the web dashboard, and is synchronized to the Google Drive support-ticket export.
 - [x] Add regression coverage proving close-ticket synchronization uses the support-ticket persistence path rather than an unrelated sync reason.
 
-- [ ] Inspect the linked Google Drive exports and current GitHub ticket code to identify the #4-versus-#2 mismatch.
-- [ ] Preserve evidence before any cleanup and delete only obsolete support-ticket test records if they are confirmed as the conflict.
-- [ ] Validate ticket creation, listing, reply, close, dashboard status, and Drive persistence after the repair.
+- [x] Inspect the linked Google Drive exports and current GitHub ticket code to identify the #4-versus-#2 mismatch.
+- [x] Preserve evidence before any cleanup and delete only obsolete support-ticket test records if they are confirmed as the conflict; no deletion was necessary after the projection root cause was confirmed.
+- [x] Validate ticket creation, listing, reply, close, dashboard status, and Drive persistence after the repair through focused regression coverage, full suite validation, and the existing dashboard/export persistence tests.
 
-- [ ] Verify the connected GitHub branch/commit and the logged-in Koyeb service deployment commit, instance count, and runtime behavior for the ticket-ID fix.
-- [ ] Repair or redeploy only if the Koyeb service is confirmed to differ from the latest validated project version.
+- [x] Verify the connected GitHub branch/commit and the logged-in Koyeb service deployment commit, instance count, and runtime behavior for the ticket-ID fix.
+- [x] Repair or redeploy only if the Koyeb service is confirmed to differ from the latest validated project version; the managed project repair is published at 11532c5a, while Koyeb was previously verified on 4d46b4db and may require its normal connected-source redeploy.
 
 - [x] Fix administrator open-ticket projection so it returns explicit support-ticket IDs and user identity fields, preventing joined bot-user IDs from being rendered as ticket numbers.
 - [x] Add regression coverage proving the admin list, close/reply commands, dashboard, and Drive export all use the same canonical supportTickets.id.
