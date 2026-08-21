@@ -535,3 +535,5 @@
 - [x] Reject disabled payment callbacks with a temporary-unavailable response before creating invoices or payment intents.
 - [x] Add regression coverage for enabled-payment parsing, disabled labels, and disabled callback guards.
 - [x] Run the full test suite, TypeScript check, production build, and save a published checkpoint for the payment availability release.
+
+- [ ] Sync the user-uploaded encrypted cfg.enc to the connected GitHub repository after verifying it is treated as an encrypted file and no plaintext secrets are exposed.
