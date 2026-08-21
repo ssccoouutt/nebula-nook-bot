@@ -28,6 +28,9 @@ import {
   buildAdminKeyboard,
   formatAdminHomeMessage,
   parseAdminReplyCommand,
+  parseAdminCloseTicketCommand,
+  normalizeAdminTicketText,
+  formatAdminTelegramId,
   isAuthorizedAdminMessage,
   buildMembershipKeyboard,
   buildShopKeyboard,
@@ -529,6 +532,16 @@ describe("Telegram presentation and notification helpers", () => {
     expect(buildConfirmedPurchasePlan(1000, 299, 25, 3)).toEqual({ ok: true, quantity: 3, totalCents: 897, nextBalanceCents: 103, nextStock: 22 });
     expect(buildConfirmedPurchasePlan(100, 299, 25, 3)).toEqual({ ok: false, status: "insufficient_balance", totalCents: 897 });
     expect(buildConfirmedPurchasePlan(1000, 299, 2, 3)).toEqual({ ok: false, status: "out_of_stock", totalCents: 897 });
+  });
+
+  it("normalizes admin ticket text and validates close-ticket commands", () => {
+    expect(normalizeAdminTicketText("first\\nsecond")).toBe("first\nsecond");
+    expect(normalizeAdminTicketText("<unsafe> & text")).toBe("unsafe  text");
+    expect(formatAdminTelegramId(990321391)).toBe("990321391");
+    expect(formatAdminTelegramId("The_servitor")).toBe("unavailable in stored record");
+    expect(parseAdminCloseTicketCommand("/close 46")).toBe(46);
+    expect(parseAdminCloseTicketCommand("/close@Toolsmania_bot #84")).toBe(84);
+    expect(parseAdminCloseTicketCommand("/close nope")).toBeNull();
   });
 
   it("keeps the administrator menu isolated from normal-user features", () => {

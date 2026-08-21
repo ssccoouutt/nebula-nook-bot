@@ -517,13 +517,56 @@ function telegramDeliveryFailureCategory(error: unknown) {
   return message.slice(0, 180);
 }
 
+export function normalizeAdminTicketText(value: unknown) {
+  return String(value ?? "").replace(/\\n/g, "\n").replace(/\\r\\n/g, "\n").replace(/[<&>]/g, "");
+}
+
+export function formatAdminTelegramId(value: unknown) {
+  const normalized = String(value ?? "").trim();
+  return /^-?\d+$/.test(normalized) ? normalized : "unavailable in stored record";
+}
+
+export function parseAdminCloseTicketCommand(text?: string) {
+  const match = String(text ?? "").trim().match(/^\/close(?:@[^\s]+)?\s+#?(\d+)$/i);
+  if (!match) return null;
+  const ticketId = Number(match[1]);
+  return Number.isSafeInteger(ticketId) && ticketId > 0 ? ticketId : null;
+}
+
+function adminTicketText(value: unknown) {
+  return normalizeAdminTicketText(value);
+}
+
+function adminTelegramId(value: unknown) {
+  return formatAdminTelegramId(value);
+}
+
+function buildAdminTicketKeyboard(ticketIds: number[]) {
+  return keyboard([
+    ...ticketIds.map((ticketId) => [{ text: `✅ Close #${ticketId}`, callback_data: `admin_close_ticket:${ticketId}`, style: "danger" as const }]),
+    [{ text: "↻ Refresh tickets", callback_data: "admin_tickets", style: "primary" as const }],
+    [{ text: "⌂ Admin menu", callback_data: "admin_stats", style: "primary" as const }],
+  ]);
+}
+
 async function showAdminTickets(chatId: number) {
   const db = await getDb();
   if (!db) throw new Error("Database is unavailable");
   const rows = await db.select({ ticket: supportTickets, user: botUsers }).from(supportTickets).leftJoin(botUsers, eq(supportTickets.botUserId, botUsers.id)).where(eq(supportTickets.status, "open")).orderBy(desc(supportTickets.createdAt)).limit(1000);
-  if (!rows.length) return sendMessage(chatId, "✅ <b>Open tickets</b>\\n\\nThere are no open support tickets.", buildAdminKeyboard());
-  const text = rows.map(({ ticket, user }) => `🆘 <b>Ticket #${ticket.id}</b>\\n👤 Username: <b>${user?.username ? `@${user.username}` : "No username"}</b>\\n🆔 Telegram ID: <code>${user?.telegramUserId ?? "unknown"}</code>\\n🗓️ ${ticket.createdAt.toISOString()}\\n\\n${ticket.message.replace(/[<&>]/g, "") }\\n\\nReply: <code>/reply ${ticket.id} your response</code>`).join("\\n\\n━━━━━━━━━━━━━━\\n\\n");
-  return sendMessage(chatId, `<b>🆘 Open support tickets</b>\\n\\n${text}`, buildAdminKeyboard());
+  if (!rows.length) return sendMessage(chatId, "✅ <b>Open tickets</b>\n\nThere are no open support tickets.", buildAdminKeyboard());
+  const text = rows.map(({ ticket, user }) => `🆘 <b>Ticket #${ticket.id}</b>\n👤 Username: <b>${user?.username ? `@${adminTicketText(user.username)}` : "No username"}</b>\n🆔 Telegram ID: <code>${adminTelegramId(user?.telegramUserId)}</code>\n🗓️ ${ticket.createdAt instanceof Date ? ticket.createdAt.toISOString() : adminTicketText(ticket.createdAt)}\n\n${adminTicketText(ticket.message)}\n\nReply: <code>/reply ${ticket.id} your response</code>\nClose without replying: <code>/close ${ticket.id}</code>`).join("\n\n━━━━━━━━━━━━━━\n\n");
+  return sendMessage(chatId, `<b>🆘 Open support tickets</b>\n\n${text}`, buildAdminTicketKeyboard(rows.map(({ ticket }) => ticket.id)));
+}
+
+async function closeAdminTicket(chatId: number, ticketId: number) {
+  const db = await getDb();
+  if (!db) throw new Error("Database is unavailable");
+  const ticket = (await db.select({ id: supportTickets.id, status: supportTickets.status }).from(supportTickets).where(eq(supportTickets.id, ticketId)).limit(1))[0];
+  if (!ticket) return sendMessage(chatId, `⚠️ Support ticket #${ticketId} was not found.`, buildAdminKeyboard());
+  if (ticket.status !== "open") return sendMessage(chatId, `ℹ️ Support ticket #${ticketId} is already ${ticket.status}.`, buildAdminKeyboard());
+  await db.update(supportTickets).set({ status: "closed", updatedAt: new Date() }).where(eq(supportTickets.id, ticketId));
+  scheduleDriveSync("wallet_balance");
+  return sendMessage(chatId, `✅ Support ticket #${ticketId} was closed without sending a reply.`, buildAdminKeyboard());
 }
 
 async function showAdminSettings(chatId: number) {
@@ -620,6 +663,12 @@ async function handleAdminCommand(message: TelegramMessage) {
   const text = message.text.trim();
   const command = text.split(/\s+/)[0]?.toLowerCase().replace(/@[^\s]+$/, "");
   if (command === "/tickets") { await showAdminTickets(message.chat.id); return true; }
+  if (command === "/close") {
+    const ticketId = parseAdminCloseTicketCommand(text);
+    if (!ticketId) { await sendMessage(message.chat.id, "Usage: <code>/close &lt;ticket-id&gt;</code>", buildAdminKeyboard()); return true; }
+    await closeAdminTicket(message.chat.id, ticketId);
+    return true;
+  }
   if (command === "/settings") { await showAdminSettings(message.chat.id); return true; }
   if (command === "/setsetting") { await setAdminSetting(message.chat.id, text); return true; }
   if (command === "/diagnostics" || command === "/accountstatus") { await showAdminDiagnostics(message.chat.id); return true; }
@@ -1368,6 +1417,7 @@ async function createBinancePayPurchaseIntent(chatId: number, userId: number, pr
 
 export type TelegramCallbackAction =
   | { kind: "verify_membership" | "home" | "freebies" | "wallet" | "walletadd" | "walletbep20" | "walletstars" | "walletstars_pay" | "walletcancel" | "orders" | "profile" | "referrals" | "support" | "botinfo" | "admin_stats" | "admin_tickets" | "admin_broadcast_help" | "admin_settings" | "admin_diagnostics" | "admin_delete_help" }
+  | { kind: "admin_close_ticket"; id: number }
   | { kind: "shop" | "product" | "claim" | "reward" | "buy" | "customqty" | "pricealert"; id: number }
   | { kind: "walletamount"; amountCents: number }
   | { kind: "buyqty" | "buyconfirm" | "paywallet" | "paybinance" | "paybep20" | "paystars"; id: number; quantity: number }
@@ -1376,6 +1426,8 @@ export type TelegramCallbackAction =
 export function parseTelegramCallbackAction(data?: string): TelegramCallbackAction | null {
   const value = data ?? "";
   if (["verify_membership", "home", "freebies", "wallet", "walletadd", "walletbep20", "walletstars", "walletstars_pay", "walletcancel", "orders", "profile", "referrals", "support", "botinfo", "admin_stats", "admin_tickets", "admin_broadcast_help", "admin_settings", "admin_diagnostics", "admin_delete_help"].includes(value)) return { kind: value as TelegramCallbackAction["kind"] } as TelegramCallbackAction;
+  const adminCloseTicketMatch = value.match(/^admin_close_ticket:(\\d+)$/);
+  if (adminCloseTicketMatch) return { kind: "admin_close_ticket", id: Number(adminCloseTicketMatch[1]) };
   const walletAmountMatch = value.match(/^walletamount:(\d+)$/);
   if (walletAmountMatch) return { kind: "walletamount", amountCents: Number(walletAmountMatch[1]) };
   const quantityMatch = value.match(/^(buyqty|buyconfirm|paywallet|paybinance|paybep20|paystars):([0-9]+):([0-9]+)$/);
@@ -1414,10 +1466,11 @@ export async function handleCallback(query: TelegramCallbackQuery, options: { sk
   void recordBotActivity(userId).catch((error) => console.error("[Telegram] callback activity touch failed", error));
   const action = parseTelegramCallbackAction(query.data);
   if (!action) return;
-  if (["admin_stats", "admin_tickets", "admin_broadcast_help", "admin_settings", "admin_diagnostics", "admin_delete_help"].includes(action.kind)) {
+  if (["admin_stats", "admin_tickets", "admin_broadcast_help", "admin_settings", "admin_diagnostics", "admin_delete_help", "admin_close_ticket"].includes(action.kind)) {
     if (!isAuthorizedAdminMessage({ chat: { id: chatId, type: query.message?.chat.type ?? "" }, from: query.from })) return respond(chatId, "⚠️ This administrator action is not available.", undefined, messageId);
     if (action.kind === "admin_stats") return showBotInfo(chatId, messageId, true);
     if (action.kind === "admin_tickets") { await showAdminTickets(chatId); return; }
+    if (action.kind === "admin_close_ticket") { await closeAdminTicket(chatId, action.id); return; }
     if (action.kind === "admin_settings") { await showAdminSettings(chatId); return; }
     if (action.kind === "admin_diagnostics") { await showAdminDiagnostics(chatId); return; }
     if (action.kind === "admin_broadcast_help") return respond(chatId, "<b>📢 Broadcast</b>\\n\\nSend <code>/broadcast your message</code> to deliver it to all known bot users. The completion report includes sent count, failed count, Telegram ID, username, and the exact failure reason returned by Telegram.", buildAdminKeyboard(), messageId);

@@ -554,3 +554,7 @@
 - [x] Add admin-only bot settings controls for supported runtime options such as payment visibility and membership requirements, with persistence and safe validation.
 - [x] Add admin-only user account diagnostics and guarded deletion from bot data, preserving referential integrity and auditability.
 - [x] Add regression tests, persistence verification, TypeScript/build checks, and publish the expanded admin controls.
+
+- [x] Render stored escaped newlines as real line breaks in the admin open-ticket list.
+- [x] Show the actual numeric Telegram ID in the ticket identity section and add regression coverage.
+- [x] Add an admin-only close-ticket action that closes an open ticket without sending a reply and preserves the closed history.
