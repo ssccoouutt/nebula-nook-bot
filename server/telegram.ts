@@ -471,15 +471,12 @@ async function submitSupportTicket(user: TelegramUser, body: string) {
   if (!db) throw new Error("Database is unavailable");
   const botUser = (await db.select().from(botUsers).where(eq(botUsers.telegramUserId, user.id)).limit(1))[0];
   if (!botUser) throw new Error("Support user account is unavailable");
-  await db.insert(supportTickets).values({ botUserId: botUser.id, message: body, status: "open" });
-  // Read back the canonical primary key instead of trusting driver-specific insert metadata.
-  // This keeps the ID shown to the user/admin identical to the ID used by /reply and /close,
-  // including after legacy restores where AUTOINCREMENT values are not contiguous.
-  const insertedTicket = (await db.select({ id: supportTickets.id })
-    .from(supportTickets)
-    .where(and(eq(supportTickets.botUserId, botUser.id), eq(supportTickets.message, body), eq(supportTickets.status, "open")))
-    .orderBy(desc(supportTickets.id))
-    .limit(1))[0];
+  // Use SQLite RETURNING so duplicate messages cannot cause the notification to
+  // reference an older open ticket. The returned ID is the exact row inserted and
+  // is therefore the same ID used by the admin list, /reply, and /close.
+  const insertedTicket = (await db.insert(supportTickets)
+    .values({ botUserId: botUser.id, message: body, status: "open" })
+    .returning({ id: supportTickets.id }))[0];
   if (!insertedTicket?.id) throw new Error("Failed to create support ticket ID");
   const ticketId = String(insertedTicket.id);
   await deliverSupportTicket(ticketId, user, body);
