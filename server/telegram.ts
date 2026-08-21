@@ -8,9 +8,11 @@ import { scheduleDriveSync } from "./googleDrivePersistence";
 
 type TelegramUser = { id: number; username?: string; first_name?: string; last_name?: string };
 type TelegramChat = { id: number; type: string };
-type TelegramMessage = { message_id: number; from?: TelegramUser; chat: TelegramChat; text?: string; caption?: string; photo?: Array<{ file_id: string }>; reply_markup?: unknown; reply_to_message?: TelegramMessage };
+type TelegramSuccessfulPayment = { currency: string; total_amount: number; invoice_payload: string; telegram_payment_charge_id: string; provider_payment_charge_id?: string };
+type TelegramMessage = { message_id: number; from?: TelegramUser; chat: TelegramChat; text?: string; caption?: string; photo?: Array<{ file_id: string }>; reply_markup?: unknown; reply_to_message?: TelegramMessage; successful_payment?: TelegramSuccessfulPayment };
 type TelegramCallbackQuery = { id: string; from: TelegramUser; message?: TelegramMessage; data?: string };
-type TelegramUpdate = { update_id: number; message?: TelegramMessage; callback_query?: TelegramCallbackQuery; channel_post?: TelegramMessage };
+type TelegramPreCheckoutQuery = { id: string; from: TelegramUser; currency: string; total_amount: number; invoice_payload: string };
+type TelegramUpdate = { update_id: number; message?: TelegramMessage; callback_query?: TelegramCallbackQuery; pre_checkout_query?: TelegramPreCheckoutQuery; channel_post?: TelegramMessage };
 
 const TELEGRAM_API = "https://api.telegram.org/bot";
 const TELEGRAM_REQUEST_TIMEOUT_MS = 15_000;
@@ -92,6 +94,15 @@ const pendingBinancePayTopups = new Map<number, { amountCents?: number; method: 
 const pendingBinancePayPurchases = new Map<number, { intentId: number; expiresAt: number }>();
 export const BINANCE_PAY_PURCHASE_WINDOW_MS = 20 * 60 * 1000;
 export const BEP20_PURCHASE_WINDOW_MS = 30 * 60 * 1000;
+export const TELEGRAM_STARS_PER_USD = 100 / 120;
+
+export function usdCentsToTelegramStars(amountCents: number) {
+  return Math.max(1, Math.round((Math.max(0, amountCents) / 100) * TELEGRAM_STARS_PER_USD));
+}
+
+export function telegramStarsToUsdEquivalent(stars: number) {
+  return stars / TELEGRAM_STARS_PER_USD;
+}
 
 export function didInsertReferralRow(result: unknown) {
   if (result && typeof result === "object" && !Array.isArray(result) && "changes" in result) return Number((result as { changes?: unknown }).changes ?? 0) > 0;
@@ -181,6 +192,10 @@ async function telegramCall<T>(method: string, body: Record<string, unknown>): P
 
 async function sendMessage(chatId: number, text: string, replyMarkup?: unknown) {
   return telegramCall("sendMessage", { chat_id: chatId, text, parse_mode: "HTML", reply_markup: replyMarkup });
+}
+
+async function sendStarsInvoice(chatId: number, title: string, description: string, payload: string, stars: number) {
+  return telegramCall("sendInvoice", { chat_id: chatId, title, description, payload, currency: "XTR", prices: [{ label: title, amount: stars }], start_parameter: payload });
 }
 
 async function editMessage(chatId: number, messageId: number, text: string, replyMarkup?: unknown) {
@@ -340,6 +355,40 @@ export function formatSupportSubmitted(ticketId: string) {
   return `✅ <b>Support request received</b>\n\nTicket: <b>#${ticketId}</b>\nOur team will review it shortly.`;
 }
 
+export function formatBotInfoMessage(totalUsers: number, completedOrders: number) {
+  return `ℹ️ <b>ToolsMania Bot Info</b>\n\n👥 Total bot users: <b>${totalUsers}</b>\n✅ Total completed orders: <b>${completedOrders}</b>`;
+}
+
+function configuredAdminChatId() {
+  const value = Number(process.env.TELEGRAM_ADMIN_CHAT_ID);
+  return Number.isSafeInteger(value) && value !== 0 ? value : null;
+}
+
+async function deliverSupportTicket(ticketId: string, user: TelegramUser, body: string) {
+  const adminChatId = configuredAdminChatId();
+  if (adminChatId === null) throw new Error("TELEGRAM_ADMIN_CHAT_ID is not configured for private support delivery");
+  await sendMessage(adminChatId, `<b>New support ticket #${ticketId}</b>\nFrom: ${user.first_name ?? "User"}${user.username ? ` (@${user.username})` : ""}\nTelegram ID: <code>${user.id}</code>\n\n${body}\n\nReply with:\n<code>/reply ${ticketId} your response</code>`);
+}
+
+async function handleAdminReply(message: TelegramMessage) {
+  const adminChatId = configuredAdminChatId();
+  if (!adminChatId || message.chat.id !== adminChatId || !message.text) return false;
+  const match = message.text.match(/^\/reply(?:@[^\s]+)?\s+(\d+)\s+([\s\S]+)$/i);
+  if (!match) return false;
+  const db = await getDb();
+  if (!db) throw new Error("Database is unavailable");
+  const ticketId = Number(match[1]);
+  const response = match[2].trim();
+  const ticket = (await db.select().from(supportTickets).where(eq(supportTickets.id, ticketId)).limit(1))[0];
+  if (!ticket) return sendMessage(adminChatId, `⚠️ Support ticket #${ticketId} was not found.`).then(() => true);
+  const user = (await db.select().from(botUsers).where(eq(botUsers.id, ticket.botUserId)).limit(1))[0];
+  if (!user) return sendMessage(adminChatId, `⚠️ The user for support ticket #${ticketId} was not found.`).then(() => true);
+  await sendMessage(user.telegramUserId, `💬 <b>Support reply for ticket #${ticketId}</b>\n\n${response}`);
+  await db.update(supportTickets).set({ status: "answered" }).where(eq(supportTickets.id, ticketId));
+  await sendMessage(adminChatId, `✅ Reply sent to the user for ticket #${ticketId}.`);
+  return true;
+}
+
 export function normalizeWarrantyText(value: string | number | null | undefined): string {
   if (typeof value === "number") return value > 0 ? `${value} days` : "";
   return typeof value === "string" ? value.trim() : "";
@@ -472,7 +521,7 @@ export function buildHomeKeyboard() {
     [{ text: "🎁 Freebies", callback_data: "freebies", style: "success" }, { text: "🛍️ Shop", callback_data: "shop", style: "primary" }],
     [{ text: "💳 Wallet", callback_data: "wallet", style: "primary" }, { text: "📦 Orders", callback_data: "orders", style: "primary" }],
     [{ text: "👤 Profile", callback_data: "profile", style: "primary" }, { text: "🤝 Referrals", callback_data: "referrals", style: "primary" }],
-    [{ text: "🆘 Support", callback_data: "support", style: "primary" }],
+    [{ text: "ℹ️ Bot Info", callback_data: "botinfo", style: "primary" }, { text: "🆘 Support", callback_data: "support", style: "primary" }],
   ]);
 }
 
@@ -533,6 +582,7 @@ export function buildQuantityKeyboard(productId: number, stock: number) {
 export function buildPaymentMethodKeyboard(productId: number, quantity: number) {
   return keyboard([
     [{ text: "💳 Pay with Wallet", callback_data: `paywallet:${productId}:${quantity}`, style: "success" }],
+    [{ text: "⭐ Pay with Telegram Stars", callback_data: `paystars:${productId}:${quantity}`, style: "primary" }],
     [{ text: "🟡 Pay with Binance Pay (USDT)", callback_data: `paybinance:${productId}:${quantity}`, style: "primary" }],
     [{ text: "🟢 Pay with USDT (BEP20)", callback_data: `paybep20:${productId}:${quantity}`, style: "primary" }],
     [{ text: "✖️ Cancel", callback_data: `buycancel:${productId}` }],
@@ -815,6 +865,14 @@ export function isShopEligibleProduct(product: { active: number | boolean; shopE
   return Boolean(product && (product.active === 1 || product.active === true) && (product.shopEligible === undefined || product.shopEligible === 1 || product.shopEligible === true));
 }
 
+async function showBotInfo(chatId: number, messageId?: number) {
+  const db = await getDb();
+  if (!db) throw new Error("Database is unavailable");
+  const userRows = await db.select({ count: sql<number>`count(*)` }).from(botUsers);
+  const orderRows = await db.select({ count: sql<number>`count(*)` }).from(orders).where(or(eq(orders.status, "fulfilled"), eq(orders.status, "paid")));
+  return respond(chatId, formatBotInfoMessage(Number(userRows[0]?.count ?? 0), Number(orderRows[0]?.count ?? 0)), buildHomeKeyboard(), messageId);
+}
+
 async function showFreebies(chatId: number, messageId?: number) {
   const db = await getDb();
   if (!db) throw new Error("Database is unavailable");
@@ -1038,19 +1096,19 @@ async function createBinancePayPurchaseIntent(chatId: number, userId: number, pr
 }
 
 export type TelegramCallbackAction =
-  | { kind: "verify_membership" | "home" | "freebies" | "wallet" | "walletadd" | "walletbep20" | "walletcancel" | "orders" | "profile" | "referrals" | "support" }
+  | { kind: "verify_membership" | "home" | "freebies" | "wallet" | "walletadd" | "walletbep20" | "walletcancel" | "orders" | "profile" | "referrals" | "support" | "botinfo" }
   | { kind: "shop" | "product" | "claim" | "reward" | "buy" | "customqty" | "pricealert"; id: number }
   | { kind: "walletamount"; amountCents: number }
-  | { kind: "buyqty" | "buyconfirm" | "paywallet" | "paybinance" | "paybep20"; id: number; quantity: number }
+  | { kind: "buyqty" | "buyconfirm" | "paywallet" | "paybinance" | "paybep20" | "paystars"; id: number; quantity: number }
   | { kind: "buycancel"; id: number };
 
 export function parseTelegramCallbackAction(data?: string): TelegramCallbackAction | null {
   const value = data ?? "";
-  if (["verify_membership", "home", "freebies", "wallet", "walletadd", "walletbep20", "walletcancel", "orders", "profile", "referrals", "support"].includes(value)) return { kind: value as TelegramCallbackAction["kind"] } as TelegramCallbackAction;
+  if (["verify_membership", "home", "freebies", "wallet", "walletadd", "walletbep20", "walletcancel", "orders", "profile", "referrals", "support", "botinfo"].includes(value)) return { kind: value as TelegramCallbackAction["kind"] } as TelegramCallbackAction;
   const walletAmountMatch = value.match(/^walletamount:(\d+)$/);
   if (walletAmountMatch) return { kind: "walletamount", amountCents: Number(walletAmountMatch[1]) };
-  const quantityMatch = value.match(/^(buyqty|buyconfirm|paywallet|paybinance|paybep20):([0-9]+):([0-9]+)$/);
-  if (quantityMatch) return { kind: quantityMatch[1] as "buyqty" | "buyconfirm" | "paywallet" | "paybinance" | "paybep20", id: Number(quantityMatch[2]), quantity: Number(quantityMatch[3]) };
+  const quantityMatch = value.match(/^(buyqty|buyconfirm|paywallet|paybinance|paybep20|paystars):([0-9]+):([0-9]+)$/);
+  if (quantityMatch) return { kind: quantityMatch[1] as "buyqty" | "buyconfirm" | "paywallet" | "paybinance" | "paybep20" | "paystars", id: Number(quantityMatch[2]), quantity: Number(quantityMatch[3]) };
   const cancelMatch = value.match(/^buycancel:([0-9]+)$/);
   if (cancelMatch) return { kind: "buycancel", id: Number(cancelMatch[1]) };
   const match = value.match(/^(shop|product|claim|reward|buy|customqty|pricealert)(?::(\d+))?$/);
@@ -1067,6 +1125,7 @@ export function resolvePurchaseCallbackRoute(action: TelegramCallbackAction) {
   if (action.kind === "buyconfirm") return "payment_method" as const;
   if (action.kind === "paywallet") return "purchase_confirm" as const;
   if (action.kind === "paybinance" || action.kind === "paybep20") return "binance_pay_pending" as const;
+  if (action.kind === "paystars") return "telegram_stars_pending" as const;
   if (action.kind === "buycancel") return "product_view" as const;
   if (action.kind === "customqty") return "custom_quantity" as const;
   if (action.kind === "pricealert") return "price_alert" as const;
@@ -1116,6 +1175,7 @@ export async function handleCallback(query: TelegramCallbackQuery, options: { sk
   if (action.kind === "orders") return showOrders(chatId, userId, messageId);
   if (action.kind === "profile") return showProfile(chatId, userId, messageId);
   if (action.kind === "referrals") return showReferrals(chatId, userId, messageId);
+  if (action.kind === "botinfo") return showBotInfo(chatId, messageId);
   if (action.kind === "support") return respond(chatId, formatSupportPrompt(), buildHomeKeyboard(), messageId);
   if (action.kind === "claim") return claimFree(chatId, userId, action.id, messageId);
   if (action.kind === "reward") return claimReferralReward(chatId, userId, action.id, messageId);
@@ -1124,6 +1184,7 @@ export async function handleCallback(query: TelegramCallbackQuery, options: { sk
   if (purchaseRoute === "payment_method" && action.kind === "buyconfirm") return showPurchaseReview(chatId, userId, action.id, action.quantity, messageId);
   if (purchaseRoute === "purchase_confirm" && action.kind === "paywallet") return createPurchase(chatId, userId, action.id, action.quantity, messageId);
   if (purchaseRoute === "binance_pay_pending" && (action.kind === "paybinance" || action.kind === "paybep20")) return createBinancePayPurchaseIntent(chatId, userId, action.id, action.quantity, messageId, action.kind === "paybep20" ? "bep20" : "binance_pay");
+  if (purchaseRoute === "telegram_stars_pending" && action.kind === "paystars") return createTelegramStarsPurchaseIntent(chatId, userId, action.id, action.quantity);
   if (action.kind === "buycancel") return cancelPurchase(chatId, userId, action.id, messageId);
   if (purchaseRoute === "custom_quantity" && action.kind === "customqty") {
     const db = await getDb();
@@ -1148,6 +1209,80 @@ export async function handleCallback(query: TelegramCallbackQuery, options: { sk
     }
     return respond(chatId, formatPriceAlertMessage(product.name, active), buildProductKeyboard(product.id), messageId);
   }
+}
+
+async function createTelegramStarsPurchaseIntent(chatId: number, userId: number, productId: number, quantity: number) {
+  const db = await getDb();
+  if (!db) throw new Error("Database is unavailable");
+  const user = (await db.select().from(botUsers).where(eq(botUsers.telegramUserId, userId)).limit(1))[0];
+  const product = (await db.select().from(products).where(eq(products.id, productId)).limit(1))[0];
+  const safeQuantity = Math.max(1, Math.min(10, Math.floor(quantity)));
+  if (!user || !isPurchasableProduct(product)) return sendMessage(chatId, "⚠️ This product is currently unavailable.");
+  if (product.stock < safeQuantity) return sendMessage(chatId, `⚠️ Only <b>${product.stock}</b> unit${product.stock === 1 ? "" : "s"} remain.`);
+  const amountCents = product.priceCents * safeQuantity;
+  const stars = usdCentsToTelegramStars(amountCents);
+  const now = new Date();
+  const inserted = await db.insert(paymentIntents).values({ botUserId: user.id, productId: product.id, quantity: safeQuantity, amountCents, method: "telegram_stars", status: "pending", createdAt: now, updatedAt: now });
+  const intentId = extractInsertedRowId(inserted);
+  if (!intentId) throw new Error("Failed to create Telegram Stars payment intent");
+  const payload = `toolsmania-stars:${intentId}`;
+  await sendStarsInvoice(chatId, product.name.slice(0, 32), `Digital delivery: ${safeQuantity}× ${product.name}`.slice(0, 255), payload, stars);
+}
+
+async function answerPreCheckoutQuery(queryId: string, ok: boolean, errorMessage?: string) {
+  return telegramCall("answerPreCheckoutQuery", { pre_checkout_query_id: queryId, ok, ...(ok ? {} : { error_message: errorMessage ?? "This order cannot be processed right now." }) });
+}
+
+async function handleStarsPreCheckout(query: TelegramPreCheckoutQuery) {
+  const match = query.invoice_payload.match(/^toolsmania-stars:(\d+)$/);
+  if (!match || query.currency !== "XTR") return answerPreCheckoutQuery(query.id, false, "This Telegram Stars invoice is invalid.");
+  const db = await getDb();
+  if (!db) return answerPreCheckoutQuery(query.id, false, "The store is temporarily unavailable.");
+  const intent = (await db.select().from(paymentIntents).where(eq(paymentIntents.id, Number(match[1]))).limit(1))[0];
+  const product = intent ? (await db.select().from(products).where(eq(products.id, intent.productId)).limit(1))[0] : undefined;
+  if (!intent || intent.method !== "telegram_stars" || intent.status !== "pending" || !product || !isPurchasableProduct(product) || product.stock < intent.quantity || query.total_amount !== usdCentsToTelegramStars(intent.amountCents)) {
+    return answerPreCheckoutQuery(query.id, false, "This invoice is no longer available. Please create a new invoice.");
+  }
+  return answerPreCheckoutQuery(query.id, true);
+}
+
+async function verifyAndFulfillTelegramStarsPurchase(chatId: number, userId: number, payment: TelegramSuccessfulPayment) {
+  const match = payment.invoice_payload.match(/^toolsmania-stars:(\d+)$/);
+  if (!match || payment.currency !== "XTR") return sendMessage(chatId, "⚠️ This Telegram Stars payment could not be matched to an order.");
+  const db = await getDb();
+  if (!db) throw new Error("Database is unavailable");
+  const intentId = Number(match[1]);
+  const transactionRef = payment.telegram_payment_charge_id;
+  const outcome = await db.transaction(async (tx) => {
+    const current = (await tx.select().from(paymentIntents).where(eq(paymentIntents.id, intentId)).limit(1))[0];
+    if (!current || current.method !== "telegram_stars" || current.status !== "pending") return { ok: false as const, reason: "already_processed" as const };
+    if (payment.total_amount !== usdCentsToTelegramStars(current.amountCents)) return { ok: false as const, reason: "amount_mismatch" as const };
+    const reused = (await tx.select().from(paymentIntents).where(eq(paymentIntents.transactionId, transactionRef)).limit(1))[0];
+    if (reused) return { ok: false as const, reason: "already_used" as const };
+    const account = (await tx.select().from(botUsers).where(eq(botUsers.id, current.botUserId)).limit(1))[0];
+    const sender = (await tx.select({ id: botUsers.id }).from(botUsers).where(eq(botUsers.telegramUserId, userId)).limit(1))[0];
+    const product = (await tx.select().from(products).where(eq(products.id, current.productId)).limit(1))[0];
+    if (!account || account.id !== sender?.id) return { ok: false as const, reason: "user_mismatch" as const };
+    if (!product || !isPurchasableProduct(product) || product.stock < current.quantity) return { ok: false as const, reason: "unavailable" as const };
+    const digital = product.inventoryText?.trim() ? consumeDigitalInventory(product.inventoryText, current.quantity) : { ok: true as const, items: [] as string[], remaining: [] as string[] };
+    if (!digital.ok) return { ok: false as const, reason: "unavailable" as const };
+    const deliveryMode = product.deliveryMode === "manual" ? "manual" as const : "automatic" as const;
+    const inserted = await tx.insert(orders).values({ botUserId: account.id, productId: product.id, kind: "purchase", amountCents: current.amountCents, status: deliveryMode === "manual" ? "paid" : "fulfilled", deliveredItem: digital.items.length ? digital.items.join("\\n") : null, purchaseWarranty: normalizeWarrantyText(product.warrantyDays) || null, paymentMethod: "Telegram Stars", quantity: current.quantity });
+    const orderId = extractInsertedRowId(inserted) || Number(`${Date.now()}`.slice(-9));
+    await tx.update(products).set({ stock: sql`${products.stock} - ${current.quantity}`, inventoryText: String(product.inventoryText ?? "").trim() ? digital.remaining.join("\\n") : product.inventoryText }).where(eq(products.id, product.id));
+    await tx.update(paymentIntents).set({ status: "fulfilled", transactionId: transactionRef }).where(eq(paymentIntents.id, current.id));
+    return { ok: true as const, orderId, product, quantity: current.quantity, amountCents: current.amountCents, deliveryMode, deliveredItems: digital.items, warrantyDays: product.warrantyDays };
+  });
+  if (!outcome.ok) {
+    const text = outcome.reason === "unavailable" ? "⚠️ The product sold out before payment completion. Contact support with your Telegram payment charge ID." : outcome.reason === "amount_mismatch" ? "⚠️ The Telegram Stars amount did not match the invoice." : outcome.reason === "user_mismatch" ? "⚠️ This invoice belongs to a different account." : "ℹ️ This Telegram Stars payment was already processed.";
+    return sendMessage(chatId, text);
+  }
+  if (outcome.deliveryMode === "automatic") scheduleDriveSync("completed_order");
+  const buyer = (await db.select().from(botUsers).where(eq(botUsers.telegramUserId, userId)).limit(1))[0];
+  const announcement = buildPurchaseAnnouncement(outcome.product.id, outcome.product.name, outcome.quantity, buyer?.firstName ?? "User", userId);
+  await sendMessage(chatId, formatPurchaseConfirmation(outcome.orderId, `${outcome.quantity}× ${outcome.product.name}`, outcome.amountCents, { mode: outcome.deliveryMode, items: outcome.deliveredItems, warrantyDays: outcome.warrantyDays }), buildHomeKeyboard());
+  await notifyAdmin("order_fulfilled", String(outcome.orderId), announcement.text, announcement.replyMarkup);
+  return true;
 }
 
 async function verifyAndFulfillBinancePurchase(chatId: number, userId: number, intentId: number, transactionId: string) {
@@ -1217,6 +1352,7 @@ async function restorePendingBinancePurchase(userId: number) {
 }
 
 export async function handleMessage(message: TelegramMessage) {
+  if (await handleAdminReply(message)) return;
   const user = message.from;
   if (!user || !message.text) return;
   const messageText = message.text;
@@ -1315,7 +1451,7 @@ export async function handleMessage(message: TelegramMessage) {
     const botUser = (await db.select().from(botUsers).where(eq(botUsers.telegramUserId, user.id)).limit(1))[0];
     const ticketResult = await db.insert(supportTickets).values({ botUserId: botUser.id, message: body, status: "open" });
     const ticketId = String((ticketResult as any)[0]?.insertId ?? `${user.id}:${Date.now()}`);
-    await notifyAdmin("support", ticketId, `<b>New support ticket #${ticketId}</b>\nFrom: ${user.first_name ?? "User"} (${user.id})\n\n${body}`);
+    await deliverSupportTicket(ticketId, user, body);
     return sendMessage(message.chat.id, formatSupportSubmitted(ticketId));
   }
   if (command === "/extra_device") return sendMessage(message.chat.id, formatExtraDeviceMessage());
@@ -1401,7 +1537,9 @@ async function processTelegramWebhookUpdate(update: TelegramUpdate) {
     // Do not make Telegram wait for this bookkeeping write.
     void recordBotActivity(actorId).catch((error) => console.error("[Telegram] activity touch failed", error));
   }
-  if (update.callback_query) await handleCallback(update.callback_query);
+  if (update.pre_checkout_query) await handleStarsPreCheckout(update.pre_checkout_query);
+  else if (update.callback_query) await handleCallback(update.callback_query);
+  else if (update.message?.successful_payment) await verifyAndFulfillTelegramStarsPurchase(update.message.chat.id, update.message.from?.id ?? 0, update.message.successful_payment);
   else if (update.message) await handleMessage(update.message);
 }
 

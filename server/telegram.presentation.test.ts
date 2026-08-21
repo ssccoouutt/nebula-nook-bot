@@ -27,6 +27,8 @@ import {
   buildProductKeyboard,
   buildQuantityKeyboard,
   buildPaymentMethodKeyboard,
+  usdCentsToTelegramStars,
+  formatBotInfoMessage,
   buildUnavailableProductKeyboard,
   formatQuantityPrompt,
   formatCustomQuantityPrompt,
@@ -238,12 +240,21 @@ describe("Telegram presentation and notification helpers", () => {
     expect(resolvePurchaseCallbackRoute({ kind: "buyconfirm", id: 7, quantity: 3 })).toBe("payment_method");
     expect(resolvePurchaseCallbackRoute({ kind: "paywallet", id: 7, quantity: 3 })).toBe("purchase_confirm");
     expect(resolvePurchaseCallbackRoute({ kind: "paybinance", id: 7, quantity: 3 })).toBe("binance_pay_pending");
+    expect(parseTelegramCallbackAction("paystars:7:3")).toEqual({ kind: "paystars", id: 7, quantity: 3 });
+    expect(resolvePurchaseCallbackRoute({ kind: "paystars", id: 7, quantity: 3 })).toBe("telegram_stars_pending");
     expect(resolvePurchaseCallbackRoute({ kind: "buycancel", id: 7 })).toBe("product_view");
     expect(resolvePurchaseCallbackRoute({ kind: "customqty", id: 7 })).toBe("custom_quantity");
     expect(resolvePurchaseCallbackRoute({ kind: "pricealert", id: 7 })).toBe("price_alert");
     expect(resolvePurchaseCallbackRoute({ kind: "walletamount", amountCents: 1000 })).toBe("wallet_amount");
     expect(resolvePurchaseCallbackRoute({ kind: "home" })).toBeNull();
     expect(resolvePurchaseCallbackRoute({ kind: "reward", id: 7 })).toBeNull();
+  });
+
+  it("uses the requested Stars conversion and renders public Bot Info stats", () => {
+    expect(usdCentsToTelegramStars(12000)).toBe(100);
+    expect(usdCentsToTelegramStars(299)).toBe(2);
+    expect(formatBotInfoMessage(45, 7)).toContain("Total bot users: <b>45</b>");
+    expect(formatBotInfoMessage(45, 7)).toContain("Total completed orders: <b>7</b>");
   });
 
   it("renders the Qamify-style quantity and confirmation steps", () => {
@@ -272,10 +283,11 @@ describe("Telegram presentation and notification helpers", () => {
     expect(formatPurchaseReview("Gemini Pro", 299, 3, 1000)).toContain("Choose a payment method");
     const reviewRows = buildPaymentMethodKeyboard(7, 3).inline_keyboard;
     expect(reviewRows[0][0]).toMatchObject({ text: "💳 Pay with Wallet", callback_data: "paywallet:7:3", style: "success" });
-    expect(reviewRows[1][0]).toMatchObject({ text: "🟡 Pay with Binance Pay (USDT)", callback_data: "paybinance:7:3", style: "primary" });
-    expect(reviewRows[2][0]).toMatchObject({ text: "🟢 Pay with USDT (BEP20)", callback_data: "paybep20:7:3", style: "primary" });
-    expect(reviewRows[3][0]).toMatchObject({ callback_data: "buycancel:7" });
-    expect(reviewRows[3][0]).not.toHaveProperty("style");
+    expect(reviewRows[1][0]).toMatchObject({ text: "⭐ Pay with Telegram Stars", callback_data: "paystars:7:3", style: "primary" });
+    expect(reviewRows[2][0]).toMatchObject({ text: "🟡 Pay with Binance Pay (USDT)", callback_data: "paybinance:7:3", style: "primary" });
+    expect(reviewRows[3][0]).toMatchObject({ text: "🟢 Pay with USDT (BEP20)", callback_data: "paybep20:7:3", style: "primary" });
+    expect(reviewRows[4][0]).toMatchObject({ callback_data: "buycancel:7" });
+    expect(reviewRows[4][0]).not.toHaveProperty("style");
     process.env.BEP20 = "0xbep20-test";
     const payPrompt = formatBinancePayPurchasePrompt("Gemini Pro Trial Link", 1, 99);
     expect(payPrompt).toContain("Amount to send:</b> $0.99 USDT");

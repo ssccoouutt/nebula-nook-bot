@@ -493,3 +493,9 @@
 - [x] Add bounded retry and recovery behavior for transient Telegram/API failures without duplicate user replies.
 - [x] Add process-level crash safeguards and health visibility so Koyeb can restart unhealthy instances and operators can identify the last failure.
 - [x] Add regression tests and validate the resilience update with TypeScript, full tests, and a production build.
+
+- [x] Route support tickets exclusively to the private admin chat ID instead of the group.
+- [x] Add an admin reply flow that delivers responses back to the originating user in the bot chat.
+- [x] Add a Bot Info button and statistics view showing total bot users and completed orders.
+- [x] Verify Telegram Stars payment constraints and implement the requested fixed conversion if supported.
+- [x] Add regression tests, run TypeScript/full validation, and publish the support, stats, and payment update.
