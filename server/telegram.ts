@@ -552,14 +552,26 @@ function buildAdminTicketKeyboard(ticketIds: number[]) {
     [{ text: "⌂ Admin menu", callback_data: "admin_stats", style: "primary" as const }],
   ]);
 }
-
+export function formatAdminTicketRecord(row: { ticketId: number; message: string; createdAt: Date | string | number; username?: string | null; telegramUserId?: number | string | null }) {
+  const createdAt = row.createdAt instanceof Date ? row.createdAt.toISOString() : adminTicketText(row.createdAt);
+  return `🆘 <b>Ticket #${row.ticketId}</b>\n👤 Username: <b>${row.username ? `@${adminTicketText(row.username)}` : "No username"}</b>\n🆔 Telegram ID: <code>${adminTelegramId(row.telegramUserId)}</code>\n🗓️ ${createdAt}\n\n${adminTicketText(row.message)}\n\nReply: <code>/reply ${row.ticketId} your response</code>\nClose without replying: <code>/close ${row.ticketId}</code>`;
+}
 async function showAdminTickets(chatId: number) {
   const db = await getDb();
   if (!db) throw new Error("Database is unavailable");
-  const rows = await db.select({ ticket: supportTickets, user: botUsers }).from(supportTickets).leftJoin(botUsers, eq(supportTickets.botUserId, botUsers.id)).where(eq(supportTickets.status, "open")).orderBy(desc(supportTickets.createdAt)).limit(1000);
+  // Keep the ticket primary key and joined user fields explicitly aliased. Nested
+  // object hydration through sqlite-proxy can otherwise make botUsers.id appear
+  // where supportTickets.id is expected in the administrator view.
+  const rows = await db.select({
+    ticketId: supportTickets.id,
+    message: supportTickets.message,
+    createdAt: supportTickets.createdAt,
+    username: botUsers.username,
+    telegramUserId: botUsers.telegramUserId,
+  }).from(supportTickets).leftJoin(botUsers, eq(supportTickets.botUserId, botUsers.id)).where(eq(supportTickets.status, "open")).orderBy(desc(supportTickets.createdAt)).limit(1000);
   if (!rows.length) return sendMessage(chatId, "✅ <b>Open tickets</b>\n\nThere are no open support tickets.", buildAdminKeyboard());
-  const text = rows.map(({ ticket, user }) => `🆘 <b>Ticket #${ticket.id}</b>\n👤 Username: <b>${user?.username ? `@${adminTicketText(user.username)}` : "No username"}</b>\n🆔 Telegram ID: <code>${adminTelegramId(user?.telegramUserId)}</code>\n🗓️ ${ticket.createdAt instanceof Date ? ticket.createdAt.toISOString() : adminTicketText(ticket.createdAt)}\n\n${adminTicketText(ticket.message)}\n\nReply: <code>/reply ${ticket.id} your response</code>\nClose without replying: <code>/close ${ticket.id}</code>`).join("\n\n━━━━━━━━━━━━━━\n\n");
-  return sendMessage(chatId, `<b>🆘 Open support tickets</b>\n\n${text}`, buildAdminTicketKeyboard(rows.map(({ ticket }) => ticket.id)));
+  const text = rows.map((row) => formatAdminTicketRecord(row)).join("\n\n━━━━━━━━━━━━━━\n\n");
+  return sendMessage(chatId, `<b>🆘 Open support tickets</b>\n\n${text}`, buildAdminTicketKeyboard(rows.map((row) => row.ticketId)));
 }
 
 async function closeAdminTicket(chatId: number, ticketId: number) {

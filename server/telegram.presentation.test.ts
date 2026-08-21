@@ -31,6 +31,7 @@ import {
   parseAdminCloseTicketCommand,
   normalizeAdminTicketText,
   formatAdminTelegramId,
+  formatAdminTicketRecord,
   isAuthorizedAdminMessage,
   buildMembershipKeyboard,
   buildShopKeyboard,
@@ -543,6 +544,22 @@ describe("Telegram presentation and notification helpers", () => {
     expect(parseAdminCloseTicketCommand("/close 46")).toBe(46);
     expect(parseAdminCloseTicketCommand("/close@Toolsmania_bot #84")).toBe(84);
     expect(parseAdminCloseTicketCommand("/close nope")).toBeNull();
+  });
+
+  it("renders the canonical support ticket ID independently from the joined bot-user ID", () => {
+    const rendered = formatAdminTicketRecord({
+      ticketId: 4,
+      message: "Hi\\nPlease help",
+      createdAt: "2026-08-21T05:24:59.258Z",
+      username: "itszeeshan196",
+      telegramUserId: 990321391,
+    });
+    expect(rendered).toContain("Ticket #4");
+    expect(rendered).toContain("Telegram ID: <code>990321391</code>");
+    expect(rendered).toContain("Hi\nPlease help");
+    expect(rendered).toContain("/reply 4 your response");
+    expect(rendered).toContain("/close 4");
+    expect(rendered).not.toContain("Ticket #2");
   });
 
   it("keeps the administrator menu isolated from normal-user features", () => {

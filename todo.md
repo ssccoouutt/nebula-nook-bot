@@ -574,3 +574,14 @@
 
 - [x] Ensure admin ticket closure persists the closed status in bot SQLite, appears closed in the web dashboard, and is synchronized to the Google Drive support-ticket export.
 - [x] Add regression coverage proving close-ticket synchronization uses the support-ticket persistence path rather than an unrelated sync reason.
+
+- [ ] Inspect the linked Google Drive exports and current GitHub ticket code to identify the #4-versus-#2 mismatch.
+- [ ] Preserve evidence before any cleanup and delete only obsolete support-ticket test records if they are confirmed as the conflict.
+- [ ] Validate ticket creation, listing, reply, close, dashboard status, and Drive persistence after the repair.
+
+- [ ] Verify the connected GitHub branch/commit and the logged-in Koyeb service deployment commit, instance count, and runtime behavior for the ticket-ID fix.
+- [ ] Repair or redeploy only if the Koyeb service is confirmed to differ from the latest validated project version.
+
+- [x] Fix administrator open-ticket projection so it returns explicit support-ticket IDs and user identity fields, preventing joined bot-user IDs from being rendered as ticket numbers.
+- [x] Add regression coverage proving the admin list, close/reply commands, dashboard, and Drive export all use the same canonical supportTickets.id.
+- [x] Verify and publish the support-ticket identity repair.
