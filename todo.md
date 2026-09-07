@@ -590,10 +590,10 @@
 - [x] Make `/close` and inline ticket closure acknowledge immediately while Drive synchronization runs asynchronously and still reports failures safely.
 - [x] Add regression tests for admin newline rendering and non-blocking ticket closure, then run the full validation suite and publish.
 
-- [ ] Diagnose the supplied outage logs against Telegram webhook acknowledgement and update-processing behavior.
-- [ ] Identify whether broadcasts, Drive synchronization, webhook errors, or process stalls can stop Telegram updates while the dashboard remains healthy.
-- [ ] Implement safe Telegram self-recovery and ensure background work cannot block webhook responses or future updates.
-- [ ] Add regression coverage for the outage failure mode, run full validation, and publish the recovery fix.
+- [x] Diagnose the supplied outage logs against Telegram webhook acknowledgement and update-processing behavior.
+- [x] Identify whether broadcasts, Drive synchronization, webhook errors, or process stalls can stop Telegram updates while the dashboard remains healthy.
+- [x] Implement safe Telegram self-recovery and ensure background work cannot block webhook responses or future updates.
+- [x] Add regression coverage for the outage failure mode, run full validation, and publish the recovery fix.
 
 - [x] Add optional per-product bulk pricing tiers with quantity-based total calculation and stock-aware display.
 - [x] Fix manual-delivery fulfillment to consume stock, deliver instructions/details, retain manual status messaging, and appear in dashboard orders.
@@ -603,4 +603,4 @@
 - [x] Add dashboard product hiding/unhiding without deleting products and exclude hidden products from normal catalog/freebie listings as appropriate.
 - [x] Add schema migration, regression tests, local validation, and prepare changes for explicit GitHub/Koyeb confirmation; publication remains blocked until explicit confirmation.
 
-- [ ] Sync the approved commerce feature batch and save the deployment checkpoint after final validation.
+- [x] Sync the approved commerce feature batch and save the deployment checkpoint after final validation.

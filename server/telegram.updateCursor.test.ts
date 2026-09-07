@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { TELEGRAM_UPDATE_ID_GUARD, shouldIgnoreTelegramUpdate } from "./telegram";
+import { TELEGRAM_UPDATE_ID_GUARD, shouldIgnoreTelegramUpdate, telegramUpdateIgnoreReason } from "./telegram";
 
 describe("Telegram update cursor safety", () => {
   it("ignores duplicate or older real update IDs", () => {
@@ -16,6 +16,11 @@ describe("Telegram update cursor safety", () => {
   it("accepts an empty or malformed stored cursor", () => {
     expect(shouldIgnoreTelegramUpdate(undefined, 101)).toBe(false);
     expect(shouldIgnoreTelegramUpdate(Number.NaN, 101)).toBe(false);
+  });
+
+  it("exposes an exact reason when an update is ignored", () => {
+    expect(telegramUpdateIgnoreReason(100, 100)).toBe("older_or_duplicate_update_id");
+    expect(telegramUpdateIgnoreReason(100, 101)).toBeUndefined();
   });
 });
 

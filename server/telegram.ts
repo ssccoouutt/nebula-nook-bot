@@ -336,6 +336,10 @@ export function isTelegramMessageNotModifiedError(error: unknown) {
   return error instanceof Error && error.message.toLowerCase().includes("message is not modified");
 }
 
+export function telegramUpdateIgnoreReason(storedCursor: number | undefined, updateId: number) {
+  return shouldIgnoreTelegramUpdate(storedCursor, updateId) ? "older_or_duplicate_update_id" as const : undefined;
+}
+
 async function claimTelegramUpdate(updateId: number) {
   const previous = telegramCursorQueue;
   let release!: () => void;
@@ -347,8 +351,9 @@ async function claimTelegramUpdate(updateId: number) {
     const last = (await db.select().from(botSettings).where(eq(botSettings.key, "last_update_id")).limit(1))[0];
     const lastUpdateId = last ? Number(last.value) : undefined;
     lastTelegramUpdate = { updateId, receivedAt: new Date().toISOString(), phase: "received", storedCursor: Number.isFinite(lastUpdateId) ? lastUpdateId : undefined };
-    if (shouldIgnoreTelegramUpdate(lastUpdateId, updateId)) {
-      lastTelegramUpdate = { ...lastTelegramUpdate, phase: "ignored", reason: "older_or_duplicate_update_id" };
+    const ignoredReason = telegramUpdateIgnoreReason(lastUpdateId, updateId);
+    if (ignoredReason) {
+      lastTelegramUpdate = { ...lastTelegramUpdate, phase: "ignored", reason: ignoredReason };
       console.warn(`[Telegram] Ignored update ${updateId}; stored cursor is ${lastUpdateId}`);
       return false;
     }
