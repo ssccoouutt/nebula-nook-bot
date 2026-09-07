@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { and, desc, eq, sql } from "drizzle-orm";
+import { and, desc, eq, or, sql } from "drizzle-orm";
 import { COOKIE_NAME } from "@shared/const";
 import { getSessionCookieOptions } from "./_core/cookies";
 import { systemRouter } from "./_core/systemRouter";
@@ -9,16 +9,17 @@ import { binancePayDeposits, botSettings, botUsers, broadcasts, orders, paymentI
 import { TRPCError } from "@trpc/server";
 import { scheduleDriveSync } from "./googleDrivePersistence";
 import { orderHistorySearchText, resolveOrderHistorySnapshot } from "./orderHistory";
+import { normalizeBulkPricing as normalizeSharedBulkPricing } from "../shared/pricing";
 
 function inventoryLines(value: string) {
   return value.replaceAll("\\n", "\n").split(/\r?\n/).map(line => line.trim()).filter(Boolean);
 }
 
-function productValues(input: { name: string; description: string; deliveryFormat: string; priceUsd: number; inventoryText: string; deliveryMode: "automatic" | "manual"; warrantyDays: string; imageUrl: string; freeEligible: boolean; freeWindowMs: number | null; shopEligible: boolean; referralEligible: boolean; referralPriceCredits: number; active?: boolean }) {
+function productValues(input: { name: string; description: string; deliveryFormat: string; priceUsd: number; inventoryText: string; deliveryMode: "automatic" | "manual"; warrantyDays: string; imageUrl: string; freeEligible: boolean; freeWindowMs: number | null; shopEligible: boolean; referralEligible: boolean; referralPriceCredits: number; bulkPricing?: string; hidden?: boolean; active?: boolean }) {
   const priceCents = Math.round(input.priceUsd * 100);
   if (!Number.isFinite(input.priceUsd) || priceCents < 0) throw new TRPCError({ code: "BAD_REQUEST", message: "Price must be a valid non-negative USD amount" });
   const items = inventoryLines(input.inventoryText);
-  return { name: input.name.trim(), description: input.description.trim(), deliveryFormat: input.deliveryFormat.trim(), priceCents, stock: items.length, inventoryText: items.join("\n"), deliveryMode: input.deliveryMode, warrantyDays: input.warrantyDays.trim(), imageUrl: input.imageUrl.trim(), freeEligible: input.freeEligible ? 1 : 0, freeWindowMs: input.freeWindowMs, shopEligible: input.shopEligible ? 1 : 0, referralEligible: input.referralEligible ? 1 : 0, referralPriceCredits: Math.max(1, Math.floor(input.referralPriceCredits)), ...(input.active === undefined ? {} : { active: input.active ? 1 : 0 }) };
+  return { name: input.name.trim(), description: input.description.trim(), deliveryFormat: input.deliveryFormat.trim(), priceCents, stock: items.length, inventoryText: items.join("\n"), deliveryMode: input.deliveryMode, warrantyDays: input.warrantyDays.trim(), imageUrl: input.imageUrl.trim(), freeEligible: input.freeEligible ? 1 : 0, freeWindowMs: input.freeWindowMs, shopEligible: input.shopEligible ? 1 : 0, referralEligible: input.referralEligible ? 1 : 0, referralPriceCredits: Math.max(1, Math.floor(input.referralPriceCredits)), bulkPricing: (() => { try { return normalizeSharedBulkPricing(input.bulkPricing ?? ""); } catch (error) { throw new TRPCError({ code: "BAD_REQUEST", message: error instanceof Error ? error.message : "Invalid bulk pricing" }); } })(), ...(input.hidden === undefined ? {} : { hidden: input.hidden ? 1 : 0 }), ...(input.active === undefined ? {} : { active: input.active ? 1 : 0 }) };
 }
 import { buildFulfillmentNotifications, configureTelegramWebhook, notifyAdmin, notifyProductAvailability, sendTelegramMessage, validTelegramJoinUrl } from "./telegram";
 import { normalizeBroadcastRecipients } from "./broadcast";
@@ -90,8 +91,8 @@ export const appRouter = router({
       ]);
       return { users: Number(users[0]?.count ?? 0), activeProducts: Number(activeProducts[0]?.count ?? 0), openTickets: Number(openTickets[0]?.count ?? 0), orders: Number(ordersCount[0]?.count ?? 0) };
     }),
-    products: adminProcedure.query(async () => (await database()).select().from(products).orderBy(desc(products.createdAt))),
-    createProduct: adminProcedure.input(z.object({ name: z.string().min(1).max(255), description: z.string().min(1), deliveryFormat: z.string().default(""), priceUsd: z.number().nonnegative(), inventoryText: z.string().default(""), deliveryMode: z.enum(["automatic", "manual"]).default("automatic"), warrantyDays: z.string().max(255).default(""), imageUrl: z.string().url().or(z.literal("")).default(""), freeEligible: z.boolean(), shopEligible: z.boolean().default(true), freeWindowMs: z.number().int().positive().nullable(), referralEligible: z.boolean().default(false), referralPriceCredits: z.number().int().positive().default(1) })).mutation(async ({ input }) => {
+    products: adminProcedure.input(z.object({ sort: z.enum(["alphabetical", "mostSold"]).default("alphabetical") }).optional()).query(async ({ input }) => { const db = await database(); const [rows, soldRows] = await Promise.all([db.select().from(products), db.select({ productId: orders.productId, total: sql<number>`coalesce(sum(${orders.quantity}), 0)` }).from(orders).where(or(eq(orders.status, "fulfilled"), eq(orders.status, "paid"))).groupBy(orders.productId)]); const soldByProduct = new Map(soldRows.map((row) => [row.productId, Number(row.total ?? 0)])); const enriched = rows.map((row) => ({ ...row, soldCount: soldByProduct.get(row.id) ?? 0 })); return enriched.sort((a, b) => input?.sort === "mostSold" ? b.soldCount - a.soldCount || a.name.localeCompare(b.name) : a.name.localeCompare(b.name)); }),
+    createProduct: adminProcedure.input(z.object({ name: z.string().min(1).max(255), description: z.string().min(1), deliveryFormat: z.string().default(""), priceUsd: z.number().nonnegative(), inventoryText: z.string().default(""), deliveryMode: z.enum(["automatic", "manual"]).default("automatic"), warrantyDays: z.string().max(255).default(""), imageUrl: z.string().url().or(z.literal("")).default(""), freeEligible: z.boolean(), shopEligible: z.boolean().default(true), freeWindowMs: z.number().int().positive().nullable(), referralEligible: z.boolean().default(false), referralPriceCredits: z.number().int().positive().default(1), bulkPricing: z.string().max(4000).default(""), hidden: z.boolean().default(false) })).mutation(async ({ input }) => {
       const db = await database();
       const values = productValues(input);
       const result = await db.insert(products).values({ ...values, active: 1 });
@@ -103,7 +104,7 @@ export const appRouter = router({
       }
       return { success: true };
     }),
-    updateProduct: adminProcedure.input(z.object({ id: z.number().int(), name: z.string().min(1).max(255), description: z.string().min(1), deliveryFormat: z.string().default(""), priceUsd: z.number().nonnegative(), inventoryText: z.string().default(""), deliveryMode: z.enum(["automatic", "manual"]).default("automatic"), warrantyDays: z.string().max(255).default(""), imageUrl: z.string().url().or(z.literal("")).default(""), active: z.boolean(), freeEligible: z.boolean(), shopEligible: z.boolean().default(true), freeWindowMs: z.number().int().positive().nullable(), referralEligible: z.boolean().default(false), referralPriceCredits: z.number().int().positive().default(1) })).mutation(async ({ input }) => {
+    updateProduct: adminProcedure.input(z.object({ id: z.number().int(), name: z.string().min(1).max(255), description: z.string().min(1), deliveryFormat: z.string().default(""), priceUsd: z.number().nonnegative(), inventoryText: z.string().default(""), deliveryMode: z.enum(["automatic", "manual"]).default("automatic"), warrantyDays: z.string().max(255).default(""), imageUrl: z.string().url().or(z.literal("")).default(""), active: z.boolean(), freeEligible: z.boolean(), shopEligible: z.boolean().default(true), freeWindowMs: z.number().int().positive().nullable(), referralEligible: z.boolean().default(false), referralPriceCredits: z.number().int().positive().default(1), bulkPricing: z.string().max(4000).default(""), hidden: z.boolean().default(false) })).mutation(async ({ input }) => {
       const db = await database();
       const existing = (await db.select().from(products).where(eq(products.id, input.id)).limit(1))[0];
       const values = productValues(input);
@@ -134,28 +135,28 @@ export const appRouter = router({
       await db.insert(botSettings).values({ key: input.key, value: input.value.trim() }).onConflictDoUpdate({ target: botSettings.key, set: { value: input.value.trim() } });
       return { success: true };
     }),
-    users: adminProcedure.input(z.object({ sort: z.enum(["lastActivity", "balance", "createdAt", "orders", "referrals"]).default("lastActivity"), direction: z.enum(["asc", "desc"]).default("desc"), limit: z.number().int().min(1).max(500).default(200) }).optional()).query(async ({ input }) => {
+    users: adminProcedure.input(z.object({ sort: z.enum(["lastActivity", "balance", "createdAt", "orders", "referrals", "totalSpent"]).default("lastActivity"), direction: z.enum(["asc", "desc"]).default("desc"), limit: z.number().int().min(1).max(500).default(200) }).optional()).query(async ({ input }) => {
       const db = await database();
       const limit = input?.limit ?? 200;
       const [rows, orderRows, ledgerRows, referralRows, ticketRows, paymentRows] = await Promise.all([
         db.select().from(botUsers).limit(limit),
-        db.select({ botUserId: orders.botUserId, count: sql<number>`count(*)`, lastAt: sql<number>`max(${orders.updatedAt})` }).from(orders).groupBy(orders.botUserId),
+        db.select({ botUserId: orders.botUserId, count: sql<number>`count(*)`, totalSpent: sql<number>`coalesce(sum(${orders.amountCents}), 0)`, lastAt: sql<number>`max(${orders.updatedAt})` }).from(orders).where(or(eq(orders.status, "fulfilled"), eq(orders.status, "paid"))).groupBy(orders.botUserId),
         db.select({ botUserId: walletLedger.botUserId, count: sql<number>`count(*)`, lastAt: sql<number>`max(${walletLedger.createdAt})` }).from(walletLedger).groupBy(walletLedger.botUserId),
         db.select({ referrerId: referrals.referrerId, count: sql<number>`count(*)`, lastAt: sql<number>`max(${referrals.createdAt})` }).from(referrals).groupBy(referrals.referrerId),
         db.select({ botUserId: supportTickets.botUserId, count: sql<number>`count(*)`, lastAt: sql<number>`max(${supportTickets.updatedAt})` }).from(supportTickets).groupBy(supportTickets.botUserId),
         db.select({ botUserId: paymentIntents.botUserId, lastAt: sql<number>`max(${paymentIntents.updatedAt})` }).from(paymentIntents).groupBy(paymentIntents.botUserId),
       ]);
-      const byUser = new Map<number, { orders: number; referrals: number; lastActivity: number }>();
-      const touch = (id: number, count: number, lastAt: number | null | undefined, field: "orders" | "referrals") => { const current = byUser.get(id) ?? { orders: 0, referrals: 0, lastActivity: 0 }; current[field] += Number(count ?? 0); current.lastActivity = Math.max(current.lastActivity, Number(lastAt ?? 0)); byUser.set(id, current); };
-      for (const row of orderRows) touch(row.botUserId, row.count, row.lastAt, "orders");
-      for (const row of ledgerRows) { const current = byUser.get(row.botUserId) ?? { orders: 0, referrals: 0, lastActivity: 0 }; current.lastActivity = Math.max(current.lastActivity, Number(row.lastAt ?? 0)); byUser.set(row.botUserId, current); }
+      const byUser = new Map<number, { orders: number; referrals: number; totalSpent: number; lastActivity: number }>();
+      const touch = (id: number, count: number, lastAt: number | null | undefined, field: "orders" | "referrals") => { const current = byUser.get(id) ?? { orders: 0, referrals: 0, totalSpent: 0, lastActivity: 0 }; current[field] += Number(count ?? 0); current.lastActivity = Math.max(current.lastActivity, Number(lastAt ?? 0)); byUser.set(id, current); };
+      for (const row of orderRows) { touch(row.botUserId, row.count, row.lastAt, "orders"); const current = byUser.get(row.botUserId); if (current) current.totalSpent = Number(row.totalSpent ?? 0); }
+      for (const row of ledgerRows) { const current = byUser.get(row.botUserId) ?? { orders: 0, referrals: 0, totalSpent: 0, lastActivity: 0 }; current.lastActivity = Math.max(current.lastActivity, Number(row.lastAt ?? 0)); byUser.set(row.botUserId, current); }
       for (const row of referralRows) touch(row.referrerId, row.count, row.lastAt, "referrals");
-      for (const row of ticketRows) { const current = byUser.get(row.botUserId) ?? { orders: 0, referrals: 0, lastActivity: 0 }; current.lastActivity = Math.max(current.lastActivity, Number(row.lastAt ?? 0)); byUser.set(row.botUserId, current); }
-      for (const row of paymentRows) { const current = byUser.get(row.botUserId) ?? { orders: 0, referrals: 0, lastActivity: 0 }; current.lastActivity = Math.max(current.lastActivity, Number(row.lastAt ?? 0)); byUser.set(row.botUserId, current); }
-      const enriched = rows.map((row) => { const stats = byUser.get(row.id) ?? { orders: 0, referrals: 0, lastActivity: 0 }; return { ...row, orderCount: stats.orders, referralCount: stats.referrals, lastActivity: dashboardLastActivity(row.updatedAt.getTime(), stats.lastActivity) }; });
+      for (const row of ticketRows) { const current = byUser.get(row.botUserId) ?? { orders: 0, referrals: 0, totalSpent: 0, lastActivity: 0 }; current.lastActivity = Math.max(current.lastActivity, Number(row.lastAt ?? 0)); byUser.set(row.botUserId, current); }
+      for (const row of paymentRows) { const current = byUser.get(row.botUserId) ?? { orders: 0, referrals: 0, totalSpent: 0, lastActivity: 0 }; current.lastActivity = Math.max(current.lastActivity, Number(row.lastAt ?? 0)); byUser.set(row.botUserId, current); }
+      const enriched = rows.map((row) => { const stats = byUser.get(row.id) ?? { orders: 0, referrals: 0, totalSpent: 0, lastActivity: 0 }; return { ...row, orderCount: stats.orders, referralCount: stats.referrals, totalSpentCents: stats.totalSpent, lastActivity: dashboardLastActivity(row.updatedAt.getTime(), stats.lastActivity) }; });
       const direction = input?.direction === "asc" ? 1 : -1;
       const sort = input?.sort ?? "lastActivity";
-      enriched.sort((a, b) => { const av = sort === "balance" ? a.balanceCents : sort === "createdAt" ? (a.createdAt instanceof Date ? a.createdAt.getTime() : Number(a.createdAt ?? 0)) : sort === "orders" ? a.orderCount : sort === "referrals" ? a.referralCount : a.lastActivity; const bv = sort === "balance" ? b.balanceCents : sort === "createdAt" ? (b.createdAt instanceof Date ? b.createdAt.getTime() : Number(b.createdAt ?? 0)) : sort === "orders" ? b.orderCount : sort === "referrals" ? b.referralCount : b.lastActivity; return (av - bv) * direction; });
+      enriched.sort((a, b) => { const av = sort === "balance" ? a.balanceCents : sort === "createdAt" ? (a.createdAt instanceof Date ? a.createdAt.getTime() : Number(a.createdAt ?? 0)) : sort === "orders" ? a.orderCount : sort === "referrals" ? a.referralCount : sort === "totalSpent" ? a.totalSpentCents : a.lastActivity; const bv = sort === "balance" ? b.balanceCents : sort === "createdAt" ? (b.createdAt instanceof Date ? b.createdAt.getTime() : Number(b.createdAt ?? 0)) : sort === "orders" ? b.orderCount : sort === "referrals" ? b.referralCount : sort === "totalSpent" ? b.totalSpentCents : b.lastActivity; return (av - bv) * direction; });
       return enriched;
     }),
     activitySummary: adminProcedure.input(z.object({ day: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional() }).optional()).query(async ({ input }) => {

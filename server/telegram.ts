@@ -6,6 +6,7 @@ import { findBinancePayTransaction } from "./binancePay";
 import { canClaimFreeItem, freeWindowStart, hasAccess, referralCodeForTelegramId, tierForReferralCount } from "../shared/botLogic";
 import { flushDriveSync, scheduleDriveSync } from "./googleDrivePersistence";
 import { encryptedConfigDiagnostics } from "./configFile";
+import { formatBulkPricingForUsers, parseBulkPricing, resolveBulkUnitPriceCents } from "../shared/pricing";
 
 type TelegramUser = { id: number; username?: string; first_name?: string; last_name?: string };
 type TelegramChat = { id: number; type: string };
@@ -101,6 +102,16 @@ type TelegramRuntimeFailure = {
 };
 
 let lastTelegramFailure: TelegramRuntimeFailure | null = null;
+type TelegramUpdateDiagnostic = {
+  updateId: number;
+  receivedAt: string;
+  phase: "received" | "ignored" | "processing" | "completed" | "failed";
+  reason?: string;
+  storedCursor?: number;
+};
+let lastTelegramUpdate: TelegramUpdateDiagnostic | null = null;
+let telegramUpdatesInFlight = 0;
+let telegramCursorQueue: Promise<unknown> = Promise.resolve();
 
 function errorMessage(error: unknown) {
   return error instanceof Error ? error.message : String(error);
@@ -119,7 +130,7 @@ export function recordTelegramFailure(scope: string, error: unknown, context: Re
 }
 
 export function telegramRuntimeDiagnostics() {
-  return { lastFailure: lastTelegramFailure };
+  return { lastFailure: lastTelegramFailure, lastUpdate: lastTelegramUpdate, updatesInFlight: telegramUpdatesInFlight };
 }
 
 function updateContext(update: TelegramUpdate) {
@@ -325,6 +336,30 @@ export function isTelegramMessageNotModifiedError(error: unknown) {
   return error instanceof Error && error.message.toLowerCase().includes("message is not modified");
 }
 
+async function claimTelegramUpdate(updateId: number) {
+  const previous = telegramCursorQueue;
+  let release!: () => void;
+  telegramCursorQueue = new Promise<void>((resolve) => { release = resolve; });
+  await previous;
+  try {
+    const db = await getDb();
+    if (!db) return true;
+    const last = (await db.select().from(botSettings).where(eq(botSettings.key, "last_update_id")).limit(1))[0];
+    const lastUpdateId = last ? Number(last.value) : undefined;
+    lastTelegramUpdate = { updateId, receivedAt: new Date().toISOString(), phase: "received", storedCursor: Number.isFinite(lastUpdateId) ? lastUpdateId : undefined };
+    if (shouldIgnoreTelegramUpdate(lastUpdateId, updateId)) {
+      lastTelegramUpdate = { ...lastTelegramUpdate, phase: "ignored", reason: "older_or_duplicate_update_id" };
+      console.warn(`[Telegram] Ignored update ${updateId}; stored cursor is ${lastUpdateId}`);
+      return false;
+    }
+    await db.insert(botSettings).values({ key: "last_update_id", value: String(updateId) }).onConflictDoUpdate({ target: botSettings.key, set: { value: String(updateId) } });
+    return true;
+  } finally {
+    release();
+  }
+}
+
+
 export async function respond(chatId: number, text: string, replyMarkup?: unknown, messageId?: number) {
   const cannotEditText = messageId !== undefined && nonTextCallbackMessages.has(callbackMessageKey(chatId, messageId));
   if (telegramResponseMethod(messageId) === "sendMessage" || cannotEditText) return sendMessage(chatId, text, replyMarkup);
@@ -393,8 +428,10 @@ export function buildAutoPurchaseResult(balanceCents: number, priceCents: number
   return { ok: true as const, status: "fulfilled" as const, quantity: safeQuantity, totalCents, nextBalanceCents: balanceCents - totalCents, nextStock: stock - safeQuantity };
 }
 
-export function buildConfirmedPurchasePlan(balanceCents: number, priceCents: number, stock: number, quantity: number) {
-  const purchase = buildAutoPurchaseResult(balanceCents, priceCents, stock, Math.max(1, Math.min(10, Math.floor(quantity))));
+export function buildConfirmedPurchasePlan(balanceCents: number, priceCents: number, stock: number, quantity: number, bulkPricing?: string | null) {
+  const safeQuantity = Math.max(1, Math.min(10, Math.floor(quantity)));
+  const unitPriceCents = resolveBulkUnitPriceCents(priceCents, bulkPricing, safeQuantity);
+  const purchase = buildAutoPurchaseResult(balanceCents, unitPriceCents, stock, safeQuantity);
   if (!purchase.ok) return { ok: false as const, status: purchase.status, totalCents: purchase.totalCents };
   return { ok: true as const, quantity: purchase.quantity, totalCents: purchase.totalCents, nextBalanceCents: purchase.nextBalanceCents, nextStock: purchase.nextStock };
 }
@@ -738,10 +775,10 @@ export function normalizeWarrantyText(value: string | number | null | undefined)
 export function formatPurchaseConfirmation(orderId: string | number, productName: string, amountCents: number, delivery?: { mode: "automatic" | "manual"; items?: string[]; warrantyDays?: string | number }) {
   const warrantyText = normalizeWarrantyText(delivery?.warrantyDays);
   const warranty = warrantyText ? `\n🛡️ Warranty: <b>${warrantyText.replace(/[<&>]/g, "")}</b>` : "";
-  const delivered = delivery?.mode === "automatic" && delivery.items?.length
-    ? `\n\n📦 <b>Your digital product</b>\n<blockquote>${delivery.items.map(item => item.replace(/[<&>]/g, "")).join("\n")}</blockquote>\n\nTap and hold the text above to copy it.${warranty}`
+  const delivered = delivery?.items?.length
+    ? `\n\n📦 <b>${delivery.mode === "manual" ? "Manual delivery details" : "Your digital product"}</b>\n<blockquote>${delivery.items.map(item => item.replace(/[<&>]/g, "")).join("\n")}</blockquote>\n\n${delivery.mode === "manual" ? "🕐 This is a manual-delivery product. Follow the instructions above; the order is recorded as completed." : "Tap and hold the text above to copy it."}${warranty}`
     : delivery?.mode === "manual"
-      ? `\n\n🕐 <b>Manual delivery</b>\nYour payment is received. The product will be delivered by the admin shortly.${warranty}`
+      ? `\n\n🕐 <b>Manual delivery</b>\nYour order is recorded as completed. Follow the product instructions or contact support if the admin provided no details.${warranty}`
       : warranty;
   return `✅ <b>Order completed</b>\n\n📦 Order: <b>#${orderId}</b>\n🛍️ Product: <b>${productName}</b>\n💵 Amount: <b>$${(amountCents / 100).toFixed(2)}</b>${delivered}\n\n⚡ Payment received and your order is complete.`;
 }
@@ -1211,12 +1248,12 @@ async function showHome(chatId: number, userId: number, messageId?: number) {
   }), buildHomeKeyboard(), messageId);
 }
 
-export function isPurchasableProduct(product: { active: number | boolean; stock: number } | undefined) {
-  return Boolean(product && (product.active === 1 || product.active === true) && product.stock > 0);
+export function isPurchasableProduct(product: { active: number | boolean; stock: number; hidden?: number | boolean } | undefined) {
+  return Boolean(product && (product.active === 1 || product.active === true) && !(product.hidden === 1 || product.hidden === true) && product.stock > 0);
 }
 
-export function isShopEligibleProduct(product: { active: number | boolean; shopEligible?: number | boolean } | undefined) {
-  return Boolean(product && (product.active === 1 || product.active === true) && (product.shopEligible === undefined || product.shopEligible === 1 || product.shopEligible === true));
+export function isShopEligibleProduct(product: { active: number | boolean; shopEligible?: number | boolean; hidden?: number | boolean } | undefined) {
+  return Boolean(product && (product.active === 1 || product.active === true) && !(product.hidden === 1 || product.hidden === true) && (product.shopEligible === undefined || product.shopEligible === 1 || product.shopEligible === true));
 }
 
 async function showBotInfo(chatId: number, messageId?: number, admin = false) {
@@ -1230,7 +1267,7 @@ async function showBotInfo(chatId: number, messageId?: number, admin = false) {
 async function showFreebies(chatId: number, messageId?: number) {
   const db = await getDb();
   if (!db) throw new Error("Database is unavailable");
-  const items = await db.select().from(products).where(and(eq(products.active, 1), eq(products.freeEligible, 1))).limit(20);
+  const items = await db.select().from(products).where(and(eq(products.active, 1), eq(products.freeEligible, 1), or(eq(products.hidden, 0), isNull(products.hidden)))).limit(20);
   if (!items.length) return respond(chatId, "🎁 <b>ToolsMania Freebies</b>\n\nThere are no free items available right now. Check back soon!", buildFreebiesKeyboard([]), messageId);
   return respond(chatId, formatFreebiesMessage(items), buildFreebiesKeyboard(items), messageId);
 }
@@ -1238,7 +1275,13 @@ async function showFreebies(chatId: number, messageId?: number) {
 async function showShop(chatId: number, page = 0, messageId?: number) {
   const db = await getDb();
   if (!db) throw new Error("Database is unavailable");
-  const items = await db.select().from(products).where(and(eq(products.active, 1), or(eq(products.shopEligible, 1), isNull(products.shopEligible)))).limit(60);
+  const items = await db.select().from(products).where(and(eq(products.active, 1), or(eq(products.shopEligible, 1), isNull(products.shopEligible)), or(eq(products.hidden, 0), isNull(products.hidden)))).limit(60);
+  const sortSetting = (await db.select().from(botSettings).where(eq(botSettings.key, "catalog_sort")).limit(1))[0]?.value?.trim().toLowerCase();
+  if (sortSetting === "most_sold") {
+    const soldRows = await db.select({ productId: orders.productId, total: sql<number>`coalesce(sum(${orders.quantity}), 0)` }).from(orders).where(or(eq(orders.status, "fulfilled"), eq(orders.status, "paid"))).groupBy(orders.productId);
+    const soldByProduct = new Map(soldRows.map((row) => [row.productId, Number(row.total ?? 0)]));
+    items.sort((a, b) => (soldByProduct.get(b.id) ?? 0) - (soldByProduct.get(a.id) ?? 0) || a.name.localeCompare(b.name));
+  } else items.sort((a, b) => a.name.localeCompare(b.name));
   if (!items.length) return respond(chatId, "🛍️ <b>Shop</b>\n\nThe catalog is empty right now. Please check back soon.", undefined, messageId);
   const pageCount = Math.max(1, Math.ceil(items.length / SHOP_PAGE_SIZE));
   const safePage = Math.min(Math.max(page, 0), pageCount - 1);
@@ -1251,6 +1294,10 @@ async function showProduct(chatId: number, productId: number, messageId?: number
   if (!db) throw new Error("Database is unavailable");
   const item = (await db.select().from(products).where(eq(products.id, productId)).limit(1))[0];
   if (!isPurchasableProduct(item)) return respond(chatId, "⚠️ This product is currently unavailable.\n\nThis may be an old product button. Open the current Shop to see items that are in stock.", buildUnavailableProductKeyboard(), messageId);
+  const soldRows = await db.select({ total: sql<number>`coalesce(sum(${orders.quantity}), 0)` }).from(orders).where(and(eq(orders.productId, productId), or(eq(orders.status, "fulfilled"), eq(orders.status, "paid"))));
+  const soldCount = Number(soldRows[0]?.total ?? 0);
+  const bulkText = formatBulkPricingForUsers(item.bulkPricing, item.stock);
+  const bulk = bulkText ? `\n\n📊 <b>Bulk pricing</b>\n${bulkText}\nOnly shown when enough stock is available.` : "";
   const safeName = item.name.replace(/[<&>]/g, "");
   const safeDescription = item.description.replace(/[<&>]/g, "");
   const deliveryFormatText = typeof item.deliveryFormat === "string" ? item.deliveryFormat.trim() : String(item.deliveryFormat ?? "").trim();
@@ -1258,7 +1305,7 @@ async function showProduct(chatId: number, productId: number, messageId?: number
   const delivery = item.deliveryMode === "manual" ? "🕐 Manual delivery" : "⚡ Automatic digital delivery";
   const warrantyText = normalizeWarrantyText(item.warrantyDays);
   const warranty = warrantyText ? `\n🛡️ Warranty: <b>${warrantyText.replace(/[<&>]/g, "")}</b>` : "";
-  const productText = `✨ <b>${safeName}</b>\n\n${safeDescription}${deliveryFormat}\n\n━━━━━━━━━━━━━━\n💵 <b>$${(item.priceCents / 100).toFixed(2)}</b> per unit\n📦 <b>${item.stock}</b> available\n${delivery}${warranty}\n\nChoose an action below:`;
+  const productText = `✨ <b>${safeName}</b>\n\n${safeDescription}${deliveryFormat}\n\n━━━━━━━━━━━━━━\n💵 <b>$${(item.priceCents / 100).toFixed(2)}</b> per unit\n📦 <b>${item.stock}</b> available\n🛒 Sold: <b>${soldCount}</b>\n${delivery}${warranty}${bulk}\n\nChoose an action below:`;
   const productKeyboard = buildProductKeyboard(item.id);
   if (hasProductImage(item.imageUrl)) {
     try {
@@ -1406,12 +1453,12 @@ async function createPurchase(chatId: number, userId: number, productId: number,
     const user = (await tx.select().from(botUsers).where(eq(botUsers.telegramUserId, userId)).limit(1))[0];
     const product = (await tx.select().from(products).where(eq(products.id, productId)).limit(1))[0];
     if (!user || !product || !product.active) return { ok: false as const, status: "unavailable" as const };
-    const purchase = buildConfirmedPurchasePlan(user.balanceCents, product.priceCents, product.stock, requestedQuantity);
+    const purchase = buildConfirmedPurchasePlan(user.balanceCents, product.priceCents, product.stock, requestedQuantity, product.bulkPricing);
     if (!purchase.ok) return { ok: false as const, status: purchase.status, balanceCents: user.balanceCents, productId: product.id, stock: product.stock, totalCents: purchase.totalCents };
     const digital = product.inventoryText?.trim() ? consumeDigitalInventory(product.inventoryText, purchase.quantity) : { ok: true as const, items: [] as string[], remaining: [] as string[] };
     if (!digital.ok) return { ok: false as const, status: "out_of_stock" as const, productId: product.id, stock: product.stock, totalCents: purchase.totalCents };
     const deliveryMode = product.deliveryMode === "manual" ? "manual" as const : "automatic" as const;
-    const result = await tx.insert(orders).values({ botUserId: user.id, productId: product.id, kind: "purchase", amountCents: purchase.totalCents, status: deliveryMode === "manual" ? "paid" : "fulfilled", deliveredItem: digital.items.length ? digital.items.join("\n") : null, purchaseWarranty: normalizeWarrantyText(product.warrantyDays) || null, paymentMethod: "Wallet", quantity: purchase.quantity });
+    const result = await tx.insert(orders).values({ botUserId: user.id, productId: product.id, kind: "purchase", amountCents: purchase.totalCents, status: "fulfilled", deliveredItem: digital.items.length ? digital.items.join("\n") : null, purchaseWarranty: normalizeWarrantyText(product.warrantyDays) || null, paymentMethod: "Wallet", quantity: purchase.quantity });
     const orderId = String(extractInsertedRowId(result) || `${user.id}:${product.id}:${Date.now()}`);
     await tx.update(botUsers).set({ balanceCents: purchase.nextBalanceCents }).where(eq(botUsers.id, user.id));
     await tx.update(products).set({ stock: purchase.nextStock, inventoryText: String(product.inventoryText ?? "").trim() ? digital.remaining.join("\n") : product.inventoryText }).where(eq(products.id, product.id));
@@ -1438,7 +1485,7 @@ async function createBinancePayPurchaseIntent(chatId: number, userId: number, pr
   const safeQuantity = Math.max(1, Math.min(10, Math.floor(quantity)));
   if (!user || !isPurchasableProduct(product)) return respond(chatId, "⚠️ This product is currently unavailable.\\n\\nOpen the current Shop to choose an in-stock product.", buildUnavailableProductKeyboard(), messageId);
   if (product.stock < safeQuantity) return respond(chatId, `⚠️ Only <b>${product.stock}</b> unit${product.stock === 1 ? "" : "s"} remain. Choose a smaller quantity.`, buildQuantityKeyboard(product.id, product.stock), messageId);
-  const amountCents = product.priceCents * safeQuantity;
+  const amountCents = resolveBulkUnitPriceCents(product.priceCents, product.bulkPricing, safeQuantity) * safeQuantity;
   const createdAtMs = Date.now();
   const inserted = await db.insert(paymentIntents).values({ botUserId: user.id, productId: product.id, quantity: safeQuantity, amountCents, method, status: "pending", createdAt: new Date(createdAtMs), updatedAt: new Date(createdAtMs) });
   const intentId = extractInsertedRowId(inserted);
@@ -1615,7 +1662,7 @@ async function createTelegramStarsPurchaseIntent(chatId: number, userId: number,
   const safeQuantity = Math.max(1, Math.min(10, Math.floor(quantity)));
   if (!user || !isPurchasableProduct(product)) return sendMessage(chatId, "⚠️ This product is currently unavailable.");
   if (product.stock < safeQuantity) return sendMessage(chatId, `⚠️ Only <b>${product.stock}</b> unit${product.stock === 1 ? "" : "s"} remain.`);
-  const amountCents = product.priceCents * safeQuantity;
+  const amountCents = resolveBulkUnitPriceCents(product.priceCents, product.bulkPricing, safeQuantity) * safeQuantity;
   const stars = usdCentsToTelegramStars(amountCents);
   const now = new Date();
   const inserted = await db.insert(paymentIntents).values({ botUserId: user.id, productId: product.id, quantity: safeQuantity, amountCents, method: "telegram_stars", status: "pending", createdAt: now, updatedAt: now });
@@ -1707,7 +1754,7 @@ async function verifyAndFulfillTelegramStarsPurchase(chatId: number, userId: num
     const text = outcome.reason === "unavailable" ? "⚠️ The product sold out before payment completion. Contact support with your Telegram payment charge ID." : outcome.reason === "amount_mismatch" ? "⚠️ The Telegram Stars amount did not match the invoice." : outcome.reason === "user_mismatch" ? "⚠️ This invoice belongs to a different account." : "ℹ️ This Telegram Stars payment was already processed.";
     return sendMessage(chatId, text);
   }
-  if (outcome.deliveryMode === "automatic") scheduleDriveSync("completed_order");
+  scheduleDriveSync("completed_order");
   const buyer = (await db.select().from(botUsers).where(eq(botUsers.telegramUserId, userId)).limit(1))[0];
   const announcement = buildPurchaseAnnouncement(outcome.product.id, outcome.product.name, outcome.quantity, buyer?.firstName ?? "User", userId);
   await sendMessage(chatId, formatPurchaseConfirmation(outcome.orderId, `${outcome.quantity}× ${outcome.product.name}`, outcome.amountCents, { mode: outcome.deliveryMode, items: outcome.deliveredItems, warrantyDays: outcome.warrantyDays }), buildHomeKeyboard());
@@ -1749,7 +1796,7 @@ async function verifyAndFulfillBinancePurchase(chatId: number, userId: number, i
     const digital = product.inventoryText?.trim() ? consumeDigitalInventory(product.inventoryText, current.quantity) : { ok: true as const, items: [] as string[], remaining: [] as string[] };
     if (!digital.ok) return { ok: false as const, reason: "unavailable" as const };
     const deliveryMode = product.deliveryMode === "manual" ? "manual" as const : "automatic" as const;
-    const inserted = await tx.insert(orders).values({ botUserId: account.id, productId: product.id, kind: "purchase", amountCents: current.amountCents, status: deliveryMode === "manual" ? "paid" : "fulfilled", deliveredItem: digital.items.length ? digital.items.join("\n") : null, purchaseWarranty: normalizeWarrantyText(product.warrantyDays) || null, paymentMethod: isBep20 ? "USDT BEP20" : "Binance Pay", quantity: current.quantity });
+    const inserted = await tx.insert(orders).values({ botUserId: account.id, productId: product.id, kind: "purchase", amountCents: current.amountCents, status: "fulfilled", deliveredItem: digital.items.length ? digital.items.join("\n") : null, purchaseWarranty: normalizeWarrantyText(product.warrantyDays) || null, paymentMethod: isBep20 ? "USDT BEP20" : "Binance Pay", quantity: current.quantity });
     const orderId = extractInsertedRowId(inserted) || Number(`${Date.now()}`.slice(-9));
     await tx.update(products).set({ stock: sql`${products.stock} - ${current.quantity}`, inventoryText: String(product.inventoryText ?? "").trim() ? digital.remaining.join("\n") : product.inventoryText }).where(eq(products.id, product.id));
     await tx.update(paymentIntents).set({ status: "fulfilled", transactionId: transactionRef }).where(eq(paymentIntents.id, current.id));
@@ -1760,7 +1807,7 @@ async function verifyAndFulfillBinancePurchase(chatId: number, userId: number, i
     await respond(chatId, text, buildHomeKeyboard());
     return false;
   }
-  if (outcome.deliveryMode === "automatic") scheduleDriveSync("completed_order");
+  scheduleDriveSync("completed_order");
   const buyer = (await db.select().from(botUsers).where(eq(botUsers.telegramUserId, userId)).limit(1))[0];
   const announcement = buildPurchaseAnnouncement(outcome.product.id, outcome.product.name, outcome.quantity, buyer?.firstName ?? "User", userId);
   await respond(chatId, formatPurchaseConfirmation(outcome.orderId, `${outcome.quantity}× ${outcome.product.name}`, outcome.amountCents, { mode: outcome.deliveryMode, items: outcome.deliveredItems, warrantyDays: outcome.warrantyDays }), buildHomeKeyboard());
@@ -1838,12 +1885,12 @@ export async function handleMessage(message: TelegramMessage) {
     }
     const invoiceAmountCents = pendingTopup.amountCents;
     if (invoiceAmountCents === undefined) return respond(message.chat.id, "⚠️ Create a payment invoice first from Wallet.", buildWalletKeyboard());
-    pendingBinancePayTopups.delete(user.id);
     const result = await findBinancePayTransaction(messageText, invoiceAmountCents, fetch, pendingTopup.method, pendingTopup.method === "bep20" ? pendingTopup.createdAt : undefined);
     if (!result.ok) {
       const isBep20 = pendingTopup.method === "bep20";
-      return respond(message.chat.id, formatTopupVerificationFailure(result.reason, isBep20 ? "bep20" : "binance_pay"), buildWalletKeyboard());
+      return respond(message.chat.id, `${formatTopupVerificationFailure(result.reason, isBep20 ? "bep20" : "binance_pay")}\n\nPlease submit another transaction hash, or tap Cancel to leave verification.`, buildWalletDepositInvoiceKeyboard(pendingTopup.method));
     }
+    pendingBinancePayTopups.delete(user.id);
     const db = await getDb();
     if (!db) throw new Error("Database is unavailable");
     const credited = await db.transaction(async (tx) => {
@@ -1979,14 +2026,12 @@ export async function telegramWebhookHealth(_req: Request, res: Response) {
 }
 
 async function processTelegramWebhookUpdate(update: TelegramUpdate) {
-  const db = await getDb();
-  if (db) {
-    const last = (await db.select().from(botSettings).where(eq(botSettings.key, "last_update_id")).limit(1))[0];
-    const lastUpdateId = last ? Number(last.value) : undefined;
-    if (shouldIgnoreTelegramUpdate(lastUpdateId, update.update_id)) return;
-    await db.insert(botSettings).values({ key: "last_update_id", value: String(update.update_id) }).onConflictDoUpdate({ target: botSettings.key, set: { value: String(update.update_id) } });
-  }
-  const actorId = update.message?.from?.id ?? update.callback_query?.from.id;
+  telegramUpdatesInFlight += 1;
+  lastTelegramUpdate = { updateId: update.update_id, receivedAt: new Date().toISOString(), phase: "received" };
+  try {
+    if (!(await claimTelegramUpdate(update.update_id))) return;
+    lastTelegramUpdate = { ...lastTelegramUpdate, phase: "processing" };
+    const actorId = update.message?.from?.id ?? update.callback_query?.from.id;
   if (actorId && update.message) {
     const now = Date.now();
     const previous = recentRequests.get(actorId) ?? 0;
@@ -2001,7 +2046,11 @@ async function processTelegramWebhookUpdate(update: TelegramUpdate) {
     if (update.message.successful_payment.invoice_payload.startsWith("toolsmania-wallet-stars:")) await verifyAndFulfillTelegramStarsWalletDeposit(update.message.chat.id, update.message.from?.id ?? 0, update.message.successful_payment);
     else await verifyAndFulfillTelegramStarsPurchase(update.message.chat.id, update.message.from?.id ?? 0, update.message.successful_payment);
   }
-  else if (update.message) await handleMessage(update.message);
+    else if (update.message) await handleMessage(update.message);
+    lastTelegramUpdate = { ...lastTelegramUpdate, phase: "completed" };
+  } finally {
+    telegramUpdatesInFlight = Math.max(0, telegramUpdatesInFlight - 1);
+  }
 }
 
 export async function telegramWebhookHandler(req: Request, res: Response) {
@@ -2017,6 +2066,7 @@ export async function telegramWebhookHandler(req: Request, res: Response) {
     res.json({ ok: true });
     if (!update || typeof update.update_id !== "number") return;
     void processTelegramWebhookUpdate(update).catch((error) => {
+      lastTelegramUpdate = { updateId: update.update_id, receivedAt: lastTelegramUpdate?.receivedAt ?? new Date().toISOString(), phase: "failed", reason: errorMessage(error) };
       recordTelegramFailure("webhook_update", error, updateContext(update));
     });
   } catch (error) {
