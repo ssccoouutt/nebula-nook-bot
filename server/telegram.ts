@@ -820,13 +820,15 @@ export function formatOrderStatus(orderId: string | number, kind: string, status
   return `${icon} #${orderId} · ${kind} · ${status} · $${(amountCents / 100).toFixed(2)}`;
 }
 
-export function formatDetailedOrder(order: { id: string | number; kind: string; status: string; amountCents: number; productName: string; deliveredItem?: string | null; paymentMethod?: string | null; createdAt: Date | string }) {
+export function formatDetailedOrder(order: { id: string | number; kind: string; status: string; amountCents: number; productName: string; deliveredItem?: string | null; paymentMethod?: string | null; quantity?: number | null; purchaseWarranty?: string | null; createdAt: Date | string }) {
   const icon = order.status === "fulfilled" ? "✅" : order.status === "cancelled" ? "❌" : "⏳";
   const purchasedAt = new Date(order.createdAt).toISOString().replace("T", " ").slice(0, 16) + " UTC";
   const product = order.productName.replace(/[<&>]/g, "");
-  const delivered = order.deliveredItem?.trim() ? `\n📦 Delivered:\n<pre>${order.deliveredItem.trim().replace(/[<&>]/g, "")}</pre>` : "";
+  const quantity = Number(order.quantity ?? 1);
+  const delivered = order.deliveredItem?.trim() ? `\n📦 <b>Delivery details</b>\n<pre>${order.deliveredItem.trim().replace(/[<&>]/g, "")}</pre>` : "\n📦 <b>Delivery details:</b> No stock text was stored for this order.";
   const payment = (order.paymentMethod ?? (order.amountCents > 0 ? "Payment method unavailable" : "Free / credits")).replace(/[<&>]/g, "");
-  return `${icon} <b>Order #${order.id}</b>\n🛍️ Product: <b>${product}</b>\n💵 Amount: <b>$${(order.amountCents / 100).toFixed(2)}</b>\n💳 Payment: <b>${payment}</b>\n🗓️ Purchased: <b>${purchasedAt}</b>\n📌 Status: <b>${order.status}</b>${delivered}`;
+  const warranty = order.purchaseWarranty?.trim() ? `\n🛡️ Warranty: <b>${order.purchaseWarranty.trim().replace(/[<&>]/g, "")}</b>` : "";
+  return `${icon} <b>Order #${order.id}</b>\n🛍️ Product: <b>${product}</b>\n🔢 Quantity: <b>${quantity}</b>\n💵 Total paid: <b>$${(order.amountCents / 100).toFixed(2)}</b>\n💳 Payment: <b>${payment}</b>\n🗓️ Purchased: <b>${purchasedAt}</b>\n📌 Status: <b>${order.status}</b>${warranty}${delivered}`;
 }
 
 export function maskPurchaseName(name: string | undefined, telegramUserId?: number) {
@@ -1336,17 +1338,67 @@ async function showWallet(chatId: number, userId: number, messageId?: number) {
   await respond(chatId, `💳 <b>Wallet</b>\n\n💰 Balance: $${((user?.balanceCents ?? 0) / 100).toFixed(2)}\n\n📒 <b>Recent activity</b>\n${history}`, buildWalletKeyboard(), messageId);
 }
 
-async function showOrders(chatId: number, userId: number, messageId?: number) {
+const ORDERS_PAGE_SIZE = 5;
+
+function orderProductButtonLabel(orderId: string | number, productName: string) {
+  const safe = productName.replace(/[<&>]/g, "");
+  return `#${orderId} · ${safe}`.slice(0, 64);
+}
+
+export function buildOrdersKeyboard(rows: Array<{ id: string | number; productName: string }>, page: number, pageCount: number) {
+  const buttons = rows.map((order) => [{ text: orderProductButtonLabel(order.id, order.productName), callback_data: `order_detail:${order.id}:${page}` }]);
+  const navigation: Array<{ text: string; callback_data: string }> = [];
+  if (page > 0) navigation.push({ text: "⬅️ Newer orders", callback_data: `orders_page:${page - 1}` });
+  if (page < pageCount - 1) navigation.push({ text: "➡️ Older orders", callback_data: `orders_page:${page + 1}` });
+  if (navigation.length) buttons.push(navigation);
+  buttons.push([{ text: "⌂ Home", callback_data: "home" }]);
+  return keyboard(buttons);
+}
+
+export function buildOrderDetailKeyboard(orderId: string | number, page: number) {
+  return keyboard([[{ text: "🛒 Buy again", callback_data: `order_buy_again:${orderId}` }], [{ text: "↩️ Back to orders", callback_data: `orders_page:${page}` }], [{ text: "⌂ Home", callback_data: "home" }]]);
+}
+
+async function loadUserOrder(chatId: number, userId: number, orderId: number) {
   const db = await getDb();
   if (!db) throw new Error("Database is unavailable");
   const user = (await db.select().from(botUsers).where(eq(botUsers.telegramUserId, userId)).limit(1))[0];
-  const rows = await db.select().from(orders).where(eq(orders.botUserId, user?.id ?? -1)).orderBy(desc(orders.createdAt)).limit(50);
+  const order = user ? (await db.select().from(orders).where(and(eq(orders.id, orderId), eq(orders.botUserId, user.id), eq(orders.status, "fulfilled"))).limit(1))[0] : undefined;
+  if (!order) return { db, user, order: undefined, product: undefined };
+  const product = (await db.select().from(products).where(eq(products.id, order.productId)).limit(1))[0];
+  return { db, user, order, product };
+}
+
+async function showOrders(chatId: number, userId: number, messageId?: number, page = 0) {
+  const db = await getDb();
+  if (!db) throw new Error("Database is unavailable");
+  const user = (await db.select().from(botUsers).where(eq(botUsers.telegramUserId, userId)).limit(1))[0];
+  const userIdValue = user?.id ?? -1;
+  const countRows = await db.select({ count: sql<number>`count(*)` }).from(orders).where(and(eq(orders.botUserId, userIdValue), eq(orders.status, "fulfilled")));
+  const total = Number(countRows[0]?.count ?? 0);
+  const pageCount = Math.max(1, Math.ceil(total / ORDERS_PAGE_SIZE));
+  const safePage = Math.min(Math.max(page, 0), pageCount - 1);
+  const rows = await db.select().from(orders).where(and(eq(orders.botUserId, userIdValue), eq(orders.status, "fulfilled"))).orderBy(desc(orders.createdAt)).limit(ORDERS_PAGE_SIZE).offset(safePage * ORDERS_PAGE_SIZE);
   const productIds = Array.from(new Set(rows.map((row) => row.productId).filter((id): id is number => typeof id === "number")));
   const productRows = productIds.length ? await db.select().from(products).where(inArray(products.id, productIds)) : [];
   const productById = new Map(productRows.map((product) => [product.id, product.name]));
-  const details = rows.map((order) => formatDetailedOrder({ ...order, productName: productById.get(order.productId) ?? `Product #${order.productId}` })).join("\n\n");
-  const text = details ? `📦 <b>Orders</b>\n\n${details}` : "📦 <b>Orders</b>\n\nYou do not have any orders yet.";
-  await respond(chatId, text.slice(0, 4000), buildHomeKeyboard(), messageId);
+  const buttonRows = rows.map((order) => ({ id: order.id, productName: productById.get(order.productId) ?? `Product #${order.productId}` }));
+  const text = total ? `📦 <b>Completed orders</b>\n\nChoose an order to view its full details and delivery information.\n\nPage <b>${safePage + 1}</b> of <b>${pageCount}</b>\nMost recent orders are shown first.` : "📦 <b>Completed orders</b>\n\nYou do not have any completed orders yet.";
+  await respond(chatId, text, buildOrdersKeyboard(buttonRows, safePage, pageCount), messageId);
+}
+
+async function showOrderDetails(chatId: number, userId: number, orderId: number, page: number, messageId?: number) {
+  const loaded = await loadUserOrder(chatId, userId, orderId);
+  if (!loaded.order) return respond(chatId, "⚠️ This completed order could not be found in your account.", buildOrdersKeyboard([], page, 1), messageId);
+  const productName = loaded.product?.name ?? `Product #${loaded.order.productId}`;
+  const details = formatDetailedOrder({ ...loaded.order, productName });
+  await respond(chatId, `📦 <b>Order details</b>\n\n${details}`, buildOrderDetailKeyboard(orderId, page), messageId);
+}
+
+async function buyAgainFromOrder(chatId: number, userId: number, orderId: number, messageId?: number) {
+  const loaded = await loadUserOrder(chatId, userId, orderId);
+  if (!loaded.order || !loaded.product || !isPurchasableProduct(loaded.product)) return respond(chatId, "⚠️ This product is no longer available for purchase.", buildHomeKeyboard(), messageId);
+  return showQuantityPrompt(chatId, loaded.product.id, messageId);
 }
 
 async function showProfile(chatId: number, userId: number, messageId?: number) {
@@ -1506,6 +1558,9 @@ export type TelegramCallbackAction =
   | { kind: "admin_close_ticket"; id: number }
   | { kind: "shop" | "product" | "claim" | "reward" | "buy" | "customqty" | "pricealert"; id: number }
   | { kind: "walletamount"; amountCents: number }
+  | { kind: "orders_page"; page: number }
+  | { kind: "order_detail"; id: number; page: number }
+  | { kind: "order_buy_again"; id: number }
   | { kind: "buyqty" | "buyconfirm" | "paywallet" | "paybinance" | "paybep20" | "paystars"; id: number; quantity: number }
   | { kind: "buycancel"; id: number };
 
@@ -1516,6 +1571,12 @@ export function parseTelegramCallbackAction(data?: string): TelegramCallbackActi
   if (adminCloseTicketMatch) return { kind: "admin_close_ticket", id: Number(adminCloseTicketMatch[1]) };
   const walletAmountMatch = value.match(/^walletamount:(\d+)$/);
   if (walletAmountMatch) return { kind: "walletamount", amountCents: Number(walletAmountMatch[1]) };
+  const ordersPageMatch = value.match(/^orders_page:(\d+)$/);
+  if (ordersPageMatch) return { kind: "orders_page", page: Number(ordersPageMatch[1]) };
+  const orderDetailMatch = value.match(/^order_detail:(\d+):(\d+)$/);
+  if (orderDetailMatch) return { kind: "order_detail", id: Number(orderDetailMatch[1]), page: Number(orderDetailMatch[2]) };
+  const orderBuyAgainMatch = value.match(/^order_buy_again:(\d+)$/);
+  if (orderBuyAgainMatch) return { kind: "order_buy_again", id: Number(orderBuyAgainMatch[1]) };
   const quantityMatch = value.match(/^(buyqty|buyconfirm|paywallet|paybinance|paybep20|paystars):([0-9]+):([0-9]+)$/);
   if (quantityMatch) return { kind: quantityMatch[1] as "buyqty" | "buyconfirm" | "paywallet" | "paybinance" | "paybep20" | "paystars", id: Number(quantityMatch[2]), quantity: Number(quantityMatch[3]) };
   const cancelMatch = value.match(/^buycancel:([0-9]+)$/);
@@ -1603,7 +1664,10 @@ export async function handleCallback(query: TelegramCallbackQuery, options: { sk
     const prompt = method === "bep20" ? formatBep20TopupPrompt(action.amountCents) : formatBinancePayTopupPrompt(action.amountCents);
     return respond(chatId, prompt, buildWalletDepositInvoiceKeyboard(method), messageId);
   }
-  if (action.kind === "orders") return showOrders(chatId, userId, messageId);
+  if (action.kind === "orders") return showOrders(chatId, userId, messageId, 0);
+  if (action.kind === "orders_page") return showOrders(chatId, userId, messageId, action.page);
+  if (action.kind === "order_detail") return showOrderDetails(chatId, userId, action.id, action.page, messageId);
+  if (action.kind === "order_buy_again") return buyAgainFromOrder(chatId, userId, action.id, messageId);
   if (action.kind === "profile") return showProfile(chatId, userId, messageId);
   if (action.kind === "referrals") return showReferrals(chatId, userId, messageId);
   if (action.kind === "botinfo") return showBotInfo(chatId, messageId);

@@ -604,3 +604,7 @@
 - [x] Add schema migration, regression tests, local validation, and prepare changes for explicit GitHub/Koyeb confirmation; publication remains blocked until explicit confirmation.
 
 - [x] Sync the approved commerce feature batch and save the deployment checkpoint after final validation.
+
+- [x] Fix the Telegram Orders button so it reliably routes to completed-order history.
+- [x] Add five-per-page completed-order buttons, newest-first pagination, detailed order views, and Buy again actions.
+- [x] Add Orders regression coverage and local validation; keep publication pending explicit confirmation.
