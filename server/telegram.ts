@@ -164,8 +164,11 @@ export function rememberNonTextCallbackMessage(message: TelegramMessage | undefi
 const pendingCustomQuantities = new Map<number, { productId: number; expiresAt: number }>();
 const pendingBinancePayTopups = new Map<number, { amountCents?: number; method: "binance_pay" | "bep20"; createdAt?: number; expiresAt: number }>();
 const pendingTelegramStarsWalletTopups = new Map<number, { amountCents?: number; createdAt?: number; expiresAt: number }>();
-const pendingSupportMessages = new Map<number, { expiresAt: number }>();
+type SupportCategory = "completed_order" | "payment_verification" | "bot_issue" | "other";
+type SupportDraft = { step: "category" | "order" | "payment_method" | "description"; category?: SupportCategory; orderId?: number; paymentMethod?: string; expiresAt: number };
+const pendingSupportMessages = new Map<number, SupportDraft>();
 const SUPPORT_MESSAGE_WINDOW_MS = 20 * 60 * 1000;
+const SUPPORT_TICKET_PAGE_SIZE = 5;
 const pendingBinancePayPurchases = new Map<number, { intentId: number; expiresAt: number }>();
 export const BINANCE_PAY_PURCHASE_WINDOW_MS = 20 * 60 * 1000;
 export const BEP20_PURCHASE_WINDOW_MS = 30 * 60 * 1000;
@@ -457,11 +460,62 @@ export function formatMembershipMessage() {
 }
 
 export function formatSupportPrompt() {
-  return "🆘 <b>Support</b>\n\nPlease send your support message in your next message.\n\nThis request window expires in 20 minutes.";
+  return "🆘 <b>Support</b>\n\nChoose the type of issue you need help with, then send the requested details in your next message.\n\n⏱️ Replies can take up to <b>24 hours</b>, although they normally arrive much sooner. Please avoid creating duplicate tickets for the same issue.";
+}
+export function formatSupportDescriptionPrompt(category: SupportCategory, context?: { orderName?: string; paymentMethod?: string }) {
+  if (category === "payment_verification") return `💳 <b>Payment verification support</b>\n\nPayment method: <b>${context?.paymentMethod ?? "Not selected"}</b>\n\nPlease describe the issue and include:\n• how much you sent\n• the exact auto-verification error\n• your transaction hash\n\n⏱️ Replies can take up to <b>24 hours</b>, normally much sooner. Avoid duplicate tickets.`;
+  if (category === "completed_order") return `📦 <b>Completed-order support</b>\n\nRelated product: <b>${context?.orderName ?? "Selected order"}</b>\n\nPlease describe the issue with this completed order. Include any relevant delivery details.\n\n⏱️ Replies can take up to <b>24 hours</b>, normally much sooner. Avoid duplicate tickets.`;
+  return `📝 <b>${category === "bot_issue" ? "Bot issue support" : "Other support"}</b>\n\nPlease describe the issue clearly.\n\n⏱️ Replies can take up to <b>24 hours</b>, normally much sooner. Avoid duplicate tickets.`;
+}
+export function formatSupportTicketDetail(ticket: { id: number; category?: string | null; status: string; message: string; paymentMethod?: string | null; paymentAmountCents?: number | null; transactionHash?: string | null; adminReply?: string | null; orderName?: string | null; createdAt: Date | string }) {
+  const category = (ticket.category ?? "other").replaceAll("_", " ");
+  const context = ticket.orderName ? `\n📦 Product: <b>${ticket.orderName.replace(/[<&>]/g, "")}</b>` : "";
+  const payment = ticket.paymentMethod ? `\n💳 Payment method: <b>${ticket.paymentMethod.replace(/[<&>]/g, "")}</b>` : "";
+  const amount = ticket.paymentAmountCents ? `\n💰 Amount sent: <b>$${(ticket.paymentAmountCents / 100).toFixed(2)}</b>` : "";
+  const hash = ticket.transactionHash ? `\n🧾 Transaction hash: <code>${ticket.transactionHash.replace(/[<&>]/g, "")}</code>` : "";
+  const reply = ticket.adminReply?.trim() ? `\n\n💬 <b>Admin answer</b>\n${ticket.adminReply.replace(/[<&>]/g, "")}` : "\n\n💬 No admin answer yet.";
+  const created = new Date(ticket.createdAt).toISOString().replace("T", " ").slice(0, 16) + " UTC";
+  return `🆘 <b>Support ticket #${ticket.id}</b>\n\n📌 Status: <b>${ticket.status}</b>\n🏷️ Category: <b>${category}</b>${context}${payment}${amount}${hash}\n🗓️ Created: <b>${created}</b>\n\n📝 <b>Your message</b>\n${ticket.message.replace(/[<&>]/g, "")}${reply}`;
 }
 
 export function formatSupportSubmitted(ticketId: string) {
-  return `✅ <b>Support request received</b>\n\nTicket: <b>#${ticketId}</b>\nOur team will review it shortly.`;
+  return `✅ <b>Support request received</b>\n\nTicket: <b>#${ticketId}</b>\nOur team will review it shortly. Replies can take up to <b>24 hours</b>, although they normally arrive much sooner. Please avoid duplicate tickets; use <b>My tickets</b> to check the status and replies.`;
+}
+function supportCategoryKeyboard() {
+  return keyboard([
+    [{ text: "📦 Completed order", callback_data: "support_category:completed_order" }],
+    [{ text: "💳 Payment verification", callback_data: "support_category:payment_verification" }],
+    [{ text: "🤖 Bot issue", callback_data: "support_category:bot_issue" }],
+    [{ text: "📝 Other", callback_data: "support_category:other" }],
+    [{ text: "📋 My tickets", callback_data: "support_history" }, { text: "✖️ Cancel", callback_data: "support_cancel" }],
+  ]);
+}
+function supportPaymentKeyboard() {
+  return keyboard([
+    [{ text: "💳 Wallet", callback_data: "support_payment:1" }],
+    [{ text: "🔶 Binance Pay", callback_data: "support_payment:2" }],
+    [{ text: "🪙 USDT BEP20", callback_data: "support_payment:3" }],
+    [{ text: "⭐ Telegram Stars", callback_data: "support_payment:4" }],
+    [{ text: "↩️ Back", callback_data: "support_new" }, { text: "✖️ Cancel", callback_data: "support_cancel" }],
+  ]);
+}
+function supportPaymentName(id: number) {
+  return ({ 1: "Wallet", 2: "Binance Pay", 3: "USDT BEP20", 4: "Telegram Stars" } as Record<number, string>)[id];
+}
+function supportCategoryLabel(category: string | null | undefined) {
+  return ({ completed_order: "completed order", payment_verification: "payment verification", bot_issue: "bot issue", other: "other" } as Record<string, string>)[category ?? "other"] ?? "other";
+}
+function supportTicketListKeyboard(rows: Array<{ id: number; status: string; category: string | null }>, page: number, pageCount: number) {
+  const buttons: TelegramButton[][] = rows.map((ticket) => [{ text: `#${ticket.id} · ${ticket.status} · ${supportCategoryLabel(ticket.category)}`.slice(0, 64), callback_data: `ticket_detail:${ticket.id}` }]);
+  const navigation: TelegramButton[] = [];
+  if (page > 0) navigation.push({ text: "⬅️ Newer tickets", callback_data: `tickets_page:${page - 1}` });
+  if (page < pageCount - 1) navigation.push({ text: "➡️ Older tickets", callback_data: `tickets_page:${page + 1}` });
+  if (navigation.length) buttons.push(navigation);
+  buttons.push([{ text: "➕ New ticket", callback_data: "support_new" }, { text: "⌂ Home", callback_data: "home" }]);
+  return keyboard(buttons);
+}
+function supportTicketDetailKeyboard() {
+  return keyboard([[{ text: "📋 My tickets", callback_data: "support_history" }], [{ text: "➕ New ticket", callback_data: "support_new" }, { text: "⌂ Home", callback_data: "home" }]]);
 }
 
 export function formatBotInfoMessage(totalUsers: number, completedOrders: number) {
@@ -511,7 +565,7 @@ async function deliverSupportTicket(ticketId: string, user: TelegramUser, body: 
   await sendMessage(adminChatId, `<b>New support ticket #${ticketId}</b>\nFrom: ${user.first_name ?? "User"}${user.username ? ` (@${user.username})` : ""}\nTelegram ID: <code>${user.id}</code>\n\n${body}\n\nReply with:\n<code>/reply ${ticketId} your response</code>`);
 }
 
-async function submitSupportTicket(user: TelegramUser, body: string) {
+async function submitSupportTicket(user: TelegramUser, body: string, draft: SupportDraft = { step: "description", category: "other", expiresAt: Date.now() }) {
   const db = await getDb();
   if (!db) throw new Error("Database is unavailable");
   const botUser = (await db.select().from(botUsers).where(eq(botUsers.telegramUserId, user.id)).limit(1))[0];
@@ -519,13 +573,80 @@ async function submitSupportTicket(user: TelegramUser, body: string) {
   // Use SQLite RETURNING so duplicate messages cannot cause the notification to
   // reference an older open ticket. The returned ID is the exact row inserted and
   // is therefore the same ID used by the admin list, /reply, and /close.
+  const amountMatch = draft.category === "payment_verification" ? (body.match(/(?:\$|usd\s*)?(\d+(?:\.\d{1,2})?)\s*(?:usd|\$)/i) ?? body.match(/(?:amount|sent)\D+(\d+(?:\.\d{1,2})?)/i)) : null;
+  const hashMatch = draft.category === "payment_verification" ? body.match(/(?:hash|txid|transaction)\D*([A-Za-z0-9_-]{12,})/i) : null;
+  const paymentAmountCents = amountMatch ? Math.round(Number(amountMatch[1]) * 100) : null;
+  const transactionHash = hashMatch?.[1] ?? null;
   const insertedTicket = (await db.insert(supportTickets)
-    .values({ botUserId: botUser.id, message: body, status: "open" })
+    .values({ botUserId: botUser.id, message: body, status: "open", category: draft.category ?? "other", relatedOrderId: draft.orderId ?? null, paymentMethod: draft.paymentMethod ?? null, paymentAmountCents, transactionHash })
     .returning({ id: supportTickets.id }))[0];
   if (!insertedTicket?.id) throw new Error("Failed to create support ticket ID");
   const ticketId = String(insertedTicket.id);
-  await deliverSupportTicket(ticketId, user, body);
+  await deliverSupportTicket(ticketId, user, `${body}\n\n🏷️ Category: ${draft.category ?? "other"}${draft.orderId ? `\n📦 Related order: #${draft.orderId}` : ""}${draft.paymentMethod ? `\n💳 Payment method: ${draft.paymentMethod}` : ""}${paymentAmountCents ? `\n💰 Amount sent: $${(paymentAmountCents / 100).toFixed(2)}` : ""}${transactionHash ? `\n🧾 Transaction hash: ${transactionHash}` : ""}`);
+  scheduleDriveSync("support_ticket");
   return ticketId;
+}
+
+async function showSupportMenu(chatId: number, messageId?: number) {
+  await respond(chatId, formatSupportPrompt(), supportCategoryKeyboard(), messageId);
+}
+
+async function showSupportOrderPicker(chatId: number, userId: number, page = 0, messageId?: number) {
+  const db = await getDb();
+  if (!db) throw new Error("Database is unavailable");
+  const user = (await db.select().from(botUsers).where(eq(botUsers.telegramUserId, userId)).limit(1))[0];
+  const allOrders = user ? await db.select().from(orders).where(and(eq(orders.botUserId, user.id), eq(orders.status, "fulfilled"))).orderBy(desc(orders.createdAt)) : [];
+  const pageCount = Math.max(1, Math.ceil(allOrders.length / SUPPORT_TICKET_PAGE_SIZE));
+  const safePage = Math.min(Math.max(page, 0), pageCount - 1);
+  const pageOrders = allOrders.slice(safePage * SUPPORT_TICKET_PAGE_SIZE, (safePage + 1) * SUPPORT_TICKET_PAGE_SIZE);
+  const productIds = Array.from(new Set(pageOrders.map((order) => order.productId)));
+  const productRows = productIds.length ? await db.select().from(products).where(inArray(products.id, productIds)) : [];
+  const productById = new Map(productRows.map((product) => [product.id, product.name]));
+  const buttons: TelegramButton[][] = pageOrders.map((order) => [{ text: `#${order.id} · ${productById.get(order.productId) ?? `Product #${order.productId}`}`.slice(0, 64), callback_data: `support_order:${order.id}` }]);
+  if (!buttons.length) return respond(chatId, "📦 You do not have any completed orders to attach to this ticket.", supportCategoryKeyboard(), messageId);
+  const navigation: TelegramButton[] = [];
+  if (safePage > 0) navigation.push({ text: "⬅️ Newer orders", callback_data: `support_page:${safePage - 1}` });
+  if (safePage < pageCount - 1) navigation.push({ text: "➡️ Older orders", callback_data: `support_page:${safePage + 1}` });
+  if (navigation.length) buttons.push(navigation);
+  buttons.push([{ text: "↩️ Back", callback_data: "support_new" }, { text: "✖️ Cancel", callback_data: "support_cancel" }]);
+  await respond(chatId, `📦 <b>Which completed order is related?</b>\n\nChoose one order below. Page <b>${safePage + 1}</b> of <b>${pageCount}</b>.`, keyboard(buttons), messageId);
+}
+
+async function showSupportHistory(chatId: number, userId: number, page = 0, messageId?: number) {
+  const db = await getDb();
+  if (!db) throw new Error("Database is unavailable");
+  const user = (await db.select().from(botUsers).where(eq(botUsers.telegramUserId, userId)).limit(1))[0];
+  const rows = user ? await db.select().from(supportTickets).where(eq(supportTickets.botUserId, user.id)).orderBy(desc(supportTickets.createdAt)) : [];
+  const pageCount = Math.max(1, Math.ceil(rows.length / SUPPORT_TICKET_PAGE_SIZE));
+  const safePage = Math.min(Math.max(page, 0), pageCount - 1);
+  const pageRows = rows.slice(safePage * SUPPORT_TICKET_PAGE_SIZE, (safePage + 1) * SUPPORT_TICKET_PAGE_SIZE);
+  if (!pageRows.length) return respond(chatId, "📋 <b>My support tickets</b>\n\nYou have not created any support tickets yet.", supportCategoryKeyboard(), messageId);
+  await respond(chatId, `📋 <b>My support tickets</b>\n\nChoose a ticket to view its message, status, and admin answer. Page <b>${safePage + 1}</b> of <b>${pageCount}</b>.`, supportTicketListKeyboard(pageRows.map((ticket) => ({ id: ticket.id, status: ticket.status, category: ticket.category })), safePage, pageCount), messageId);
+}
+
+async function showSupportTicketDetail(chatId: number, userId: number, ticketId: number, messageId?: number) {
+  const db = await getDb();
+  if (!db) throw new Error("Database is unavailable");
+  const user = (await db.select().from(botUsers).where(eq(botUsers.telegramUserId, userId)).limit(1))[0];
+  const ticket = user ? (await db.select().from(supportTickets).where(and(eq(supportTickets.id, ticketId), eq(supportTickets.botUserId, user.id))).limit(1))[0] : undefined;
+  if (!ticket) return respond(chatId, "⚠️ That support ticket was not found in your account.", supportTicketDetailKeyboard(), messageId);
+  const order = ticket.relatedOrderId ? (await db.select().from(orders).where(eq(orders.id, ticket.relatedOrderId)).limit(1))[0] : undefined;
+  const product = order ? (await db.select().from(products).where(eq(products.id, order.productId)).limit(1))[0] : undefined;
+  await respond(chatId, formatSupportTicketDetail({ ...ticket, orderName: product?.name ?? null }), supportTicketDetailKeyboard(), messageId);
+}
+
+async function beginSupportCategory(chatId: number, userId: number, category: SupportCategory, messageId?: number) {
+  const expiresAt = Date.now() + SUPPORT_MESSAGE_WINDOW_MS;
+  if (category === "completed_order") {
+    pendingSupportMessages.set(userId, { step: "order", category, expiresAt });
+    return showSupportOrderPicker(chatId, userId, 0, messageId);
+  }
+  if (category === "payment_verification") {
+    pendingSupportMessages.set(userId, { step: "payment_method", category, expiresAt });
+    return respond(chatId, "💳 <b>Which payment method did you use?</b>", supportPaymentKeyboard(), messageId);
+  }
+  pendingSupportMessages.set(userId, { step: "description", category, expiresAt });
+  return respond(chatId, formatSupportDescriptionPrompt(category), { force_reply: true, selective: true }, messageId);
 }
 
 export function isAuthorizedAdminMessage(message: Pick<TelegramMessage, "chat" | "from">) {
@@ -767,7 +888,8 @@ async function handleAdminReply(message: TelegramMessage) {
   const user = (await db.select().from(botUsers).where(eq(botUsers.id, ticket.botUserId)).limit(1))[0];
   if (!user) return sendMessage(adminChatId, `⚠️ The user for support ticket #${ticketId} was not found.`).then(() => true);
   await sendMessage(user.telegramUserId, `💬 <b>Support reply for ticket #${ticketId}</b>\n\n${response}`);
-  await db.update(supportTickets).set({ status: "answered" }).where(eq(supportTickets.id, ticketId));
+  await db.update(supportTickets).set({ status: "answered", adminReply: response, repliedAt: new Date(), updatedAt: new Date() }).where(eq(supportTickets.id, ticketId));
+  scheduleDriveSync("support_ticket");
   await sendMessage(adminChatId, `✅ Reply sent to the user for ticket #${ticketId}.`);
   return true;
 }
@@ -1554,7 +1676,10 @@ async function createBinancePayPurchaseIntent(chatId: number, userId: number, pr
 }
 
 export type TelegramCallbackAction =
-  | { kind: "verify_membership" | "home" | "freebies" | "wallet" | "walletadd" | "walletbep20" | "walletstars" | "walletstars_pay" | "walletcancel" | "orders" | "profile" | "referrals" | "support" | "botinfo" | "admin_stats" | "admin_tickets" | "admin_broadcast_help" | "admin_settings" | "admin_diagnostics" | "admin_delete_help" }
+  | { kind: "verify_membership" | "home" | "freebies" | "wallet" | "walletadd" | "walletbep20" | "walletstars" | "walletstars_pay" | "walletcancel" | "orders" | "profile" | "referrals" | "support" | "support_new" | "support_history" | "support_cancel" | "botinfo" | "admin_stats" | "admin_tickets" | "admin_broadcast_help" | "admin_settings" | "admin_diagnostics" | "admin_delete_help" }
+  | { kind: "support_category"; category: SupportCategory }
+  | { kind: "support_order" | "support_payment" | "ticket_detail"; id: number }
+  | { kind: "support_page" | "tickets_page"; page: number }
   | { kind: "admin_close_ticket"; id: number }
   | { kind: "shop" | "product" | "claim" | "reward" | "buy" | "customqty" | "pricealert"; id: number }
   | { kind: "walletamount"; amountCents: number }
@@ -1566,7 +1691,19 @@ export type TelegramCallbackAction =
 
 export function parseTelegramCallbackAction(data?: string): TelegramCallbackAction | null {
   const value = data ?? "";
-  if (["verify_membership", "home", "freebies", "wallet", "walletadd", "walletbep20", "walletstars", "walletstars_pay", "walletcancel", "orders", "profile", "referrals", "support", "botinfo", "admin_stats", "admin_tickets", "admin_broadcast_help", "admin_settings", "admin_diagnostics", "admin_delete_help"].includes(value)) return { kind: value as TelegramCallbackAction["kind"] } as TelegramCallbackAction;
+  if (["verify_membership", "home", "freebies", "wallet", "walletadd", "walletbep20", "walletstars", "walletstars_pay", "walletcancel", "orders", "profile", "referrals", "support", "support_new", "support_history", "support_cancel", "botinfo", "admin_stats", "admin_tickets", "admin_broadcast_help", "admin_settings", "admin_diagnostics", "admin_delete_help"].includes(value)) return { kind: value as TelegramCallbackAction["kind"] } as TelegramCallbackAction;
+  const supportCategoryMatch = value.match(/^support_category:(completed_order|payment_verification|bot_issue|other)$/);
+  if (supportCategoryMatch) return { kind: "support_category", category: supportCategoryMatch[1] as SupportCategory };
+  const supportOrderMatch = value.match(/^support_order:(\d+)$/);
+  if (supportOrderMatch) return { kind: "support_order", id: Number(supportOrderMatch[1]) };
+  const supportPaymentMatch = value.match(/^support_payment:(\d+)$/);
+  if (supportPaymentMatch) return { kind: "support_payment", id: Number(supportPaymentMatch[1]) };
+  const ticketDetailMatch = value.match(/^ticket_detail:(\d+)$/);
+  if (ticketDetailMatch) return { kind: "ticket_detail", id: Number(ticketDetailMatch[1]) };
+  const supportPageMatch = value.match(/^support_page:(\d+)$/);
+  if (supportPageMatch) return { kind: "support_page", page: Number(supportPageMatch[1]) };
+  const ticketsPageMatch = value.match(/^tickets_page:(\d+)$/);
+  if (ticketsPageMatch) return { kind: "tickets_page", page: Number(ticketsPageMatch[1]) };
   const adminCloseTicketMatch = value.match(/^admin_close_ticket:(\d+)$/);
   if (adminCloseTicketMatch) return { kind: "admin_close_ticket", id: Number(adminCloseTicketMatch[1]) };
   const walletAmountMatch = value.match(/^walletamount:(\d+)$/);
@@ -1671,9 +1808,34 @@ export async function handleCallback(query: TelegramCallbackQuery, options: { sk
   if (action.kind === "profile") return showProfile(chatId, userId, messageId);
   if (action.kind === "referrals") return showReferrals(chatId, userId, messageId);
   if (action.kind === "botinfo") return showBotInfo(chatId, messageId);
-  if (action.kind === "support") {
-    pendingSupportMessages.set(userId, { expiresAt: Date.now() + SUPPORT_MESSAGE_WINDOW_MS });
-    return respond(chatId, formatSupportPrompt(), buildHomeKeyboard(), messageId);
+  if (action.kind === "support" || action.kind === "support_new") return showSupportMenu(chatId, messageId);
+  if (action.kind === "support_cancel") {
+    pendingSupportMessages.delete(userId);
+    return showHome(chatId, userId, messageId);
+  }
+  if (action.kind === "support_history") return showSupportHistory(chatId, userId, 0, messageId);
+  if (action.kind === "tickets_page") return showSupportHistory(chatId, userId, action.page, messageId);
+  if (action.kind === "ticket_detail") return showSupportTicketDetail(chatId, userId, action.id, messageId);
+  if (action.kind === "support_category") return beginSupportCategory(chatId, userId, action.category, messageId);
+  if (action.kind === "support_page") return showSupportOrderPicker(chatId, userId, action.page, messageId);
+  if (action.kind === "support_order") {
+    const draft = pendingSupportMessages.get(userId);
+    if (!draft || draft.step !== "order") return showSupportMenu(chatId, messageId);
+    const db = await getDb();
+    if (!db) throw new Error("Database is unavailable");
+    const user = (await db.select().from(botUsers).where(eq(botUsers.telegramUserId, userId)).limit(1))[0];
+    const order = user ? (await db.select().from(orders).where(and(eq(orders.id, action.id), eq(orders.botUserId, user.id), eq(orders.status, "fulfilled"))).limit(1))[0] : undefined;
+    if (!order) return showSupportOrderPicker(chatId, userId, 0, messageId);
+    const product = (await db.select().from(products).where(eq(products.id, order.productId)).limit(1))[0];
+    pendingSupportMessages.set(userId, { ...draft, step: "description", orderId: order.id, expiresAt: Date.now() + SUPPORT_MESSAGE_WINDOW_MS });
+    return respond(chatId, formatSupportDescriptionPrompt("completed_order", { orderName: product?.name ?? `Order #${order.id}` }), { force_reply: true, selective: true }, messageId);
+  }
+  if (action.kind === "support_payment") {
+    const draft = pendingSupportMessages.get(userId);
+    const paymentMethod = supportPaymentName(action.id);
+    if (!draft || draft.step !== "payment_method" || !paymentMethod) return showSupportMenu(chatId, messageId);
+    pendingSupportMessages.set(userId, { ...draft, step: "description", paymentMethod, expiresAt: Date.now() + SUPPORT_MESSAGE_WINDOW_MS });
+    return respond(chatId, formatSupportDescriptionPrompt("payment_verification", { paymentMethod }), { force_reply: true, selective: true }, messageId);
   }
   if (action.kind === "claim") return claimFree(chatId, userId, action.id, messageId);
   if (action.kind === "reward") return claimReferralReward(chatId, userId, action.id, messageId);
@@ -1981,10 +2143,15 @@ export async function handleMessage(message: TelegramMessage) {
   }
   const pendingSupport = pendingSupportMessages.get(user.id);
   if (pendingSupport && pendingSupport.expiresAt > Date.now() && !message.text.trim().startsWith("/")) {
+    if (pendingSupport.step !== "description") {
+      if (pendingSupport.step === "order") return showSupportOrderPicker(message.chat.id, user.id, 0);
+      if (pendingSupport.step === "payment_method") return respond(message.chat.id, "Please choose a payment method using the buttons above.", supportPaymentKeyboard());
+      return showSupportMenu(message.chat.id);
+    }
     pendingSupportMessages.delete(user.id);
     try {
-      const ticketId = await submitSupportTicket(user, message.text.trim());
-      return sendMessage(message.chat.id, formatSupportSubmitted(ticketId));
+      const ticketId = await submitSupportTicket(user, message.text.trim(), pendingSupport);
+      return sendMessage(message.chat.id, formatSupportSubmitted(ticketId), supportCategoryKeyboard());
     } catch (error) {
       recordTelegramFailure("support_ticket", error, { userId: user.id, chatId: message.chat.id });
       return sendMessage(message.chat.id, "⚠️ Support is temporarily unavailable. Please try again later or contact the administrator directly.");
@@ -2025,8 +2192,7 @@ export async function handleMessage(message: TelegramMessage) {
   if (command === "/orders") return showOrders(message.chat.id, user.id);
   if (command === "/profile") return showProfile(message.chat.id, user.id);
   if (command === "/support") {
-    pendingSupportMessages.set(user.id, { expiresAt: Date.now() + SUPPORT_MESSAGE_WINDOW_MS });
-    return sendMessage(message.chat.id, formatSupportPrompt());
+    return showSupportMenu(message.chat.id);
   }
   if (command === "/extra_device") return sendMessage(message.chat.id, formatExtraDeviceMessage());
   return showHome(message.chat.id, user.id);

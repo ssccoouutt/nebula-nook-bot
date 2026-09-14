@@ -50,7 +50,7 @@ CREATE TABLE IF NOT EXISTS binancePayDeposits (id INTEGER PRIMARY KEY AUTOINCREM
 CREATE TABLE IF NOT EXISTS paymentIntents (id INTEGER PRIMARY KEY AUTOINCREMENT, botUserId INTEGER NOT NULL, productId INTEGER NOT NULL, quantity INTEGER NOT NULL, amountCents INTEGER NOT NULL, method TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'pending', transactionId TEXT UNIQUE, createdAt INTEGER NOT NULL DEFAULT (strftime('%s','now') * 1000), updatedAt INTEGER NOT NULL DEFAULT (strftime('%s','now') * 1000));
 CREATE TABLE IF NOT EXISTS referrals (id INTEGER PRIMARY KEY AUTOINCREMENT, referrerId INTEGER NOT NULL, referredUserId INTEGER NOT NULL UNIQUE, bonusCents INTEGER NOT NULL DEFAULT 0, creditsAwarded INTEGER NOT NULL DEFAULT 1, createdAt INTEGER NOT NULL DEFAULT (strftime('%s','now') * 1000));
 CREATE TABLE IF NOT EXISTS priceAlerts (id INTEGER PRIMARY KEY AUTOINCREMENT, botUserId INTEGER NOT NULL, productId INTEGER NOT NULL, active INTEGER NOT NULL DEFAULT 1, createdAt INTEGER NOT NULL DEFAULT (strftime('%s','now') * 1000), updatedAt INTEGER NOT NULL DEFAULT (strftime('%s','now') * 1000), UNIQUE (botUserId, productId));
-CREATE TABLE IF NOT EXISTS supportTickets (id INTEGER PRIMARY KEY AUTOINCREMENT, botUserId INTEGER NOT NULL, message TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'open', createdAt INTEGER NOT NULL DEFAULT (strftime('%s','now') * 1000), updatedAt INTEGER NOT NULL DEFAULT (strftime('%s','now') * 1000));
+CREATE TABLE IF NOT EXISTS supportTickets (id INTEGER PRIMARY KEY AUTOINCREMENT, botUserId INTEGER NOT NULL, message TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'open', category TEXT NOT NULL DEFAULT 'other', relatedOrderId INTEGER, paymentMethod TEXT, paymentAmountCents INTEGER, transactionHash TEXT, adminReply TEXT, repliedAt INTEGER, createdAt INTEGER NOT NULL DEFAULT (strftime('%s','now') * 1000), updatedAt INTEGER NOT NULL DEFAULT (strftime('%s','now') * 1000));
 CREATE TABLE IF NOT EXISTS broadcasts (id INTEGER PRIMARY KEY AUTOINCREMENT, message TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'queued', sentCount INTEGER NOT NULL DEFAULT 0, failedCount INTEGER NOT NULL DEFAULT 0, createdAt INTEGER NOT NULL DEFAULT (strftime('%s','now') * 1000), completedAt INTEGER, scheduleCronTaskUid TEXT);
 CREATE TABLE IF NOT EXISTS notificationDeliveries (id INTEGER PRIMARY KEY AUTOINCREMENT, botUserId INTEGER, adminChatId INTEGER, eventType TEXT NOT NULL, referenceId TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'queued', error TEXT, createdAt INTEGER NOT NULL DEFAULT (strftime('%s','now') * 1000), sentAt INTEGER, UNIQUE (eventType, referenceId));
 CREATE TABLE IF NOT EXISTS telegramStarsWalletPayments (id INTEGER PRIMARY KEY AUTOINCREMENT, botUserId INTEGER NOT NULL, amountCents INTEGER NOT NULL, starsAmount INTEGER NOT NULL, payload TEXT NOT NULL UNIQUE, transactionId TEXT UNIQUE, status TEXT NOT NULL DEFAULT 'pending', createdAt INTEGER NOT NULL DEFAULT (strftime('%s','now') * 1000), updatedAt INTEGER NOT NULL DEFAULT (strftime('%s','now') * 1000));
@@ -79,6 +79,22 @@ function ensureOrderColumns(client: DatabaseClient) {
   }
 }
 
+function ensureSupportTicketColumns(client: DatabaseClient) {
+  const columns = new Set((client.prepare("PRAGMA table_info(supportTickets)").all() as Array<{ name: string }>).map((column) => column.name));
+  const additions: Array<[string, string]> = [
+    ["category", "TEXT NOT NULL DEFAULT 'other'"],
+    ["relatedOrderId", "INTEGER"],
+    ["paymentMethod", "TEXT"],
+    ["paymentAmountCents", "INTEGER"],
+    ["transactionHash", "TEXT"],
+    ["adminReply", "TEXT"],
+    ["repliedAt", "INTEGER"],
+  ];
+  for (const [name, definition] of additions) {
+    if (!columns.has(name)) client.exec(`ALTER TABLE supportTickets ADD COLUMN "${name}" ${definition}`);
+  }
+}
+
 function ensureProductColumns(client: DatabaseClient) {
   const columns = new Set((client.prepare("PRAGMA table_info(products)").all() as Array<{ name: string }>).map(column => column.name));
   const additions: Array<[string, string]> = [
@@ -104,6 +120,7 @@ async function initialize(): Promise<AppDb> {
   _client.exec(schemaSql);
   ensureReferralColumns(_client);
   ensureOrderColumns(_client);
+  ensureSupportTicketColumns(_client);
   ensureProductColumns(_client);
   const client = _client;
   const db = drizzle<AppSchema>(async (sql, params, method) => {

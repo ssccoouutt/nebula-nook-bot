@@ -608,3 +608,8 @@
 - [x] Fix the Telegram Orders button so it reliably routes to completed-order history.
 - [x] Add five-per-page completed-order buttons, newest-first pagination, detailed order views, and Buy again actions.
 - [x] Add Orders regression coverage and local validation; keep publication pending explicit confirmation.
+
+- [x] Add guided support issue categories: completed order, payment verification, bot issue, and other.
+- [x] Add completed-order selection, payment-method selection, contextual payment fields, response-time guidance, and duplicate-ticket warning.
+- [x] Add user ticket history with open/closed status, per-ticket buttons, and visible admin replies.
+- [x] Add support-flow regression coverage and local validation; keep publication pending explicit confirmation.
