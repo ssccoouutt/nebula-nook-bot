@@ -467,6 +467,9 @@ export function formatSupportDescriptionPrompt(category: SupportCategory, contex
   if (category === "completed_order") return `📦 <b>Completed-order support</b>\n\nRelated product: <b>${context?.orderName ?? "Selected order"}</b>\n\nPlease describe the issue with this completed order. Include any relevant delivery details.\n\n⏱️ Replies can take up to <b>24 hours</b>, normally much sooner. Avoid duplicate tickets.`;
   return `📝 <b>${category === "bot_issue" ? "Bot issue support" : "Other support"}</b>\n\nPlease describe the issue clearly.\n\n⏱️ Replies can take up to <b>24 hours</b>, normally much sooner. Avoid duplicate tickets.`;
 }
+export function supportDescriptionKeyboard() {
+  return keyboard([[{ text: "✖️ Cancel", callback_data: "support_cancel" }]]);
+}
 export function formatSupportTicketDetail(ticket: { id: number; category?: string | null; status: string; message: string; paymentMethod?: string | null; paymentAmountCents?: number | null; transactionHash?: string | null; adminReply?: string | null; orderName?: string | null; createdAt: Date | string }) {
   const category = (ticket.category ?? "other").replaceAll("_", " ");
   const context = ticket.orderName ? `\n📦 Product: <b>${ticket.orderName.replace(/[<&>]/g, "")}</b>` : "";
@@ -646,7 +649,7 @@ async function beginSupportCategory(chatId: number, userId: number, category: Su
     return respond(chatId, "💳 <b>Which payment method did you use?</b>", supportPaymentKeyboard(), messageId);
   }
   pendingSupportMessages.set(userId, { step: "description", category, expiresAt });
-  return respond(chatId, formatSupportDescriptionPrompt(category), { force_reply: true, selective: true }, messageId);
+    return respond(chatId, formatSupportDescriptionPrompt(category), supportDescriptionKeyboard(), messageId);
 }
 
 export function isAuthorizedAdminMessage(message: Pick<TelegramMessage, "chat" | "from">) {
@@ -984,6 +987,9 @@ export function formatReferralRewardNotification(productName: string, credits: n
 }
 export function formatQualifiedReferralNotification(referrerName: string | undefined, referrerId: number, invitedName: string | undefined, invitedId: number) {
   return `<b>New qualified referral</b>\n👤 Referrer: <b>${maskPurchaseName(referrerName, referrerId)}</b>\n👤 New member: <b>${maskPurchaseName(invitedName, invitedId)}</b>\n🎟️ Credit awarded: <b>1</b>`;
+}
+export function buildQualifiedReferralNotificationKeyboard() {
+  return keyboard([[{ text: "🔗 Get your referral link", url: `https://t.me/${PUBLIC_BOT_USERNAME}?start=referrals` }]]);
 }
 
 export function buildFulfillmentNotifications(orderId: string | number, amountCents: number, customerTelegramUserId?: number) {
@@ -1344,7 +1350,7 @@ async function qualifyReferralIfEligible(userId: number) {
   const referralCount = await db.select({ count: sql<number>`count(*)` }).from(referrals).where(eq(referrals.referrerId, referrer.id));
   await db.update(botUsers).set({ tier: tierForReferralCount(Number(referralCount[0]?.count ?? 0)) }).where(eq(botUsers.id, referrer.id));
   scheduleDriveSync("referral_update");
-  await notifyAdmin("referral_qualified", String(invited.id), formatQualifiedReferralNotification(referrer.firstName ?? referrer.username ?? undefined, referrer.telegramUserId, invited.firstName ?? invited.username ?? undefined, invited.telegramUserId));
+  await notifyAdmin("referral_qualified", String(invited.id), formatQualifiedReferralNotification(referrer.firstName ?? referrer.username ?? undefined, referrer.telegramUserId, invited.firstName ?? invited.username ?? undefined, invited.telegramUserId), buildQualifiedReferralNotificationKeyboard());
   return true;
 }
 async function requireAccess(chatId: number, userId: number, messageId?: number) {
@@ -1828,14 +1834,14 @@ export async function handleCallback(query: TelegramCallbackQuery, options: { sk
     if (!order) return showSupportOrderPicker(chatId, userId, 0, messageId);
     const product = (await db.select().from(products).where(eq(products.id, order.productId)).limit(1))[0];
     pendingSupportMessages.set(userId, { ...draft, step: "description", orderId: order.id, expiresAt: Date.now() + SUPPORT_MESSAGE_WINDOW_MS });
-    return respond(chatId, formatSupportDescriptionPrompt("completed_order", { orderName: product?.name ?? `Order #${order.id}` }), { force_reply: true, selective: true }, messageId);
+    return respond(chatId, formatSupportDescriptionPrompt("completed_order", { orderName: product?.name ?? `Order #${order.id}` }), supportDescriptionKeyboard(), messageId);
   }
   if (action.kind === "support_payment") {
     const draft = pendingSupportMessages.get(userId);
     const paymentMethod = supportPaymentName(action.id);
     if (!draft || draft.step !== "payment_method" || !paymentMethod) return showSupportMenu(chatId, messageId);
     pendingSupportMessages.set(userId, { ...draft, step: "description", paymentMethod, expiresAt: Date.now() + SUPPORT_MESSAGE_WINDOW_MS });
-    return respond(chatId, formatSupportDescriptionPrompt("payment_verification", { paymentMethod }), { force_reply: true, selective: true }, messageId);
+    return respond(chatId, formatSupportDescriptionPrompt("payment_verification", { paymentMethod }), supportDescriptionKeyboard(), messageId);
   }
   if (action.kind === "claim") return claimFree(chatId, userId, action.id, messageId);
   if (action.kind === "reward") return claimReferralReward(chatId, userId, action.id, messageId);
@@ -2176,6 +2182,7 @@ export async function handleMessage(message: TelegramMessage) {
   const [command, ...rest] = message.text.trim().split(/\s+/);
   const referral = rest.find((part) => part.startsWith("ref_"))?.slice(4);
   const productDeepLink = rest.find((part) => part.startsWith("product_"))?.slice(8);
+  const referralsDeepLink = rest.includes("referrals");
   const account = await ensureBotUser(user, referral);
   // Touch the canonical row after upsert so recovered/legacy users are always visible in dashboard activity.
   void recordBotActivityById(account.id).catch((error) => console.error("[Telegram] canonical activity touch failed", error));
@@ -2183,6 +2190,10 @@ export async function handleMessage(message: TelegramMessage) {
     if (productDeepLink && /^\d+$/.test(productDeepLink)) {
       if (!(await requireAccess(message.chat.id, user.id))) return;
       return showProduct(message.chat.id, Number(productDeepLink));
+    }
+    if (referralsDeepLink) {
+      if (!(await requireAccess(message.chat.id, user.id))) return;
+      return showReferrals(message.chat.id, user.id);
     }
     return showHome(message.chat.id, user.id);
   }

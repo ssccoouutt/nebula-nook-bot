@@ -613,3 +613,7 @@
 - [x] Add completed-order selection, payment-method selection, contextual payment fields, response-time guidance, and duplicate-ticket warning.
 - [x] Add user ticket history with open/closed status, per-ticket buttons, and visible admin replies.
 - [x] Add support-flow regression coverage and local validation; keep publication pending explicit confirmation.
+
+- [x] Add a visible Cancel button to every support description prompt and clear the pending support draft when cancelled.
+- [x] Fix bulk-pricing dashboard persistence and product-detail rendering, including safe normalization of saved tiers and malformed/legacy values.
+- [x] Add a “Get your referral link” button to qualified-referral group notifications that opens the user’s Referrals section.
