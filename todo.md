@@ -618,10 +618,10 @@
 - [x] Fix bulk-pricing dashboard persistence and product-detail rendering, including safe normalization of saved tiers and malformed/legacy values.
 - [x] Add a “Get your referral link” button to qualified-referral group notifications that opens the user’s Referrals section.
 
-- [ ] Remove the bulk-pricing stock-explanation sentence and show the applicable discounted unit price when a quantity is selected.
-- [ ] Add a dashboard control for notifying users about newly added stock/products, enabled by default.
-- [ ] Add dashboard sales totals for the last 30 days and daywise/monthwise reporting.
-- [ ] Add regression tests, run full local validation, and keep publication pending explicit confirmation.
+- [x] Remove the bulk-pricing stock-explanation sentence and show the applicable discounted unit price when a quantity is selected.
+- [x] Add a dashboard control for notifying users about newly added stock/products, enabled by default.
+- [x] Add dashboard sales totals for the last 30 days and daywise/monthwise reporting.
+- [x] Add regression tests, run full local validation, and keep publication pending explicit confirmation.
 
 - [x] Remove redundant stock-availability explanation from bulk pricing display
 - [x] Show applicable bulk unit price during quantity purchase review
