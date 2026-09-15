@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { formatBulkPricingForUsers, normalizeBulkPricing, parseBulkPricing, resolveBulkUnitPriceCents } from "../shared/pricing";
+import { formatPurchaseReview } from "./telegram";
 
 describe("bulk pricing", () => {
   it("normalizes tiers and calculates the discounted total", () => {
@@ -13,6 +14,12 @@ describe("bulk pricing", () => {
   it("shows only tiers whose minimum quantity is in stock", () => {
     expect(formatBulkPricingForUsers("5-9:0.90\n10+:0.80", 6)).toBe("• 5-9 codes → $0.90 each");
     expect(formatBulkPricingForUsers("5-9:0.90\n10+:0.80", 10)).toContain("10+ codes → $0.80 each");
+  });
+
+  it("shows the selected quantity's discounted unit price in purchase review", () => {
+    const review = formatPurchaseReview("Gemini Pro", 100, 5, 1000, "5-9:0.90");
+    expect(review).toContain("Unit price: <b>$0.90</b>");
+    expect(review).toContain("Total to pay: <b>$4.50</b>");
   });
 
   it("rejects overlapping or malformed tiers", () => {

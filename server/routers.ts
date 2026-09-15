@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { and, desc, eq, or, sql } from "drizzle-orm";
+import { and, desc, eq, gte, or, sql } from "drizzle-orm";
 import { COOKIE_NAME } from "@shared/const";
 import { getSessionCookieOptions } from "./_core/cookies";
 import { systemRouter } from "./_core/systemRouter";
@@ -91,8 +91,31 @@ export const appRouter = router({
       ]);
       return { users: Number(users[0]?.count ?? 0), activeProducts: Number(activeProducts[0]?.count ?? 0), openTickets: Number(openTickets[0]?.count ?? 0), orders: Number(ordersCount[0]?.count ?? 0) };
     }),
+    salesSummary: adminProcedure.query(async () => {
+      const db = await database();
+      const cutoff = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+      const fulfilled = or(eq(orders.status, "fulfilled"), eq(orders.status, "paid"));
+      const recentRows = await db.select({ amountCents: orders.amountCents, at: orders.updatedAt }).from(orders).where(and(gte(orders.updatedAt, cutoff), fulfilled)).orderBy(desc(orders.updatedAt));
+      const allRows = await db.select({ amountCents: orders.amountCents, at: orders.updatedAt }).from(orders).where(fulfilled).orderBy(desc(orders.updatedAt));
+      const aggregate = (rows: typeof recentRows, keyOf: (date: Date) => string) => {
+        const grouped = new Map<string, { amountCents: number; orders: number }>();
+        for (const row of rows) {
+          const key = keyOf(row.at);
+          const current = grouped.get(key) ?? { amountCents: 0, orders: 0 };
+          current.amountCents += row.amountCents;
+          current.orders += 1;
+          grouped.set(key, current);
+        }
+        return Array.from(grouped.entries()).map(([key, value]) => ({ key, ...value }));
+      };
+      return {
+        last30Days: { amountCents: recentRows.reduce((sum, row) => sum + row.amountCents, 0), orders: recentRows.length },
+        daily: aggregate(recentRows, (date) => date.toISOString().slice(0, 10)),
+        monthly: aggregate(allRows, (date) => date.toISOString().slice(0, 7)),
+      };
+    }),
     products: adminProcedure.input(z.object({ sort: z.enum(["alphabetical", "mostSold"]).default("alphabetical") }).optional()).query(async ({ input }) => { const db = await database(); const [rows, soldRows] = await Promise.all([db.select().from(products), db.select({ productId: orders.productId, total: sql<number>`coalesce(sum(${orders.quantity}), 0)` }).from(orders).where(or(eq(orders.status, "fulfilled"), eq(orders.status, "paid"))).groupBy(orders.productId)]); const soldByProduct = new Map(soldRows.map((row) => [row.productId, Number(row.total ?? 0)])); const enriched = rows.map((row) => ({ ...row, soldCount: soldByProduct.get(row.id) ?? 0 })); return enriched.sort((a, b) => input?.sort === "mostSold" ? b.soldCount - a.soldCount || a.name.localeCompare(b.name) : a.name.localeCompare(b.name)); }),
-    createProduct: adminProcedure.input(z.object({ name: z.string().min(1).max(255), description: z.string().min(1), deliveryFormat: z.string().default(""), priceUsd: z.number().nonnegative(), inventoryText: z.string().default(""), deliveryMode: z.enum(["automatic", "manual"]).default("automatic"), warrantyDays: z.string().max(255).default(""), imageUrl: z.string().url().or(z.literal("")).default(""), freeEligible: z.boolean(), shopEligible: z.boolean().default(true), freeWindowMs: z.number().int().positive().nullable(), referralEligible: z.boolean().default(false), referralPriceCredits: z.number().int().positive().default(1), bulkPricing: z.string().max(4000).default(""), hidden: z.boolean().default(false) })).mutation(async ({ input }) => {
+    createProduct: adminProcedure.input(z.object({ name: z.string().min(1).max(255), description: z.string().min(1), deliveryFormat: z.string().default(""), priceUsd: z.number().nonnegative(), inventoryText: z.string().default(""), deliveryMode: z.enum(["automatic", "manual"]).default("automatic"), warrantyDays: z.string().max(255).default(""), imageUrl: z.string().url().or(z.literal("")).default(""), freeEligible: z.boolean(), shopEligible: z.boolean().default(true), freeWindowMs: z.number().int().positive().nullable(), referralEligible: z.boolean().default(false), referralPriceCredits: z.number().int().positive().default(1), bulkPricing: z.string().max(4000).default(""), hidden: z.boolean().default(false), notifyUsers: z.boolean().default(true) })).mutation(async ({ input }) => {
       const db = await database();
       const values = productValues(input);
       const result = await db.insert(products).values({ ...values, active: 1 });
@@ -100,18 +123,18 @@ export const appRouter = router({
       const productId = Number(resultRow?.insertId ?? resultRow?.lastInsertRowid ?? 0);
       if (productId > 0 && values.stock > 0) {
         scheduleDriveSync("new_stock");
-        await notifyProductAvailability({ id: productId, ...values }, "new_product", `created:${Date.now()}`);
+        if (input.notifyUsers) await notifyProductAvailability({ id: productId, ...values }, "new_product", `created:${Date.now()}`);
       }
       return { success: true };
     }),
-    updateProduct: adminProcedure.input(z.object({ id: z.number().int(), name: z.string().min(1).max(255), description: z.string().min(1), deliveryFormat: z.string().default(""), priceUsd: z.number().nonnegative(), inventoryText: z.string().default(""), deliveryMode: z.enum(["automatic", "manual"]).default("automatic"), warrantyDays: z.string().max(255).default(""), imageUrl: z.string().url().or(z.literal("")).default(""), active: z.boolean(), freeEligible: z.boolean(), shopEligible: z.boolean().default(true), freeWindowMs: z.number().int().positive().nullable(), referralEligible: z.boolean().default(false), referralPriceCredits: z.number().int().positive().default(1), bulkPricing: z.string().max(4000).default(""), hidden: z.boolean().default(false) })).mutation(async ({ input }) => {
+    updateProduct: adminProcedure.input(z.object({ id: z.number().int(), name: z.string().min(1).max(255), description: z.string().min(1), deliveryFormat: z.string().default(""), priceUsd: z.number().nonnegative(), inventoryText: z.string().default(""), deliveryMode: z.enum(["automatic", "manual"]).default("automatic"), warrantyDays: z.string().max(255).default(""), imageUrl: z.string().url().or(z.literal("")).default(""), active: z.boolean(), freeEligible: z.boolean(), shopEligible: z.boolean().default(true), freeWindowMs: z.number().int().positive().nullable(), referralEligible: z.boolean().default(false), referralPriceCredits: z.number().int().positive().default(1), bulkPricing: z.string().max(4000).default(""), hidden: z.boolean().default(false), notifyUsers: z.boolean().default(true) })).mutation(async ({ input }) => {
       const db = await database();
       const existing = (await db.select().from(products).where(eq(products.id, input.id)).limit(1))[0];
       const values = productValues(input);
       await db.update(products).set(values).where(eq(products.id, input.id));
       if (existing && values.active === 1 && values.stock > existing.stock) {
         scheduleDriveSync("new_stock");
-        await notifyProductAvailability({ id: input.id, ...values }, "new_stock", `stock:${Date.now()}`);
+        if (input.notifyUsers) await notifyProductAvailability({ id: input.id, ...values }, "new_stock", `stock:${Date.now()}`);
       }
       return { success: true };
     }),
@@ -122,7 +145,7 @@ export const appRouter = router({
     }),
     settings: adminProcedure.query(async () => (await database()).select().from(botSettings).orderBy(botSettings.key)),
     setSetting: adminProcedure.input(z.object({ key: z.string().min(1).max(128), value: z.string().max(10000) })).mutation(async ({ input }) => {
-      const allowedKeys = new Set(["membership_channel_id", "membership_group_id", "membership_channel_url", "membership_group_url", "notification_chat_id"]);
+      const allowedKeys = new Set(["membership_channel_id", "membership_group_id", "membership_channel_url", "membership_group_url", "notification_chat_id", "catalog_sort"]);
       if (!allowedKeys.has(input.key)) throw new TRPCError({ code: "BAD_REQUEST", message: "Unsupported setting key" });
       if (input.key.endsWith("_url")) {
         const url = input.value.trim();

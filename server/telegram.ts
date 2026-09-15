@@ -1143,9 +1143,11 @@ export function resolvePriceAlertToggle(existingActive: boolean | null) {
   return existingActive === null || !existingActive;
 }
 
-export function formatPurchaseReview(productName: string, priceCents: number, quantity: number, balanceCents: number) {
-  const totalCents = priceCents * quantity;
-  return `🧾 <b>Review your purchase</b>\n\n📦 <b>${productName.replace(/[<&>]/g, "")}</b>\n🔢 Quantity: <b>${quantity}</b>\n💵 Unit price: <b>$${(priceCents / 100).toFixed(2)}</b>\n💰 Total to pay: <b>$${(totalCents / 100).toFixed(2)}</b>\n\nWallet balance: <b>$${(balanceCents / 100).toFixed(2)}</b>\n\nChoose a payment method below. Your order is not completed until the selected payment is verified.`;
+export function formatPurchaseReview(productName: string, basePriceCents: number, quantity: number, balanceCents: number, bulkPricing?: string | null) {
+  const unitPriceCents = resolveBulkUnitPriceCents(basePriceCents, bulkPricing, quantity);
+  const totalCents = unitPriceCents * quantity;
+  const discountNote = unitPriceCents !== basePriceCents ? `\n🏷️ Bulk price applied for ${quantity} units` : "";
+  return `🧾 <b>Review your purchase</b>\n\n📦 <b>${productName.replace(/[<&>]/g, "")}</b>\n🔢 Quantity: <b>${quantity}</b>\n💵 Unit price: <b>$${(unitPriceCents / 100).toFixed(2)}</b>${discountNote}\n💰 Total to pay: <b>$${(totalCents / 100).toFixed(2)}</b>\n\nWallet balance: <b>$${(balanceCents / 100).toFixed(2)}</b>\n\nChoose a payment method below. Your order is not completed until the selected payment is verified.`;
 }
 
 export function merchantBinanceId() {
@@ -1432,7 +1434,7 @@ async function showProduct(chatId: number, productId: number, messageId?: number
   const soldRows = await db.select({ total: sql<number>`coalesce(sum(${orders.quantity}), 0)` }).from(orders).where(and(eq(orders.productId, productId), or(eq(orders.status, "fulfilled"), eq(orders.status, "paid"))));
   const soldCount = Number(soldRows[0]?.total ?? 0);
   const bulkText = formatBulkPricingForUsers(item.bulkPricing, item.stock);
-  const bulk = bulkText ? `\n\n📊 <b>Bulk pricing</b>\n${bulkText}\nOnly shown when enough stock is available.` : "";
+  const bulk = bulkText ? `\n\n📊 <b>Bulk pricing</b>\n${bulkText}` : "";
   const safeName = item.name.replace(/[<&>]/g, "");
   const safeDescription = item.description.replace(/[<&>]/g, "");
   const deliveryFormatText = typeof item.deliveryFormat === "string" ? item.deliveryFormat.trim() : String(item.deliveryFormat ?? "").trim();
@@ -1617,7 +1619,7 @@ async function showPurchaseReview(chatId: number, userId: number, productId: num
   const safeQuantity = Math.max(1, Math.min(10, Math.floor(quantity)));
   if (!user || !isPurchasableProduct(product)) return respond(chatId, "⚠️ This product is currently unavailable.\n\nOpen the current Shop to choose an in-stock product.", buildUnavailableProductKeyboard(), messageId);
   if (product.stock < safeQuantity) return respond(chatId, `⚠️ Only <b>${product.stock}</b> unit${product.stock === 1 ? "" : "s"} remain. Choose a smaller quantity.`, buildQuantityKeyboard(product.id, product.stock), messageId);
-  return respond(chatId, formatPurchaseReview(product.name, product.priceCents, safeQuantity, user.balanceCents), buildPaymentMethodKeyboard(productId, safeQuantity), messageId);
+  return respond(chatId, formatPurchaseReview(product.name, product.priceCents, safeQuantity, user.balanceCents, product.bulkPricing), buildPaymentMethodKeyboard(productId, safeQuantity), messageId);
 }
 
 async function cancelPurchase(chatId: number, userId: number, productId: number, messageId?: number) {
