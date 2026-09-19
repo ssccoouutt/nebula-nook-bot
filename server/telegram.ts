@@ -1048,8 +1048,9 @@ export function buildMembershipKeyboard(channelUrl: string, groupUrl: string) {
 
 export function buildShopKeyboard(items: Array<{ id: number; name: string; priceCents: number; stock?: number }>, page: number, pageCount: number) {
   const rows: TelegramButton[][] = items.map((item) => {
-    const available = Number(item.stock ?? 0) > 0;
-    const label = available ? `✨ ${item.name} · $${(item.priceCents / 100).toFixed(2)}` : `⛔ ${item.name} · OUT OF STOCK`;
+    const stock = Number(item.stock ?? 0);
+    const available = stock > 0;
+    const label = available ? `✨ ${item.name} · $${(item.priceCents / 100).toFixed(2)} (${stock})` : `⛔ ${item.name} · OUT OF STOCK (0)`;
     return [{ text: label.slice(0, 64), callback_data: `product:${item.id}`, style: available ? "success" : "danger" }];
   });
   const nav: TelegramButton[] = [];
