@@ -3,7 +3,7 @@ import { and, desc, eq, gt, inArray, isNull, or, sql } from "drizzle-orm";
 import { getDb } from "./db";
 import { binancePayDeposits, botSettings, botUsers, broadcasts, freeClaims, notificationDeliveries, orders, paymentIntents, priceAlerts, products, referrals, supportTickets, telegramStarsWalletPayments, walletLedger } from "../drizzle/schema";
 import { findBinancePayTransaction } from "./binancePay";
-import { canClaimFreeItem, freeWindowStart, hasAccess, referralCodeForTelegramId, tierForReferralCount } from "../shared/botLogic";
+import { hasAccess, referralCodeForTelegramId, tierForReferralCount } from "../shared/botLogic";
 import { flushDriveSync, scheduleDriveSync } from "./googleDrivePersistence";
 import { encryptedConfigDiagnostics } from "./configFile";
 import { formatBulkPricingForUsers, parseBulkPricing, resolveBulkUnitPriceCents } from "../shared/pricing";
@@ -446,13 +446,12 @@ export function buildConfirmedPurchasePlan(balanceCents: number, priceCents: num
 
 export function formatHomeMessage(details?: { firstName?: string | null; username?: string | null; tier?: string | null; balanceCents?: number; totalSpentCents?: number; referrals?: number; access?: boolean }) {
   const name = (details?.firstName ?? "there").replace(/[<&>]/g, "");
-  const handle = details?.username ? `@${details.username.replace(/[<&>]/g, "")}` : "No username";
-  const tier = details?.tier ?? "Bronze";
-  const balance = `$${((details?.balanceCents ?? 0) / 100).toFixed(2)}`;
-  const totalSpent = `$${((details?.totalSpentCents ?? 0) / 100).toFixed(2)}`;
-  const referrals = details?.referrals ?? 0;
   const access = details?.access === false ? "🔒 Membership required" : "✅ Membership active";
-  return `👋 <b>Welcome to ToolsMania, ${name}!</b>\n\n👤 <b>Your account</b>\n├ Username: <code>${handle}</code>\n├ Tier: <b>${tier}</b>\n├ Wallet: <b>${balance}</b>\n├ Total spent: <b>${totalSpent}</b>\n└ Referrals: <b>${referrals}</b>\n\n${access}\nChoose an option below to claim freebies, shop digital products, or manage your account:`;
+  return `👋 <b>Welcome to ToolsMania!</b>\n\nHey <b>${name}</b>! 👋\n\nWe offer premium digital products at the best prices — fast, secure, and reliable delivery.\n\n<blockquote>🛍️ <b>Shop</b> — Browse and buy digital products\n👤 <b>My Profile</b> — Account, balance, and orders\n💰 <b>Deposit</b> — Add funds to your wallet\n🛠️ <b>Developer API</b> — Reseller and automated ordering\n⭐ <b>Refer & Earn</b> — Invite friends and earn rewards</blockquote>\n\n${access}\n\nChoose an option below to continue:`;
+}
+
+export function formatDeveloperApiMessage() {
+  return "🛠️ <b>Developer API</b>\n\nDeveloper API access is not enabled for this bot yet. Please contact Support if you need reseller or automated ordering access.";
 }
 
 export function formatMembershipMessage() {
@@ -926,20 +925,6 @@ export function formatShopSummary(page: number, pageCount: number) {
   return `🛍️ <b>ToolsMania Shop</b>\n\nChoose a product to view its details and buy instantly.${pagination}`;
 }
 
-export function formatFreebiesMessage(items: Array<{ name: string; stock: number }>) {
-  const lines = items.map((item) => `🎁 <b>${item.name.replace(/[<&>]/g, "")}</b> · 📦 ${item.stock}`);
-  return `🎁 <b>ToolsMania Freebies</b>\n\nClaim one available item during its active window.\n\n${lines.join("\n")}`;
-}
-
-export function buildFreebiesKeyboard(items: Array<{ id: number; name: string }>) {
-  const rows: TelegramButton[][] = [];
-  for (let index = 0; index < items.length; index += 2) {
-    rows.push(items.slice(index, index + 2).map((item) => ({ text: `🎁 ${item.name}`.slice(0, 64), callback_data: `claim:${item.id}`, style: "success" as const })));
-  }
-  rows.push([{ text: "↩️ Back to menu", callback_data: "home", style: "primary" }]);
-  return keyboard(rows);
-}
-
 export function formatOrderStatus(orderId: string | number, kind: string, status: string, amountCents: number) {
   const icon = status === "fulfilled" ? "✅" : status === "cancelled" ? "❌" : "⏳";
   return `${icon} #${orderId} · ${kind} · ${status} · $${(amountCents / 100).toFixed(2)}`;
@@ -980,9 +965,6 @@ export function buildPurchaseAnnouncement(productId: string | number, productNam
   };
 }
 
-export function formatFreebieClaimNotification(productName: string, userName?: string, telegramUserId?: number) {
-  return `<b>Freebie claimed</b>\n👤 User: <b>${maskPurchaseName(userName, telegramUserId)}</b>\n🎁 Product: <b>${productName.replace(/[<&>]/g, "")}</b>`;
-}
 export function formatReferralRewardNotification(productName: string, credits: number, userName?: string, telegramUserId?: number) {
   return `<b>Referral reward redeemed</b>\n👤 User: <b>${maskPurchaseName(userName, telegramUserId)}</b>\n🎁 Product: <b>${productName.replace(/[<&>]/g, "")}</b>\n🎟️ Credits used: <b>${credits}</b>`;
 }
@@ -1032,10 +1014,11 @@ function keyboard(rows: Array<Array<TelegramButton>>) {
 
 export function buildHomeKeyboard() {
   return keyboard([
-    [{ text: "🎁 Freebies", callback_data: "freebies", style: "success" }, { text: "🛍️ Shop", callback_data: "shop", style: "primary" }],
-    [{ text: "💳 Wallet", callback_data: "wallet", style: "primary" }, { text: "📦 Orders", callback_data: "orders", style: "primary" }],
-    [{ text: "👤 Profile", callback_data: "profile", style: "primary" }, { text: "🤝 Referrals", callback_data: "referrals", style: "primary" }],
-    [{ text: "ℹ️ Bot Info", callback_data: "botinfo", style: "primary" }, { text: "🆘 Support", callback_data: "support", style: "primary" }],
+    [{ text: "🛍️ Shop", callback_data: "shop", style: "primary" }],
+    [{ text: "👤 My Profile", callback_data: "profile", style: "success" }, { text: "💰 Deposit", callback_data: "wallet", style: "success" }],
+    [{ text: "🛠️ Developer API", callback_data: "developer_api", style: "success" }],
+    [{ text: "🆘 Support", callback_data: "support", style: "success" }],
+    [{ text: "⭐ Refer & Earn", callback_data: "referrals", style: "success" }],
   ]);
 }
 
@@ -1403,14 +1386,6 @@ async function showBotInfo(chatId: number, messageId?: number, admin = false) {
   return respond(chatId, formatBotInfoMessage(Number(userRows[0]?.count ?? 0), Number(orderRows[0]?.count ?? 0)), admin ? buildAdminKeyboard() : buildHomeKeyboard(), messageId);
 }
 
-async function showFreebies(chatId: number, messageId?: number) {
-  const db = await getDb();
-  if (!db) throw new Error("Database is unavailable");
-  const items = await db.select().from(products).where(and(eq(products.active, 1), eq(products.freeEligible, 1), or(eq(products.hidden, 0), isNull(products.hidden)))).limit(20);
-  if (!items.length) return respond(chatId, "🎁 <b>ToolsMania Freebies</b>\n\nThere are no free items available right now. Check back soon!", buildFreebiesKeyboard([]), messageId);
-  return respond(chatId, formatFreebiesMessage(items), buildFreebiesKeyboard(items), messageId);
-}
-
 async function showShop(chatId: number, page = 0, messageId?: number) {
   const db = await getDb();
   if (!db) throw new Error("Database is unavailable");
@@ -1580,28 +1555,6 @@ async function claimReferralReward(chatId: number, userId: number, productId: nu
   await notifyAdmin("referral_reward", String(outcome.orderId), formatReferralRewardNotification(outcome.product.name, outcome.product.referralPriceCredits, outcome.userFirstName ?? outcome.userUsername, outcome.userTelegramId));
 }
 
-async function claimFree(chatId: number, userId: number, productId: number, messageId?: number) {
-  const db = await getDb();
-  if (!db) throw new Error("Database is unavailable");
-  const user = (await db.select().from(botUsers).where(eq(botUsers.telegramUserId, userId)).limit(1))[0];
-  const product = (await db.select().from(products).where(eq(products.id, productId)).limit(1))[0];
-  if (!user || !product || !product.freeEligible || !product.freeWindowMs || product.stock <= 0) return respond(chatId, "⚠️ This free item is currently unavailable.", buildFreebiesKeyboard([]), messageId);
-  const now = Date.now();
-  const windowStart = freeWindowStart(now, product.freeWindowMs);
-  const last = await db.select().from(freeClaims).where(and(eq(freeClaims.botUserId, user.id), eq(freeClaims.productId, product.id))).orderBy(desc(freeClaims.createdAt)).limit(1);
-  if (!canClaimFreeItem(last[0] ? Number(last[0].windowStartMs) : null, now, product.freeWindowMs)) return respond(chatId, "⏳ You have already claimed this item during the current free window.", buildFreebiesKeyboard([{ id: product.id, name: product.name }]), messageId);
-  const inventoryText = String(product.inventoryText ?? "");
-  const digital = inventoryText.trim() ? consumeDigitalInventory(inventoryText, 1) : { ok: true as const, items: [] as string[], remaining: [] as string[] };
-  if (!digital.ok) return respond(chatId, "⚠️ This free item is currently unavailable.", buildFreebiesKeyboard([]), messageId);
-  await db.insert(freeClaims).values({ botUserId: user.id, productId: product.id, windowStartMs: windowStart, status: "claimed" });
-  await db.update(products).set({ stock: product.stock - 1, inventoryText: String(product.inventoryText ?? "").trim() ? digital.remaining.join("\n") : product.inventoryText }).where(eq(products.id, product.id));
-  const order = await db.insert(orders).values({ botUserId: user.id, productId: product.id, kind: "free", amountCents: 0, status: "fulfilled", deliveredItem: digital.items[0] ?? null, purchaseWarranty: normalizeWarrantyText(product.warrantyDays) || null, paymentMethod: "Freebie", quantity: 1 });
-  scheduleDriveSync("completed_order");
-  const delivery = digital.items.length ? `\n\n📦 <b>Your digital item</b>\n<blockquote>${digital.items[0].replace(/[<&>]/g, "")}</blockquote>\n\nTap and hold the text above to copy it.` : "";
-  await respond(chatId, `✅ <b>Free claim recorded</b>\n\n🎁 ${product.name}${delivery}\n\nYour claim has been added to your order history.`, buildHomeKeyboard(), messageId);
-  await notifyAdmin("free_claim", `${user.id}:${product.id}:${windowStart}`, formatFreebieClaimNotification(product.name, user.firstName ?? user.username ?? undefined, user.telegramUserId));
-}
-
 async function showQuantityPrompt(chatId: number, productId: number, messageId?: number) {
   const db = await getDb();
   if (!db) throw new Error("Database is unavailable");
@@ -1684,12 +1637,12 @@ async function createBinancePayPurchaseIntent(chatId: number, userId: number, pr
 }
 
 export type TelegramCallbackAction =
-  | { kind: "verify_membership" | "home" | "freebies" | "wallet" | "walletadd" | "walletbep20" | "walletstars" | "walletstars_pay" | "walletcancel" | "orders" | "profile" | "referrals" | "support" | "support_new" | "support_history" | "support_cancel" | "botinfo" | "admin_stats" | "admin_tickets" | "admin_broadcast_help" | "admin_settings" | "admin_diagnostics" | "admin_delete_help" }
+  | { kind: "verify_membership" | "home" | "developer_api" | "wallet" | "walletadd" | "walletbep20" | "walletstars" | "walletstars_pay" | "walletcancel" | "orders" | "profile" | "referrals" | "support" | "support_new" | "support_history" | "support_cancel" | "botinfo" | "admin_stats" | "admin_tickets" | "admin_broadcast_help" | "admin_settings" | "admin_diagnostics" | "admin_delete_help" }
   | { kind: "support_category"; category: SupportCategory }
   | { kind: "support_order" | "support_payment" | "ticket_detail"; id: number }
   | { kind: "support_page" | "tickets_page"; page: number }
   | { kind: "admin_close_ticket"; id: number }
-  | { kind: "shop" | "product" | "claim" | "reward" | "buy" | "customqty" | "pricealert"; id: number }
+  | { kind: "shop" | "product" | "reward" | "buy" | "customqty" | "pricealert"; id: number }
   | { kind: "walletamount"; amountCents: number }
   | { kind: "orders_page"; page: number }
   | { kind: "order_detail"; id: number; page: number }
@@ -1699,7 +1652,7 @@ export type TelegramCallbackAction =
 
 export function parseTelegramCallbackAction(data?: string): TelegramCallbackAction | null {
   const value = data ?? "";
-  if (["verify_membership", "home", "freebies", "wallet", "walletadd", "walletbep20", "walletstars", "walletstars_pay", "walletcancel", "orders", "profile", "referrals", "support", "support_new", "support_history", "support_cancel", "botinfo", "admin_stats", "admin_tickets", "admin_broadcast_help", "admin_settings", "admin_diagnostics", "admin_delete_help"].includes(value)) return { kind: value as TelegramCallbackAction["kind"] } as TelegramCallbackAction;
+  if (["verify_membership", "home", "developer_api", "wallet", "walletadd", "walletbep20", "walletstars", "walletstars_pay", "walletcancel", "orders", "profile", "referrals", "support", "support_new", "support_history", "support_cancel", "botinfo", "admin_stats", "admin_tickets", "admin_broadcast_help", "admin_settings", "admin_diagnostics", "admin_delete_help"].includes(value)) return { kind: value as TelegramCallbackAction["kind"] } as TelegramCallbackAction;
   const supportCategoryMatch = value.match(/^support_category:(completed_order|payment_verification|bot_issue|other)$/);
   if (supportCategoryMatch) return { kind: "support_category", category: supportCategoryMatch[1] as SupportCategory };
   const supportOrderMatch = value.match(/^support_order:(\d+)$/);
@@ -1726,11 +1679,11 @@ export function parseTelegramCallbackAction(data?: string): TelegramCallbackActi
   if (quantityMatch) return { kind: quantityMatch[1] as "buyqty" | "buyconfirm" | "paywallet" | "paybinance" | "paybep20" | "paystars", id: Number(quantityMatch[2]), quantity: Number(quantityMatch[3]) };
   const cancelMatch = value.match(/^buycancel:([0-9]+)$/);
   if (cancelMatch) return { kind: "buycancel", id: Number(cancelMatch[1]) };
-  const match = value.match(/^(shop|product|claim|reward|buy|customqty|pricealert)(?::(\d+))?$/);
+  const match = value.match(/^(shop|product|reward|buy|customqty|pricealert)(?::(\d+))?$/);
   if (!match) return null;
   if (match[1] === "shop" && match[2] === undefined) return { kind: "shop", id: 0 };
   if (!match[2]) return null;
-  return { kind: match[1] as "shop" | "product" | "claim" | "reward" | "buy", id: Number(match[2]) };
+  return { kind: match[1] as "shop" | "product" | "reward" | "buy", id: Number(match[2]) };
 }
 
 export function resolvePurchaseCallbackRoute(action: TelegramCallbackAction) {
@@ -1780,7 +1733,7 @@ export async function handleCallback(query: TelegramCallbackQuery, options: { sk
   }
   if (!options.skipAccess && !(await requireAccess(chatId, userId, messageId))) return;
   if (action.kind === "home") return showHome(chatId, userId, messageId);
-  if (action.kind === "freebies") return showFreebies(chatId, messageId);
+  if (action.kind === "developer_api") return respond(chatId, formatDeveloperApiMessage(), keyboard([[{ text: "🆘 Contact Support", callback_data: "support", style: "success" }], [{ text: "🏠 Back to home", callback_data: "home" }]]), messageId);
   if (action.kind === "shop") return showShop(chatId, action.id, messageId);
   if (action.kind === "product") return showProduct(chatId, action.id, messageId);
   if (action.kind === "wallet") return showWallet(chatId, userId, messageId);
@@ -1845,7 +1798,6 @@ export async function handleCallback(query: TelegramCallbackQuery, options: { sk
     pendingSupportMessages.set(userId, { ...draft, step: "description", paymentMethod, expiresAt: Date.now() + SUPPORT_MESSAGE_WINDOW_MS });
     return respond(chatId, formatSupportDescriptionPrompt("payment_verification", { paymentMethod }), supportDescriptionKeyboard(), messageId);
   }
-  if (action.kind === "claim") return claimFree(chatId, userId, action.id, messageId);
   if (action.kind === "reward") return claimReferralReward(chatId, userId, action.id, messageId);
   if (purchaseRoute === "quantity_prompt" && (action.kind === "buy" || (action.kind === "buyqty" && action.quantity === 0))) return showQuantityPrompt(chatId, action.id, messageId);
   if (purchaseRoute === "purchase_review" && action.kind === "buyqty") return showPurchaseReview(chatId, userId, action.id, action.quantity, messageId);
