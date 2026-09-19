@@ -516,8 +516,10 @@ function supportTicketDetailKeyboard() {
   return keyboard([[{ text: "📋 My tickets", callback_data: "support_history" }], [{ text: "➕ New ticket", callback_data: "support_new" }, { text: "⌂ Home", callback_data: "home" }]]);
 }
 
-export function formatBotInfoMessage(totalUsers: number, completedOrders: number) {
-  return `ℹ️ <b>ToolsMania Bot Info</b>\n\n👥 Total bot users: <b>${totalUsers}</b>\n✅ Total completed orders: <b>${completedOrders}</b>`;
+export function formatBotInfoMessage(totalUsers: number, completedOrders: number, links?: { channelUrl?: string; groupUrl?: string }) {
+  const channelUrl = links?.channelUrl ?? DEFAULT_CHANNEL_URL;
+  const groupUrl = links?.groupUrl ?? DEFAULT_GROUP_URL;
+  return `ℹ️ <b>ToolsMania Bot Info</b>\n\n👥 Total bot users: <b>${totalUsers}</b>\n✅ Total completed orders: <b>${completedOrders}</b>\n\n🔗 <b>Join our community</b>\n📣 <a href="${channelUrl}">Join Channel</a>\n👥 <a href="${groupUrl}">Join Group</a>`;
 }
 
 export function diagnoseConfiguredAdminChatId(values: { legacy?: string } = {}) {
@@ -1012,10 +1014,9 @@ export function buildHomeKeyboard() {
   return keyboard([
     [{ text: "🛍️ Shop", callback_data: "shop", style: "primary" }],
     [{ text: "👤 My Profile", callback_data: "profile", style: "success" }, { text: "💰 Wallet", callback_data: "wallet", style: "success" }],
-    [{ text: "📦 My Orders", callback_data: "orders", style: "success" }],
-    [{ text: "🆘 Support", callback_data: "support", style: "success" }],
-    [{ text: "ℹ️ Bot Info", callback_data: "botinfo", style: "success" }],
+    [{ text: "📦 My Orders", callback_data: "orders", style: "success" }, { text: "🆘 Support", callback_data: "support", style: "success" }],
     [{ text: "⭐ Refer & Earn", callback_data: "referrals", style: "success" }],
+    [{ text: "ℹ️ Bot Info", callback_data: "botinfo", style: "success" }],
   ]);
 }
 
@@ -1380,7 +1381,8 @@ async function showBotInfo(chatId: number, messageId?: number, admin = false) {
   if (!db) throw new Error("Database is unavailable");
   const userRows = await db.select({ count: sql<number>`count(*)` }).from(botUsers);
   const orderRows = await db.select({ count: sql<number>`count(*)` }).from(orders).where(or(eq(orders.status, "fulfilled"), eq(orders.status, "paid")));
-  return respond(chatId, formatBotInfoMessage(Number(userRows[0]?.count ?? 0), Number(orderRows[0]?.count ?? 0)), admin ? buildAdminKeyboard() : buildHomeKeyboard(), messageId);
+  const links = await runtimeGate();
+  return respond(chatId, formatBotInfoMessage(Number(userRows[0]?.count ?? 0), Number(orderRows[0]?.count ?? 0), links), admin ? buildAdminKeyboard() : buildHomeKeyboard(), messageId);
 }
 
 async function showShop(chatId: number, page = 0, messageId?: number) {

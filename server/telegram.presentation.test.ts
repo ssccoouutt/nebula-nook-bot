@@ -266,6 +266,8 @@ describe("Telegram presentation and notification helpers", () => {
     expect(usdCentsToTelegramStars(299)).toBe(250);
     expect(formatBotInfoMessage(45, 7)).toContain("Total bot users: <b>45</b>");
     expect(formatBotInfoMessage(45, 7)).toContain("Total completed orders: <b>7</b>");
+    expect(formatBotInfoMessage(45, 7, { channelUrl: "https://t.me/channel", groupUrl: "https://t.me/group" })).toContain('<a href="https://t.me/channel">Join Channel</a>');
+    expect(formatBotInfoMessage(45, 7, { channelUrl: "https://t.me/channel", groupUrl: "https://t.me/group" })).toContain('<a href="https://t.me/group">Join Group</a>');
   });
 
   it("renders the Qamify-style quantity and confirmation steps", () => {
@@ -473,10 +475,12 @@ describe("Telegram presentation and notification helpers", () => {
       expect.objectContaining({ text: "👤 My Profile", callback_data: "profile", style: "success" }),
       expect.objectContaining({ text: "💰 Wallet", callback_data: "wallet", style: "success" }),
     ]));
-    expect(home[2][0]).toMatchObject({ text: "📦 My Orders", callback_data: "orders", style: "success" });
-    expect(home[3][0]).toMatchObject({ text: "🆘 Support", callback_data: "support", style: "success" });
+    expect(home[2]).toEqual(expect.arrayContaining([
+      expect.objectContaining({ text: "📦 My Orders", callback_data: "orders", style: "success" }),
+      expect.objectContaining({ text: "🆘 Support", callback_data: "support", style: "success" }),
+    ]));
+    expect(home[3][0]).toMatchObject({ text: "⭐ Refer & Earn", callback_data: "referrals", style: "success" });
     expect(home[4][0]).toMatchObject({ text: "ℹ️ Bot Info", callback_data: "botinfo", style: "success" });
-    expect(home[5][0]).toMatchObject({ text: "⭐ Refer & Earn", callback_data: "referrals", style: "success" });
     expect(home.flat().some((button) => button.callback_data === "developer_api" || /developer api/i.test(button.text))).toBe(false);
     expect(home.flat().some((button) => /freebie/i.test(button.text) || button.callback_data === "freebies")).toBe(false);
     expect(parseTelegramCallbackAction("referrals")).toEqual({ kind: "referrals" });
