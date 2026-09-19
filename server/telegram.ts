@@ -447,11 +447,7 @@ export function buildConfirmedPurchasePlan(balanceCents: number, priceCents: num
 export function formatHomeMessage(details?: { firstName?: string | null; username?: string | null; tier?: string | null; balanceCents?: number; totalSpentCents?: number; referrals?: number; access?: boolean }) {
   const name = (details?.firstName ?? "there").replace(/[<&>]/g, "");
   const access = details?.access === false ? "🔒 Membership required" : "✅ Membership active";
-  return `👋 <b>Welcome to ToolsMania!</b>\n\nHey <b>${name}</b>! 👋\n\nWe offer premium digital products at the best prices — fast, secure, and reliable delivery.\n\n<blockquote>🛍️ <b>Shop</b> — Browse and buy digital products\n👤 <b>My Profile</b> — Account, balance, and orders\n💰 <b>Deposit</b> — Add funds to your wallet\n🛠️ <b>Developer API</b> — Reseller and automated ordering\n⭐ <b>Refer & Earn</b> — Invite friends and earn rewards</blockquote>\n\n${access}\n\nChoose an option below to continue:`;
-}
-
-export function formatDeveloperApiMessage() {
-  return "🛠️ <b>Developer API</b>\n\nDeveloper API access is not enabled for this bot yet. Please contact Support if you need reseller or automated ordering access.";
+  return `👋 <b>Welcome to ToolsMania!</b>\n\nHey <b>${name}</b>! 👋\n\nWe offer premium digital products at the best prices — fast, secure, and reliable delivery.\n\n<blockquote>🛍️ <b>Shop</b> — Browse and buy digital products\n👤 <b>My Profile</b> — Account, balance, and orders\n💰 <b>Wallet</b> — Add funds and manage your balance\n⭐ <b>Refer & Earn</b> — Invite friends and earn rewards</blockquote>\n\n${access}\n\nChoose an option below to continue:`;
 }
 
 export function formatMembershipMessage() {
@@ -1015,9 +1011,10 @@ function keyboard(rows: Array<Array<TelegramButton>>) {
 export function buildHomeKeyboard() {
   return keyboard([
     [{ text: "🛍️ Shop", callback_data: "shop", style: "primary" }],
-    [{ text: "👤 My Profile", callback_data: "profile", style: "success" }, { text: "💰 Deposit", callback_data: "wallet", style: "success" }],
-    [{ text: "🛠️ Developer API", callback_data: "developer_api", style: "success" }],
+    [{ text: "👤 My Profile", callback_data: "profile", style: "success" }, { text: "💰 Wallet", callback_data: "wallet", style: "success" }],
+    [{ text: "📦 My Orders", callback_data: "orders", style: "success" }],
     [{ text: "🆘 Support", callback_data: "support", style: "success" }],
+    [{ text: "ℹ️ Bot Info", callback_data: "botinfo", style: "success" }],
     [{ text: "⭐ Refer & Earn", callback_data: "referrals", style: "success" }],
   ]);
 }
@@ -1637,7 +1634,7 @@ async function createBinancePayPurchaseIntent(chatId: number, userId: number, pr
 }
 
 export type TelegramCallbackAction =
-  | { kind: "verify_membership" | "home" | "developer_api" | "wallet" | "walletadd" | "walletbep20" | "walletstars" | "walletstars_pay" | "walletcancel" | "orders" | "profile" | "referrals" | "support" | "support_new" | "support_history" | "support_cancel" | "botinfo" | "admin_stats" | "admin_tickets" | "admin_broadcast_help" | "admin_settings" | "admin_diagnostics" | "admin_delete_help" }
+  | { kind: "verify_membership" | "home" | "wallet" | "walletadd" | "walletbep20" | "walletstars" | "walletstars_pay" | "walletcancel" | "orders" | "profile" | "referrals" | "support" | "support_new" | "support_history" | "support_cancel" | "botinfo" | "admin_stats" | "admin_tickets" | "admin_broadcast_help" | "admin_settings" | "admin_diagnostics" | "admin_delete_help" }
   | { kind: "support_category"; category: SupportCategory }
   | { kind: "support_order" | "support_payment" | "ticket_detail"; id: number }
   | { kind: "support_page" | "tickets_page"; page: number }
@@ -1652,7 +1649,7 @@ export type TelegramCallbackAction =
 
 export function parseTelegramCallbackAction(data?: string): TelegramCallbackAction | null {
   const value = data ?? "";
-  if (["verify_membership", "home", "developer_api", "wallet", "walletadd", "walletbep20", "walletstars", "walletstars_pay", "walletcancel", "orders", "profile", "referrals", "support", "support_new", "support_history", "support_cancel", "botinfo", "admin_stats", "admin_tickets", "admin_broadcast_help", "admin_settings", "admin_diagnostics", "admin_delete_help"].includes(value)) return { kind: value as TelegramCallbackAction["kind"] } as TelegramCallbackAction;
+  if (["verify_membership", "home", "wallet", "walletadd", "walletbep20", "walletstars", "walletstars_pay", "walletcancel", "orders", "profile", "referrals", "support", "support_new", "support_history", "support_cancel", "botinfo", "admin_stats", "admin_tickets", "admin_broadcast_help", "admin_settings", "admin_diagnostics", "admin_delete_help"].includes(value)) return { kind: value as TelegramCallbackAction["kind"] } as TelegramCallbackAction;
   const supportCategoryMatch = value.match(/^support_category:(completed_order|payment_verification|bot_issue|other)$/);
   if (supportCategoryMatch) return { kind: "support_category", category: supportCategoryMatch[1] as SupportCategory };
   const supportOrderMatch = value.match(/^support_order:(\d+)$/);
@@ -1733,7 +1730,6 @@ export async function handleCallback(query: TelegramCallbackQuery, options: { sk
   }
   if (!options.skipAccess && !(await requireAccess(chatId, userId, messageId))) return;
   if (action.kind === "home") return showHome(chatId, userId, messageId);
-  if (action.kind === "developer_api") return respond(chatId, formatDeveloperApiMessage(), keyboard([[{ text: "🆘 Contact Support", callback_data: "support", style: "success" }], [{ text: "🏠 Back to home", callback_data: "home" }]]), messageId);
   if (action.kind === "shop") return showShop(chatId, action.id, messageId);
   if (action.kind === "product") return showProduct(chatId, action.id, messageId);
   if (action.kind === "wallet") return showWallet(chatId, userId, messageId);

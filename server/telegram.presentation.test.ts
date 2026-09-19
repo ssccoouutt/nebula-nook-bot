@@ -10,7 +10,6 @@ import {
   productEmoji,
   formatExtraDeviceMessage,
   formatHomeMessage,
-  formatDeveloperApiMessage,
   formatMembershipMessage,
   formatOrderStatus,
   formatDetailedOrder,
@@ -149,7 +148,8 @@ describe("Telegram presentation and notification helpers", () => {
     expect(home).toContain("👋 <b>Welcome to ToolsMania!</b>");
     expect(home).toContain("Hey <b>Rashid</b>! 👋");
     expect(home).toContain("🛍️ <b>Shop</b>");
-    expect(home).toContain("🛠️ <b>Developer API</b>");
+    expect(home).toContain("💰 <b>Wallet</b>");
+    expect(home).not.toContain("Developer API");
     expect(home).not.toContain("freebies");
     const order = formatDetailedOrder({ id: 42, kind: "purchase", status: "fulfilled", amountCents: 100, productName: "Gemini Pro", deliveredItem: "activation-link", paymentMethod: "Wallet", createdAt: "2026-08-17T12:34:56.000Z" });
     expect(order).toContain("Product: <b>Gemini Pro</b>");
@@ -157,7 +157,6 @@ describe("Telegram presentation and notification helpers", () => {
     expect(order).toContain("Purchased: <b>2026-08-17 12:34 UTC</b>");
     expect(order).toContain("<pre>activation-link</pre>");
     expect(home).toContain("✅ Membership active");
-    expect(formatDeveloperApiMessage()).toContain("🛠️ <b>Developer API</b>");
     expect(formatMembershipMessage()).toContain("🔐 <b>Membership required</b>");
     expect(formatSupportPrompt()).toContain("🆘 <b>Support</b>");
     expect(formatSupportPrompt()).toContain("next message");
@@ -214,7 +213,7 @@ describe("Telegram presentation and notification helpers", () => {
 
   it("routes every inline callback action deterministically", async () => {
     expect(parseTelegramCallbackAction("home")).toEqual({ kind: "home" });
-    expect(parseTelegramCallbackAction("developer_api")).toEqual({ kind: "developer_api" });
+    expect(parseTelegramCallbackAction("developer_api")).toBeNull();
     expect(parseTelegramCallbackAction("wallet")).toEqual({ kind: "wallet" });
     expect(parseTelegramCallbackAction("orders")).toEqual({ kind: "orders" });
     expect(parseTelegramCallbackAction("profile")).toEqual({ kind: "profile" });
@@ -472,11 +471,13 @@ describe("Telegram presentation and notification helpers", () => {
     expect(home[0]).toEqual([expect.objectContaining({ text: "🛍️ Shop", callback_data: "shop", style: "primary" })]);
     expect(home[1]).toEqual(expect.arrayContaining([
       expect.objectContaining({ text: "👤 My Profile", callback_data: "profile", style: "success" }),
-      expect.objectContaining({ text: "💰 Deposit", callback_data: "wallet", style: "success" }),
+      expect.objectContaining({ text: "💰 Wallet", callback_data: "wallet", style: "success" }),
     ]));
-    expect(home[2][0]).toMatchObject({ text: "🛠️ Developer API", callback_data: "developer_api", style: "success" });
+    expect(home[2][0]).toMatchObject({ text: "📦 My Orders", callback_data: "orders", style: "success" });
     expect(home[3][0]).toMatchObject({ text: "🆘 Support", callback_data: "support", style: "success" });
-    expect(home[4][0]).toMatchObject({ text: "⭐ Refer & Earn", callback_data: "referrals", style: "success" });
+    expect(home[4][0]).toMatchObject({ text: "ℹ️ Bot Info", callback_data: "botinfo", style: "success" });
+    expect(home[5][0]).toMatchObject({ text: "⭐ Refer & Earn", callback_data: "referrals", style: "success" });
+    expect(home.flat().some((button) => button.callback_data === "developer_api" || /developer api/i.test(button.text))).toBe(false);
     expect(home.flat().some((button) => /freebie/i.test(button.text) || button.callback_data === "freebies")).toBe(false);
     expect(parseTelegramCallbackAction("referrals")).toEqual({ kind: "referrals" });
 
