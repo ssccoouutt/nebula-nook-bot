@@ -4,7 +4,6 @@ import {
   freeWindowStart,
   hasAccess,
   referralCodeForTelegramId,
-  tierForReferralCount,
 } from "../shared/botLogic";
 
 describe("bot domain rules", () => {
@@ -22,10 +21,7 @@ describe("bot domain rules", () => {
     expect(canClaimFreeItem(10_500, 20_001, 10_000)).toBe(true);
   });
 
-  it("creates stable referral codes and applies exact tier thresholds", () => {
+  it("creates stable referral codes", () => {
     expect(referralCodeForTelegramId(123456)).toBe("NN2N9C");
-    expect(tierForReferralCount(0)).toBe("Bronze");
-    expect(tierForReferralCount(5)).toBe("Silver");
-    expect(tierForReferralCount(25)).toBe("Gold");
   });
 });

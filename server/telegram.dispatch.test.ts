@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const state = vi.hoisted(() => ({
   products: [{ id: 7, name: "Gemini AI Pro", active: true, stock: 8, priceCents: 500, emoji: "🔋" }],
-  users: [{ id: 41, telegramUserId: 9001, firstName: "Rashid", username: "rashid", balanceCents: 1000, tier: "Bronze", referrals: 0 }],
+  users: [{ id: 41, telegramUserId: 9001, firstName: "Rashid", username: "rashid", balanceCents: 1000, referrals: 0 }],
   alerts: [] as Array<{ id: number; botUserId: number; productId: number; active: number }>,
   selectCount: 0,
   mode: "custom" as "custom" | "price",

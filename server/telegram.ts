@@ -3,7 +3,7 @@ import { and, desc, eq, gt, inArray, isNull, or, sql } from "drizzle-orm";
 import { getDb } from "./db";
 import { binancePayDeposits, botSettings, botUsers, broadcasts, freeClaims, notificationDeliveries, orders, paymentIntents, priceAlerts, products, referrals, supportTickets, telegramStarsWalletPayments, walletLedger } from "../drizzle/schema";
 import { findBinancePayTransaction } from "./binancePay";
-import { hasAccess, referralCodeForTelegramId, tierForReferralCount } from "../shared/botLogic";
+import { hasAccess, referralCodeForTelegramId } from "../shared/botLogic";
 import { flushDriveSync, scheduleDriveSync } from "./googleDrivePersistence";
 import { encryptedConfigDiagnostics } from "./configFile";
 import { formatBulkPricingForUsers, parseBulkPricing, resolveBulkUnitPriceCents } from "../shared/pricing";
@@ -444,10 +444,15 @@ export function buildConfirmedPurchasePlan(balanceCents: number, priceCents: num
   return { ok: true as const, quantity: purchase.quantity, totalCents: purchase.totalCents, nextBalanceCents: purchase.nextBalanceCents, nextStock: purchase.nextStock };
 }
 
-export function formatHomeMessage(details?: { firstName?: string | null; username?: string | null; tier?: string | null; balanceCents?: number; totalSpentCents?: number; referrals?: number; access?: boolean }) {
+export function formatHomeMessage(details?: { firstName?: string | null; username?: string | null; balanceCents?: number; totalSpentCents?: number; referrals?: number; access?: boolean }) {
   const name = (details?.firstName ?? "there").replace(/[<&>]/g, "");
   const access = details?.access === false ? "🔒 Membership required" : "✅ Membership active";
   return `👋 <b>Welcome to ToolsMania!</b>\n\nHey <b>${name}</b>! 👋\n\nWe offer premium digital products at the best prices — fast, secure, and reliable delivery.\n\n<blockquote>🛍️ <b>Shop</b> — Browse and buy digital products\n👤 <b>My Profile</b> — Account, balance, and orders\n💰 <b>Wallet</b> — Add funds and manage your balance\n⭐ <b>Refer & Earn</b> — Invite friends and earn rewards</blockquote>\n\n${access}\n\nChoose an option below to continue:`;
+}
+
+export function formatProfileMessage(details: { firstName?: string | null; username?: string | null; telegramUserId: number; balanceCents?: number; totalSpentCents?: number; totalOrders?: number; referrals?: number; referralCredits?: number; referralLink: string }) {
+  const escapeHtml = (value: unknown) => String(value ?? "").replace(/[<&>]/g, "");
+  return `👤 <b>Profile</b>\n\n<b>Name:</b> ${escapeHtml(details.firstName || "User")}\n<b>Username:</b> ${details.username ? `@${escapeHtml(details.username)}` : "No username"}\n<b>ID:</b> ${escapeHtml(details.telegramUserId)}\n<b>Balance:</b> $${(Number(details.balanceCents ?? 0) / 100).toFixed(2)}\n<b>Total spent:</b> $${(Number(details.totalSpentCents ?? 0) / 100).toFixed(2)}\n<b>Total orders:</b> ${Number(details.totalOrders ?? 0)}\n<b>Referrals:</b> ${Number(details.referrals ?? 0)}\n<b>Referral credits:</b> ${Number(details.referralCredits ?? 0)}\n\n🔗 <b>Your referral link:</b>\n${escapeHtml(details.referralLink)}`;
 }
 
 export function formatMembershipMessage() {
@@ -1332,8 +1337,6 @@ async function qualifyReferralIfEligible(userId: number) {
   const inserted = await db.insert(referrals).values({ referrerId: referrer.id, referredUserId: invited.id, bonusCents: 0, creditsAwarded: 1 }).onConflictDoNothing();
   if (!didInsertReferralRow(inserted)) return false;
   await db.update(botUsers).set({ referralCredits: sql`${botUsers.referralCredits} + 1` }).where(eq(botUsers.id, referrer.id));
-  const referralCount = await db.select({ count: sql<number>`count(*)` }).from(referrals).where(eq(referrals.referrerId, referrer.id));
-  await db.update(botUsers).set({ tier: tierForReferralCount(Number(referralCount[0]?.count ?? 0)) }).where(eq(botUsers.id, referrer.id));
   scheduleDriveSync("referral_update");
   await notifyAdmin("referral_qualified", String(invited.id), formatQualifiedReferralNotification(referrer.firstName ?? referrer.username ?? undefined, referrer.telegramUserId, invited.firstName ?? invited.username ?? undefined, invited.telegramUserId), buildQualifiedReferralNotificationKeyboard());
   return true;
@@ -1360,7 +1363,6 @@ async function showHome(chatId: number, userId: number, messageId?: number) {
   await respond(chatId, formatHomeMessage({
     firstName: user?.firstName,
     username: user?.username,
-    tier: user?.tier,
     balanceCents: user?.balanceCents,
     totalSpentCents: Number(spentRows[0]?.total ?? 0),
     referrals: Number(referralRows[0]?.count ?? 0),
@@ -1510,7 +1512,9 @@ async function showProfile(chatId: number, userId: number, messageId?: number) {
   const user = (await db.select().from(botUsers).where(eq(botUsers.telegramUserId, userId)).limit(1))[0];
   const referralsCount = await db.select({ count: sql<number>`count(*)` }).from(referrals).where(eq(referrals.referrerId, user?.id ?? -1));
   const spentRows = await db.select({ total: sql<number>`coalesce(sum(${orders.amountCents}), 0)` }).from(orders).where(eq(orders.botUserId, user?.id ?? -1));
-  await respond(chatId, `👤 <b>Profile</b>\n\n🪪 Name: ${user?.firstName ?? "User"}\n🏅 Tier: ${user?.tier ?? "Bronze"}\n💰 Total spent: <b>$${(Number(spentRows[0]?.total ?? 0) / 100).toFixed(2)}</b>\n🤝 Referrals: ${Number(referralsCount[0]?.count ?? 0)}\n\n🔗 Your referral link:\nhttps://t.me/${PUBLIC_BOT_USERNAME}?start=ref_${user?.referralCode ?? ""}`, buildHomeKeyboard(), messageId);
+  const orderRows = await db.select({ count: sql<number>`count(*)` }).from(orders).where(and(eq(orders.botUserId, user?.id ?? -1), or(eq(orders.status, "fulfilled"), eq(orders.status, "paid"))));
+  const text = formatProfileMessage({ firstName: user?.firstName, username: user?.username, telegramUserId: user?.telegramUserId ?? userId, balanceCents: user?.balanceCents, totalSpentCents: Number(spentRows[0]?.total ?? 0), totalOrders: Number(orderRows[0]?.count ?? 0), referrals: Number(referralsCount[0]?.count ?? 0), referralCredits: Number(user?.referralCredits ?? 0), referralLink: `https://t.me/${PUBLIC_BOT_USERNAME}?start=ref_${user?.referralCode ?? ""}` });
+  await respond(chatId, text, buildHomeKeyboard(), messageId);
 }
 
 async function showReferrals(chatId: number, userId: number, messageId?: number) {
@@ -1521,7 +1525,7 @@ async function showReferrals(chatId: number, userId: number, messageId?: number)
   const rewards = await db.select().from(products).where(and(eq(products.active, 1), eq(products.referralEligible, 1), gt(products.stock, 0))).orderBy(products.name);
   const rewardRows = rewards.map((product) => [{ text: `🎁 ${product.name} · ${product.referralPriceCredits} credit${product.referralPriceCredits === 1 ? "" : "s"}`, callback_data: `reward:${product.id}` }]);
   const rewardText = rewards.length ? `\n\n🎁 <b>Available rewards</b>\nClaim selected products using your credits:` : "\n\nNo referral rewards are available right now.";
-  await respond(chatId, `🤝 <b>Referrals</b>\n\nInvite friends with your personal link and earn 1 credit for each new bot user.\n\n👥 Successful referrals: <b>${Number(referralsCount[0]?.count ?? 0)}</b>\n🎟️ Referral credits: <b>${user?.referralCredits ?? 0}</b>\n🏅 Current tier: <b>${user?.tier ?? "Bronze"}</b>${rewardText}\n\n🔗 Your referral link:\nhttps://t.me/${PUBLIC_BOT_USERNAME}?start=ref_${user?.referralCode ?? ""}`, keyboard([...rewardRows, [{ text: "⌂ Home", callback_data: "home" }]]), messageId);
+  await respond(chatId, `🤝 <b>Referrals</b>\n\nInvite friends with your personal link and earn 1 credit for each new bot user.\n\n👥 Successful referrals: <b>${Number(referralsCount[0]?.count ?? 0)}</b>\n🎟️ Referral credits: <b>${user?.referralCredits ?? 0}</b>${rewardText}\n\n🔗 Your referral link:\nhttps://t.me/${PUBLIC_BOT_USERNAME}?start=ref_${user?.referralCode ?? ""}`, keyboard([...rewardRows, [{ text: "⌂ Home", callback_data: "home" }]]), messageId);
 }
 
 async function claimReferralReward(chatId: number, userId: number, productId: number, messageId?: number) {

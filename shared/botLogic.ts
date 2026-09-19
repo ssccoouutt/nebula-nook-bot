@@ -26,9 +26,3 @@ export function referralCodeForTelegramId(telegramUserId: number): string {
   }
   return `NN${telegramUserId.toString(36).toUpperCase()}`;
 }
-
-export function tierForReferralCount(referralCount: number): "Bronze" | "Silver" | "Gold" {
-  if (referralCount >= 25) return "Gold";
-  if (referralCount >= 5) return "Silver";
-  return "Bronze";
-}
