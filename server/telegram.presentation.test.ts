@@ -180,14 +180,14 @@ describe("Telegram presentation and notification helpers", () => {
 
   it("renders Profile labels in bold with the complete account summary", () => {
     const profile = formatProfileMessage({ firstName: "Zeeshan", username: "zeeshan", telegramUserId: 123456789, balanceCents: 1250, totalSpentCents: 2216, totalOrders: 4, referrals: 1, referralCredits: 1, referralLink: "https://t.me/Toolsmania_bot?start=ref_NNGDM0VJ" });
-    expect(profile).toContain("<b>Name:</b> Zeeshan");
-    expect(profile).toContain("<b>Username:</b> @zeeshan");
-    expect(profile).toContain("<b>ID:</b> 123456789");
-    expect(profile).toContain("<b>Balance:</b> $12.50");
-    expect(profile).toContain("<b>Total spent:</b> $22.16");
-    expect(profile).toContain("<b>Total orders:</b> 4");
-    expect(profile).toContain("<b>Referrals:</b> 1");
-    expect(profile).toContain("<b>Referral credits:</b> 1");
+    expect(profile).toContain("🪪 <b>Name:</b> Zeeshan");
+    expect(profile).toContain("👤 <b>Username:</b> @zeeshan");
+    expect(profile).toContain("🆔 <b>ID:</b> 123456789");
+    expect(profile).toContain("💰 <b>Balance:</b> $12.50");
+    expect(profile).toContain("💳 <b>Total spent:</b> $22.16");
+    expect(profile).toContain("📦 <b>Total orders:</b> 4");
+    expect(profile).toContain("🤝 <b>Referrals:</b> 1");
+    expect(profile).toContain("🎟️ <b>Referral credits:</b> 1");
     expect(profile).not.toContain("Tier");
   });
 
