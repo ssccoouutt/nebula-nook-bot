@@ -189,6 +189,7 @@ describe("Telegram presentation and notification helpers", () => {
     expect(profile).toContain("🤝 <b>Referrals:</b> 1");
     expect(profile).toContain("🎟️ <b>Referral credits:</b> 1");
     expect(profile).not.toContain("Tier");
+    expect(profile).toContain("<b>ID:</b> 123456789\n\n💰 <b>Balance:</b>");
   });
 
   it("keeps all requested group notifications anonymous", () => {
