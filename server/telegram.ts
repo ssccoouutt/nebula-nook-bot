@@ -598,7 +598,7 @@ async function showSupportOrderPicker(chatId: number, userId: number, page = 0, 
   const db = await getDb();
   if (!db) throw new Error("Database is unavailable");
   const user = (await db.select().from(botUsers).where(eq(botUsers.telegramUserId, userId)).limit(1))[0];
-  const allOrders = user ? await db.select().from(orders).where(and(eq(orders.botUserId, user.id), eq(orders.status, "fulfilled"))).orderBy(desc(orders.createdAt)) : [];
+  const allOrders = user ? await db.select().from(orders).where(and(eq(orders.botUserId, user.id), or(eq(orders.status, "fulfilled"), eq(orders.status, "paid")))).orderBy(desc(orders.createdAt)) : [];
   const pageCount = Math.max(1, Math.ceil(allOrders.length / SUPPORT_TICKET_PAGE_SIZE));
   const safePage = Math.min(Math.max(page, 0), pageCount - 1);
   const pageOrders = allOrders.slice(safePage * SUPPORT_TICKET_PAGE_SIZE, (safePage + 1) * SUPPORT_TICKET_PAGE_SIZE);
@@ -920,10 +920,10 @@ export function consumeDigitalInventory(inventoryText: string | null | undefined
   return { ok: true as const, items: items.slice(0, count), remaining: items.slice(count) };
 }
 
-export const SHOP_PAGE_SIZE = 6;
 
 export function formatShopSummary(page: number, pageCount: number) {
-  return `🛍️ <b>ToolsMania Shop</b>\n\nChoose a product to view its details and buy instantly.\n\n📄 Page ${page + 1} of ${pageCount}`;
+  const pagination = pageCount > 1 ? `\n\n📄 Page ${page + 1} of ${pageCount}` : "";
+  return `🛍️ <b>ToolsMania Shop</b>\n\nChoose a product to view its details and buy instantly.${pagination}`;
 }
 
 export function formatFreebiesMessage(items: Array<{ name: string; stock: number }>) {
@@ -958,7 +958,8 @@ export function formatDetailedOrder(order: { id: string | number; kind: string; 
 
 export function maskPurchaseName(name: string | undefined, telegramUserId?: number) {
   const raw = (name ?? "User").replace(/[<>]/g, "").trim() || "User";
-  return `${raw[0] ?? "U"}*****`;
+  const firstCharacter = Array.from(raw)[0] ?? "U";
+  return `${firstCharacter}*****`;
 }
 
 export function productEmoji(productName: string) {
@@ -1046,18 +1047,14 @@ export function buildMembershipKeyboard(channelUrl: string, groupUrl: string) {
   ]);
 }
 
-export function buildShopKeyboard(items: Array<{ id: number; name: string; priceCents: number; stock?: number }>, page: number, pageCount: number) {
+export function buildShopKeyboard(items: Array<{ id: number; name: string; priceCents: number; stock?: number }>, page = 0, pageCount = 1) {
   const rows: TelegramButton[][] = items.map((item) => {
     const stock = Number(item.stock ?? 0);
     const available = stock > 0;
     const label = available ? `✨ ${item.name} · $${(item.priceCents / 100).toFixed(2)} (${stock})` : `⛔ ${item.name} · OUT OF STOCK (0)`;
-    return [{ text: label.slice(0, 64), callback_data: `product:${item.id}`, style: available ? "success" : "danger" }];
+    return [{ text: label.slice(0, 64), callback_data: `product:${item.id}`, style: available ? "primary" : "danger" }];
   });
-  const nav: TelegramButton[] = [];
-  if (page > 0) nav.push({ text: "◀️ Previous", callback_data: `shop:${page - 1}`, style: "primary" });
-  if (page < pageCount - 1) nav.push({ text: "Next ▶️", callback_data: `shop:${page + 1}`, style: "primary" });
-  if (nav.length) rows.push(nav);
-  rows.push([{ text: "🔄 Refresh", callback_data: `shop:${page}`, style: "primary" }, { text: "🏠 Back to home", callback_data: "home", style: "primary" }]);
+  rows.push([{ text: "🔄 Refresh", callback_data: "shop:0", style: "success" }, { text: "🏠 Back to home", callback_data: "home", style: "success" }]);
   return keyboard(rows);
 }
 
@@ -1092,6 +1089,10 @@ export function buildQuantityKeyboard(productId: number, stock: number) {
   rows.push([{ text: "✏️ Custom quantity", callback_data: `customqty:${productId}`, style: "primary" }]);
   rows.push([{ text: "↩️ Back to product", callback_data: `product:${productId}` }]);
   return keyboard(rows);
+}
+
+export function buildCustomQuantityKeyboard(productId: number) {
+  return keyboard([[{ text: "✖️ Cancel", callback_data: `buycancel:${productId}` }]]);
 }
 
 export function buildPaymentMethodKeyboard(productId: number, quantity: number) {
@@ -1421,10 +1422,7 @@ async function showShop(chatId: number, page = 0, messageId?: number) {
     items.sort((a, b) => (soldByProduct.get(b.id) ?? 0) - (soldByProduct.get(a.id) ?? 0) || a.name.localeCompare(b.name));
   } else items.sort((a, b) => a.name.localeCompare(b.name));
   if (!items.length) return respond(chatId, "🛍️ <b>Shop</b>\n\nThe catalog is empty right now. Please check back soon.", undefined, messageId);
-  const pageCount = Math.max(1, Math.ceil(items.length / SHOP_PAGE_SIZE));
-  const safePage = Math.min(Math.max(page, 0), pageCount - 1);
-  const pageItems = items.slice(safePage * SHOP_PAGE_SIZE, (safePage + 1) * SHOP_PAGE_SIZE);
-  await respond(chatId, formatShopSummary(safePage, pageCount), buildShopKeyboard(pageItems, safePage, pageCount), messageId);
+  await respond(chatId, formatShopSummary(0, 1), buildShopKeyboard(items, 0, 1), messageId);
 }
 
 async function showProduct(chatId: number, productId: number, messageId?: number) {
@@ -1494,7 +1492,7 @@ async function loadUserOrder(chatId: number, userId: number, orderId: number) {
   const db = await getDb();
   if (!db) throw new Error("Database is unavailable");
   const user = (await db.select().from(botUsers).where(eq(botUsers.telegramUserId, userId)).limit(1))[0];
-  const order = user ? (await db.select().from(orders).where(and(eq(orders.id, orderId), eq(orders.botUserId, user.id), eq(orders.status, "fulfilled"))).limit(1))[0] : undefined;
+  const order = user ? (await db.select().from(orders).where(and(eq(orders.id, orderId), eq(orders.botUserId, user.id), or(eq(orders.status, "fulfilled"), eq(orders.status, "paid")))).limit(1))[0] : undefined;
   if (!order) return { db, user, order: undefined, product: undefined };
   const product = (await db.select().from(products).where(eq(products.id, order.productId)).limit(1))[0];
   return { db, user, order, product };
@@ -1505,11 +1503,11 @@ async function showOrders(chatId: number, userId: number, messageId?: number, pa
   if (!db) throw new Error("Database is unavailable");
   const user = (await db.select().from(botUsers).where(eq(botUsers.telegramUserId, userId)).limit(1))[0];
   const userIdValue = user?.id ?? -1;
-  const countRows = await db.select({ count: sql<number>`count(*)` }).from(orders).where(and(eq(orders.botUserId, userIdValue), eq(orders.status, "fulfilled")));
+  const countRows = await db.select({ count: sql<number>`count(*)` }).from(orders).where(and(eq(orders.botUserId, userIdValue), or(eq(orders.status, "fulfilled"), eq(orders.status, "paid"))));
   const total = Number(countRows[0]?.count ?? 0);
   const pageCount = Math.max(1, Math.ceil(total / ORDERS_PAGE_SIZE));
   const safePage = Math.min(Math.max(page, 0), pageCount - 1);
-  const rows = await db.select().from(orders).where(and(eq(orders.botUserId, userIdValue), eq(orders.status, "fulfilled"))).orderBy(desc(orders.createdAt)).limit(ORDERS_PAGE_SIZE).offset(safePage * ORDERS_PAGE_SIZE);
+  const rows = await db.select().from(orders).where(and(eq(orders.botUserId, userIdValue), or(eq(orders.status, "fulfilled"), eq(orders.status, "paid")))).orderBy(desc(orders.createdAt)).limit(ORDERS_PAGE_SIZE).offset(safePage * ORDERS_PAGE_SIZE);
   const productIds = Array.from(new Set(rows.map((row) => row.productId).filter((id): id is number => typeof id === "number")));
   const productRows = productIds.length ? await db.select().from(products).where(inArray(products.id, productIds)) : [];
   const productById = new Map(productRows.map((product) => [product.id, product.name]));
@@ -1601,7 +1599,7 @@ async function claimFree(chatId: number, userId: number, productId: number, mess
   scheduleDriveSync("completed_order");
   const delivery = digital.items.length ? `\n\n📦 <b>Your digital item</b>\n<blockquote>${digital.items[0].replace(/[<&>]/g, "")}</blockquote>\n\nTap and hold the text above to copy it.` : "";
   await respond(chatId, `✅ <b>Free claim recorded</b>\n\n🎁 ${product.name}${delivery}\n\nYour claim has been added to your order history.`, buildHomeKeyboard(), messageId);
-  await notifyAdmin("free_claim", `${user.id}:${product.id}:${windowStart}`, formatFreebieClaimNotification(product.name, user.firstName ?? undefined, user.telegramUserId));
+  await notifyAdmin("free_claim", `${user.id}:${product.id}:${windowStart}`, formatFreebieClaimNotification(product.name, user.firstName ?? user.username ?? undefined, user.telegramUserId));
 }
 
 async function showQuantityPrompt(chatId: number, productId: number, messageId?: number) {
@@ -1626,6 +1624,7 @@ async function showPurchaseReview(chatId: number, userId: number, productId: num
 async function cancelPurchase(chatId: number, userId: number, productId: number, messageId?: number) {
   const db = await getDb();
   pendingBinancePayPurchases.delete(userId);
+  pendingCustomQuantities.delete(userId);
   if (db) {
     const user = (await db.select().from(botUsers).where(eq(botUsers.telegramUserId, userId)).limit(1))[0];
     if (user) await db.update(paymentIntents).set({ status: "cancelled" }).where(and(eq(paymentIntents.botUserId, user.id), eq(paymentIntents.status, "pending")));
@@ -1833,7 +1832,7 @@ export async function handleCallback(query: TelegramCallbackQuery, options: { sk
     const db = await getDb();
     if (!db) throw new Error("Database is unavailable");
     const user = (await db.select().from(botUsers).where(eq(botUsers.telegramUserId, userId)).limit(1))[0];
-    const order = user ? (await db.select().from(orders).where(and(eq(orders.id, action.id), eq(orders.botUserId, user.id), eq(orders.status, "fulfilled"))).limit(1))[0] : undefined;
+    const order = user ? (await db.select().from(orders).where(and(eq(orders.id, action.id), eq(orders.botUserId, user.id), or(eq(orders.status, "fulfilled"), eq(orders.status, "paid")))).limit(1))[0] : undefined;
     if (!order) return showSupportOrderPicker(chatId, userId, 0, messageId);
     const product = (await db.select().from(products).where(eq(products.id, order.productId)).limit(1))[0];
     pendingSupportMessages.set(userId, { ...draft, step: "description", orderId: order.id, expiresAt: Date.now() + SUPPORT_MESSAGE_WINDOW_MS });
@@ -1861,7 +1860,7 @@ export async function handleCallback(query: TelegramCallbackQuery, options: { sk
     const product = (await db.select().from(products).where(eq(products.id, action.id)).limit(1))[0];
     if (!isPurchasableProduct(product)) return respond(chatId, "⚠️ This product is currently unavailable.", undefined, messageId);
     pendingCustomQuantities.set(userId, { productId: action.id, expiresAt: Date.now() + 5 * 60 * 1000 });
-    return respond(chatId, formatCustomQuantityPrompt(product.name, product.stock), { force_reply: true, selective: true }, messageId);
+    return respond(chatId, formatCustomQuantityPrompt(product.name, product.stock), buildCustomQuantityKeyboard(product.id), messageId);
   }
   if (purchaseRoute === "price_alert" && action.kind === "pricealert") {
     const db = await getDb();
@@ -1996,7 +1995,7 @@ async function verifyAndFulfillTelegramStarsPurchase(chatId: number, userId: num
   }
   scheduleDriveSync("completed_order");
   const buyer = (await db.select().from(botUsers).where(eq(botUsers.telegramUserId, userId)).limit(1))[0];
-  const announcement = buildPurchaseAnnouncement(outcome.product.id, outcome.product.name, outcome.quantity, buyer?.firstName ?? "User", userId);
+  const announcement = buildPurchaseAnnouncement(outcome.product.id, outcome.product.name, outcome.quantity, buyer?.firstName ?? buyer?.username ?? "User", userId);
   await sendMessage(chatId, formatPurchaseConfirmation(outcome.orderId, `${outcome.quantity}× ${outcome.product.name}`, outcome.amountCents, { mode: outcome.deliveryMode, items: outcome.deliveredItems, warrantyDays: outcome.warrantyDays }), buildHomeKeyboard());
   await notifyAdmin("order_fulfilled", String(outcome.orderId), announcement.text, announcement.replyMarkup);
   return true;
@@ -2049,7 +2048,7 @@ async function verifyAndFulfillBinancePurchase(chatId: number, userId: number, i
   }
   scheduleDriveSync("completed_order");
   const buyer = (await db.select().from(botUsers).where(eq(botUsers.telegramUserId, userId)).limit(1))[0];
-  const announcement = buildPurchaseAnnouncement(outcome.product.id, outcome.product.name, outcome.quantity, buyer?.firstName ?? "User", userId);
+  const announcement = buildPurchaseAnnouncement(outcome.product.id, outcome.product.name, outcome.quantity, buyer?.firstName ?? buyer?.username ?? "User", userId);
   await respond(chatId, formatPurchaseConfirmation(outcome.orderId, `${outcome.quantity}× ${outcome.product.name}`, outcome.amountCents, { mode: outcome.deliveryMode, items: outcome.deliveredItems, warrantyDays: outcome.warrantyDays }), buildHomeKeyboard());
   await notifyAdmin("order_fulfilled", String(outcome.orderId), announcement.text, announcement.replyMarkup);
   return true;
@@ -2177,7 +2176,7 @@ export async function handleMessage(message: TelegramMessage) {
       return respond(message.chat.id, "⚠️ This product is currently unavailable.", undefined, message.reply_to_message?.message_id);
     }
     const reply = resolveCustomQuantityReply(message.text, product.name, product.stock);
-    if (reply.kind === "retry") return respond(message.chat.id, reply.text, { force_reply: true, selective: true }, message.reply_to_message?.message_id);
+    if (reply.kind === "retry") return respond(message.chat.id, reply.text, buildCustomQuantityKeyboard(product.id), message.reply_to_message?.message_id);
     pendingCustomQuantities.delete(user.id);
     return showPurchaseReview(message.chat.id, user.id, pending.productId, reply.quantity, message.reply_to_message?.message_id);
   }

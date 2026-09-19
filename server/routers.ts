@@ -248,7 +248,7 @@ export const appRouter = router({
     completedOrders: adminProcedure.input(z.object({ search: z.string().trim().max(200).default(""), limit: z.number().int().min(1).max(1000).default(500) }).optional()).query(async ({ input }) => {
       const db = await database();
       const [rows, users, catalog, intents] = await Promise.all([
-        db.select().from(orders).where(eq(orders.status, "fulfilled")).orderBy(desc(orders.updatedAt)).limit(input?.limit ?? 500),
+        db.select().from(orders).where(or(eq(orders.status, "fulfilled"), eq(orders.status, "paid"))).orderBy(desc(orders.updatedAt)).limit(input?.limit ?? 500),
         db.select().from(botUsers),
         db.select().from(products),
         db.select().from(paymentIntents).where(eq(paymentIntents.status, "fulfilled")),

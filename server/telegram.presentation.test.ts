@@ -17,7 +17,6 @@ import {
   formatPurchaseConfirmation,
   normalizeWarrantyText,
   formatShopSummary,
-  SHOP_PAGE_SIZE,
   formatSupportPrompt,
   formatSupportSubmitted,
   resolveNotificationChatId,
@@ -39,6 +38,7 @@ import {
   buildShopKeyboard,
   buildProductKeyboard,
   buildQuantityKeyboard,
+  buildCustomQuantityKeyboard,
   buildPaymentMethodKeyboard,
   usdCentsToTelegramStars,
   formatBotInfoMessage,
@@ -176,7 +176,6 @@ describe("Telegram presentation and notification helpers", () => {
   });
 
   it("formats a compact paginated Shop instead of a message per product", () => {
-    expect(SHOP_PAGE_SIZE).toBe(6);
     expect(formatShopSummary(0, 2)).toContain("📄 Page 1 of 2");
     expect(formatShopSummary(1, 2)).toContain("🛍️ <b>ToolsMania Shop</b>");
   });
@@ -316,6 +315,7 @@ describe("Telegram presentation and notification helpers", () => {
     ]));
     expect(quantityRows.at(-2)?.[0]).toMatchObject({ text: "✏️ Custom quantity", callback_data: "customqty:7", style: "primary" });
     expect(quantityRows.at(-1)?.[0]).toMatchObject({ text: "↩️ Back to product", callback_data: "product:7" });
+    expect(buildCustomQuantityKeyboard(7).inline_keyboard[0][0]).toMatchObject({ text: "✖️ Cancel", callback_data: "buycancel:7" });
     expect(formatPurchaseReview("Gemini Pro", 299, 3, 1000)).toContain("💰 Total to pay: <b>$8.97</b>");
     expect(formatPurchaseReview("Gemini Pro", 299, 3, 1000)).toContain("Choose a payment method");
     const reviewRows = buildPaymentMethodKeyboard(7, 3).inline_keyboard;
@@ -501,11 +501,11 @@ describe("Telegram presentation and notification helpers", () => {
     expect(parseTelegramCallbackAction("referrals")).toEqual({ kind: "referrals" });
 
     const compactShop = buildShopKeyboard([{ id: 1, name: "Sample", priceCents: 100, stock: 3 }, { id: 2, name: "Sold out", priceCents: 100, stock: 0 }], 0, 1).inline_keyboard;
-    expect(compactShop[0][0]).toMatchObject({ callback_data: "product:1", style: "success", text: "✨ Sample · $1.00 (3)" });
+    expect(compactShop[0][0]).toMatchObject({ callback_data: "product:1", style: "primary", text: "✨ Sample · $1.00 (3)" });
     expect(compactShop[1][0]).toMatchObject({ callback_data: "product:2", style: "danger", text: "⛔ Sold out · OUT OF STOCK (0)" });
     expect(compactShop.at(-1)).toEqual(expect.arrayContaining([
-      expect.objectContaining({ text: "🔄 Refresh", callback_data: "shop:0", style: "primary" }),
-      expect.objectContaining({ text: "🏠 Back to home", callback_data: "home", style: "primary" }),
+      expect.objectContaining({ text: "🔄 Refresh", callback_data: "shop:0", style: "success" }),
+      expect.objectContaining({ text: "🏠 Back to home", callback_data: "home", style: "success" }),
     ]));
 
     const compactProduct = buildProductKeyboard(1).inline_keyboard;
@@ -520,8 +520,12 @@ describe("Telegram presentation and notification helpers", () => {
     expect(membership[2][0]).toMatchObject({ callback_data: "verify_membership", style: "primary" });
 
     const shop = buildShopKeyboard([{ id: 7, name: "Gemini Pro", priceCents: 1, stock: 1 }], 0, 2).inline_keyboard;
-    expect(shop[0][0]).toMatchObject({ callback_data: "product:7", style: "success", text: "✨ Gemini Pro · $0.01 (1)" });
-    expect(shop[1][0]).toMatchObject({ callback_data: "shop:1", style: "primary" });
+    expect(shop[0][0]).toMatchObject({ callback_data: "product:7", style: "primary", text: "✨ Gemini Pro · $0.01 (1)" });
+    expect(shop.flat().some((button) => button.callback_data === "shop:1")).toBe(false);
+    expect(shop.at(-1)).toEqual(expect.arrayContaining([
+      expect.objectContaining({ callback_data: "shop:0", style: "success" }),
+      expect.objectContaining({ callback_data: "home", style: "success" }),
+    ]));
 
     const product = buildProductKeyboard(7).inline_keyboard;
     expect(product[0][0]).toMatchObject({ callback_data: "buyqty:7:0" });
@@ -593,6 +597,7 @@ describe("Telegram presentation and notification helpers", () => {
 
   it("builds a Qamify-style masked purchase announcement with a product deep link", () => {
     expect(maskPurchaseName("Rashid")).toBe("R*****");
+    expect(maskPurchaseName("𝖄oussef")).toBe("𝖄*****");
     expect(productEmoji("Gemini Pro Trial Link")).toBe("🔋");
     const announcement = buildPurchaseAnnouncement(12, "Gemini Pro Trial Link", 2, "Rashid", 7278358063);
     expect(announcement.text).toContain("R*****");
