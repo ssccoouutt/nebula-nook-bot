@@ -1414,7 +1414,7 @@ async function showFreebies(chatId: number, messageId?: number) {
 async function showShop(chatId: number, page = 0, messageId?: number) {
   const db = await getDb();
   if (!db) throw new Error("Database is unavailable");
-  const items = await db.select().from(products).where(and(eq(products.active, 1), or(eq(products.shopEligible, 1), isNull(products.shopEligible)), or(eq(products.hidden, 0), isNull(products.hidden)))).limit(60);
+  const items = await db.select().from(products).where(and(eq(products.active, 1), or(eq(products.shopEligible, 1), isNull(products.shopEligible)), or(eq(products.hidden, 0), isNull(products.hidden))));
   const sortSetting = (await db.select().from(botSettings).where(eq(botSettings.key, "catalog_sort")).limit(1))[0]?.value?.trim().toLowerCase();
   if (sortSetting === "most_sold") {
     const soldRows = await db.select({ productId: orders.productId, total: sql<number>`coalesce(sum(${orders.quantity}), 0)` }).from(orders).where(or(eq(orders.status, "fulfilled"), eq(orders.status, "paid"))).groupBy(orders.productId);
