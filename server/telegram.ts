@@ -959,11 +959,15 @@ export function productEmoji(productName: string) {
   return "🎁";
 }
 
-export function buildPurchaseAnnouncement(productId: string | number, productName: string, quantity: number, buyerName?: string, telegramUserId?: number) {
+export function buildPurchaseAnnouncement(productId: string | number, productName: string, quantity: number, buyerName?: string, telegramUserId?: number, buyerUsername?: string) {
   const maskedName = maskPurchaseName(buyerName, telegramUserId);
+  const fallbackName = maskPurchaseName(buyerUsername || (telegramUserId ? String(telegramUserId) : undefined), telegramUserId);
   const botUrl = `https://t.me/${PUBLIC_BOT_USERNAME}?start=product_${productId}`;
+  const safeProductName = productName.replace(/[<>]/g, "");
+  const announcementBody = (name: string) => `🛍️ <b>ToolsMania</b>\n\n👤 <b>${name}</b> just bought <b>${quantity}×</b> ${productEmoji(productName)} <b>${safeProductName}</b>!`;
   return {
-    text: `🛍️ <b>ToolsMania</b>\n\n👤 <b>${maskedName}</b> just bought <b>${quantity}×</b> ${productEmoji(productName)} <b>${productName.replace(/[<>]/g, "")}</b>!`,
+    text: announcementBody(maskedName),
+    fallbackText: fallbackName !== maskedName ? announcementBody(fallbackName) : undefined,
     replyMarkup: { inline_keyboard: [[{ text: "🛍️ View product in bot", url: botUrl, style: "primary" }]] },
   };
 }
@@ -989,7 +993,7 @@ export function formatExtraDeviceMessage() {
   return "📱 <b>Extra device request</b>\n\nPlease contact support with your request:\n<code>/support extra device request</code>";
 }
 
-export async function notifyAdmin(eventType: string, referenceId: string, text: string, replyMarkup?: unknown) {
+export async function notifyAdmin(eventType: string, referenceId: string, text: string, replyMarkup?: unknown, fallbackText?: string) {
   const db = await getDb();
   if (!db) return;
   const gate = await runtimeGate();
@@ -1001,6 +1005,15 @@ export async function notifyAdmin(eventType: string, referenceId: string, text: 
     await sendMessage(targetChatId, text, replyMarkup);
     await db.update(notificationDeliveries).set({ status: "sent", sentAt: new Date() }).where(and(eq(notificationDeliveries.eventType, eventType), eq(notificationDeliveries.referenceId, referenceId)));
   } catch (error) {
+    if (fallbackText && fallbackText !== text) {
+      try {
+        await sendMessage(targetChatId, fallbackText, replyMarkup);
+        await db.update(notificationDeliveries).set({ status: "sent", sentAt: new Date(), error: null }).where(and(eq(notificationDeliveries.eventType, eventType), eq(notificationDeliveries.referenceId, referenceId)));
+        return;
+      } catch (fallbackError) {
+        error = fallbackError;
+      }
+    }
     await db.update(notificationDeliveries).set({ status: "failed", error: error instanceof Error ? error.message : "notification failed" }).where(and(eq(notificationDeliveries.eventType, eventType), eq(notificationDeliveries.referenceId, referenceId)));
   }
 }
@@ -1949,9 +1962,9 @@ async function verifyAndFulfillTelegramStarsPurchase(chatId: number, userId: num
   }
   scheduleDriveSync("completed_order");
   const buyer = (await db.select().from(botUsers).where(eq(botUsers.telegramUserId, userId)).limit(1))[0];
-  const announcement = buildPurchaseAnnouncement(outcome.product.id, outcome.product.name, outcome.quantity, buyer?.firstName ?? buyer?.username ?? "User", userId);
+  const announcement = buildPurchaseAnnouncement(outcome.product.id, outcome.product.name, outcome.quantity, buyer?.firstName ?? buyer?.username ?? "User", userId, buyer?.username ?? undefined);
   await sendMessage(chatId, formatPurchaseConfirmation(outcome.orderId, `${outcome.quantity}× ${outcome.product.name}`, outcome.amountCents, { mode: outcome.deliveryMode, items: outcome.deliveredItems, warrantyDays: outcome.warrantyDays }), buildHomeKeyboard());
-  await notifyAdmin("order_fulfilled", String(outcome.orderId), announcement.text, announcement.replyMarkup);
+  await notifyAdmin("order_fulfilled", String(outcome.orderId), announcement.text, announcement.replyMarkup, announcement.fallbackText);
   return true;
 }
 
@@ -2002,9 +2015,9 @@ async function verifyAndFulfillBinancePurchase(chatId: number, userId: number, i
   }
   scheduleDriveSync("completed_order");
   const buyer = (await db.select().from(botUsers).where(eq(botUsers.telegramUserId, userId)).limit(1))[0];
-  const announcement = buildPurchaseAnnouncement(outcome.product.id, outcome.product.name, outcome.quantity, buyer?.firstName ?? buyer?.username ?? "User", userId);
+  const announcement = buildPurchaseAnnouncement(outcome.product.id, outcome.product.name, outcome.quantity, buyer?.firstName ?? buyer?.username ?? "User", userId, buyer?.username ?? undefined);
   await respond(chatId, formatPurchaseConfirmation(outcome.orderId, `${outcome.quantity}× ${outcome.product.name}`, outcome.amountCents, { mode: outcome.deliveryMode, items: outcome.deliveredItems, warrantyDays: outcome.warrantyDays }), buildHomeKeyboard());
-  await notifyAdmin("order_fulfilled", String(outcome.orderId), announcement.text, announcement.replyMarkup);
+  await notifyAdmin("order_fulfilled", String(outcome.orderId), announcement.text, announcement.replyMarkup, announcement.fallbackText);
   return true;
 }
 

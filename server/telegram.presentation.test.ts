@@ -604,6 +604,11 @@ describe("Telegram presentation and notification helpers", () => {
     expect(announcement.text).not.toContain("R*****d");
     expect(announcement.text).toContain("2×");
     expect(announcement.text).toContain("🔋 <b>Gemini Pro Trial Link</b>");
+    const unusualNameAnnouncement = buildPurchaseAnnouncement(12, "Gemini Pro Trial Link", 1, "나갱", 7278358063, "zeeshan");
+    expect(unusualNameAnnouncement.text).toContain("나*****");
+    expect(unusualNameAnnouncement.fallbackText).toContain("z*****");
+    const idFallbackAnnouncement = buildPurchaseAnnouncement(12, "Gemini Pro Trial Link", 1, "나갱", 7278358063);
+    expect(idFallbackAnnouncement.fallbackText).toContain("7*****");
     expect(announcement.replyMarkup.inline_keyboard[0][0]).toEqual({
       text: "🛍️ View product in bot",
       url: "https://t.me/Toolsmania_bot?start=product_12",
