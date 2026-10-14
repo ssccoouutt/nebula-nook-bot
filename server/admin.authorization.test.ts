@@ -19,7 +19,7 @@ describe("admin authorization", () => {
 
   it("returns sortable enriched users and activity-window summaries", async () => {
     const caller = appRouter.createCaller(context("user"));
-    const users = await caller.admin.users({ sort: "balance", direction: "desc", limit: 50 });
+    const users = await caller.admin.users({ sort: "balance", direction: "desc" });
     expect(Array.isArray(users)).toBe(true);
     if (users[0]) expect(users[0]).toEqual(expect.objectContaining({ balanceCents: expect.any(Number), orderCount: expect.any(Number), referralCount: expect.any(Number), lastActivity: expect.any(Number) }));
     const summary = await caller.admin.activitySummary({ day: new Date().toISOString().slice(0, 10) });

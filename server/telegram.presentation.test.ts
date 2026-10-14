@@ -15,6 +15,7 @@ import {
   formatOrderStatus,
   formatDetailedOrder,
   formatPurchaseConfirmation,
+  formatOrderDeliveryFile,
   normalizeWarrantyText,
   formatShopSummary,
   formatSupportPrompt,
@@ -142,6 +143,11 @@ describe("Telegram presentation and notification helpers", () => {
     expect(isShopEligibleProduct({ active: 1, shopEligible: 0 })).toBe(false);
     expect(isShopEligibleProduct({ active: 1 })).toBe(true);
     expect(buildPurchasePaymentFailureKeyboard(7).inline_keyboard[0][0]).toMatchObject({ text: "✖️ Cancel", callback_data: "buycancel:7" });
+  });
+
+  it("formats complete oversized delivery details as a plain text file", () => {
+    const file = formatOrderDeliveryFile(42, "Instruction Pack", ["Open this link", "Use code ABC"]);
+    expect(file).toBe("Order #42\nProduct: Instruction Pack\n\nDelivery details:\nOpen this link\nUse code ABC");
   });
 
   it("keeps core messages emoji-led and HTML formatted", () => {

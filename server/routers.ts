@@ -158,11 +158,10 @@ export const appRouter = router({
       await db.insert(botSettings).values({ key: input.key, value: input.value.trim() }).onConflictDoUpdate({ target: botSettings.key, set: { value: input.value.trim() } });
       return { success: true };
     }),
-    users: adminProcedure.input(z.object({ sort: z.enum(["lastActivity", "balance", "createdAt", "orders", "referrals", "totalSpent"]).default("lastActivity"), direction: z.enum(["asc", "desc"]).default("desc"), limit: z.number().int().min(1).max(500).default(200) }).optional()).query(async ({ input }) => {
+    users: adminProcedure.input(z.object({ sort: z.enum(["lastActivity", "balance", "createdAt", "orders", "referrals", "totalSpent"]).default("lastActivity"), direction: z.enum(["asc", "desc"]).default("desc") }).optional()).query(async ({ input }) => {
       const db = await database();
-      const limit = input?.limit ?? 200;
       const [rows, orderRows, ledgerRows, referralRows, ticketRows, paymentRows] = await Promise.all([
-        db.select().from(botUsers).limit(limit),
+        db.select().from(botUsers),
         db.select({ botUserId: orders.botUserId, count: sql<number>`count(*)`, totalSpent: sql<number>`coalesce(sum(${orders.amountCents}), 0)`, lastAt: sql<number>`max(${orders.updatedAt})` }).from(orders).where(or(eq(orders.status, "fulfilled"), eq(orders.status, "paid"))).groupBy(orders.botUserId),
         db.select({ botUserId: walletLedger.botUserId, count: sql<number>`count(*)`, lastAt: sql<number>`max(${walletLedger.createdAt})` }).from(walletLedger).groupBy(walletLedger.botUserId),
         db.select({ referrerId: referrals.referrerId, count: sql<number>`count(*)`, lastAt: sql<number>`max(${referrals.createdAt})` }).from(referrals).groupBy(referrals.referrerId),

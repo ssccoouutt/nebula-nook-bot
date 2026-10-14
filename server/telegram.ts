@@ -275,6 +275,41 @@ async function sendMessage(chatId: number, text: string, replyMarkup?: unknown) 
   return telegramCall("sendMessage", { chat_id: chatId, text: normalizeTelegramMessageText(text), parse_mode: "HTML", reply_markup: replyMarkup });
 }
 
+const TELEGRAM_MESSAGE_LIMIT = 4096;
+
+function orderDeliveryFilename(orderId: string | number, productName: string) {
+  const safeProductName = productName.replace(/[^a-zA-Z0-9._-]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 48) || "product";
+  return `order-${orderId}-${safeProductName}.txt`;
+}
+
+export function formatOrderDeliveryFile(orderId: string | number, productName: string, items: string[]) {
+  return [`Order #${orderId}`, `Product: ${productName.replace(/[<&>]/g, "")}`, "", "Delivery details:", ...items].join("\n");
+}
+
+async function sendDocument(chatId: number, filename: string, content: string, caption?: string) {
+  const token = process.env.TELEGRAM_BOT_TOKEN;
+  if (!token) throw new Error("TELEGRAM_BOT_TOKEN is not configured");
+  const form = new FormData();
+  form.append("chat_id", String(chatId));
+  form.append("document", new Blob([content], { type: "text/plain; charset=utf-8" }), filename);
+  if (caption) {
+    form.append("caption", normalizeTelegramMessageText(caption).slice(0, 1024));
+    form.append("parse_mode", "HTML");
+  }
+  const response = await fetch(`${TELEGRAM_API}${token}/sendDocument`, { method: "POST", body: form });
+  const json = await response.json() as { ok: boolean; description?: string };
+  if (!json.ok) throw new Error(json.description ?? "Telegram sendDocument failed");
+  return json;
+}
+
+async function sendCompletedOrderDelivery(chatId: number, orderId: string | number, productName: string, amountCents: number, delivery: { mode: "automatic" | "manual"; items?: string[]; warrantyDays?: string | number }) {
+  const fullMessage = formatPurchaseConfirmation(orderId, productName, amountCents, delivery);
+  if (normalizeTelegramMessageText(fullMessage).length <= TELEGRAM_MESSAGE_LIMIT || !delivery.items?.length) return sendMessage(chatId, fullMessage, buildHomeKeyboard());
+  const summary = formatPurchaseConfirmation(orderId, productName, amountCents, { mode: delivery.mode, warrantyDays: delivery.warrantyDays }) + "\n\n📎 Your delivery details are attached as a text file.";
+  await sendMessage(chatId, summary, buildHomeKeyboard());
+  return sendDocument(chatId, orderDeliveryFilename(orderId, productName), formatOrderDeliveryFile(orderId, productName, delivery.items), "📦 Your complete delivery details");
+}
+
 async function sendStarsInvoice(chatId: number, title: string, description: string, payload: string, stars: number) {
   return telegramCall("sendInvoice", { chat_id: chatId, title, description, payload, provider_token: "", currency: "XTR", prices: [{ label: title, amount: stars }] });
 }
@@ -1963,7 +1998,7 @@ async function verifyAndFulfillTelegramStarsPurchase(chatId: number, userId: num
   scheduleDriveSync("completed_order");
   const buyer = (await db.select().from(botUsers).where(eq(botUsers.telegramUserId, userId)).limit(1))[0];
   const announcement = buildPurchaseAnnouncement(outcome.product.id, outcome.product.name, outcome.quantity, buyer?.firstName ?? buyer?.username ?? "User", userId, buyer?.username ?? undefined);
-  await sendMessage(chatId, formatPurchaseConfirmation(outcome.orderId, `${outcome.quantity}× ${outcome.product.name}`, outcome.amountCents, { mode: outcome.deliveryMode, items: outcome.deliveredItems, warrantyDays: outcome.warrantyDays }), buildHomeKeyboard());
+  await sendCompletedOrderDelivery(chatId, outcome.orderId, `${outcome.quantity}× ${outcome.product.name}`, outcome.amountCents, { mode: outcome.deliveryMode, items: outcome.deliveredItems, warrantyDays: outcome.warrantyDays });
   await notifyAdmin("order_fulfilled", String(outcome.orderId), announcement.text, announcement.replyMarkup, announcement.fallbackText);
   return true;
 }
@@ -2016,7 +2051,7 @@ async function verifyAndFulfillBinancePurchase(chatId: number, userId: number, i
   scheduleDriveSync("completed_order");
   const buyer = (await db.select().from(botUsers).where(eq(botUsers.telegramUserId, userId)).limit(1))[0];
   const announcement = buildPurchaseAnnouncement(outcome.product.id, outcome.product.name, outcome.quantity, buyer?.firstName ?? buyer?.username ?? "User", userId, buyer?.username ?? undefined);
-  await respond(chatId, formatPurchaseConfirmation(outcome.orderId, `${outcome.quantity}× ${outcome.product.name}`, outcome.amountCents, { mode: outcome.deliveryMode, items: outcome.deliveredItems, warrantyDays: outcome.warrantyDays }), buildHomeKeyboard());
+  await sendCompletedOrderDelivery(chatId, outcome.orderId, `${outcome.quantity}× ${outcome.product.name}`, outcome.amountCents, { mode: outcome.deliveryMode, items: outcome.deliveredItems, warrantyDays: outcome.warrantyDays });
   await notifyAdmin("order_fulfilled", String(outcome.orderId), announcement.text, announcement.replyMarkup, announcement.fallbackText);
   return true;
 }
