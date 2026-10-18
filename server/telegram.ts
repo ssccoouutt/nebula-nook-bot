@@ -421,14 +421,19 @@ export async function sendTelegramMessage(chatId: number, text: string) {
   return sendMessage(chatId, text);
 }
 
-export function formatProductAvailabilityAnnouncement(product: { name: string; description: string; priceCents: number; stock: number }, reason: "new_product" | "new_stock") {
+export function formatCustomEmoji(customEmojiId?: string | number, fallback = "✨") {
+  const id = String(customEmojiId ?? "").trim();
+  return /^\d{1,32}$/.test(id) ? `<tg-emoji emoji-id="${id}">${fallback}</tg-emoji>` : fallback;
+}
+
+export function formatProductAvailabilityAnnouncement(product: { name: string; description: string; priceCents: number; stock: number; customEmojiId?: string | number }, reason: "new_product" | "new_stock") {
   const title = reason === "new_product" ? "🆕 <b>New product available</b>" : "📦 <b>New stock added</b>";
   const name = product.name.replace(/[<&>]/g, "");
   const description = product.description.replace(/[<&>]/g, "");
-  return `${title}\n\n✨ <b>${name}</b>\n\n${description}\n\n━━━━━━━━━━━━━━\n💵 Price: <b>$${(product.priceCents / 100).toFixed(2)}</b> per unit\n📦 Stock: <b>${product.stock}</b> available\n\nTap <b>Buy now</b> to order while stock lasts.`;
+  return `${title}\n\n${formatCustomEmoji(product.customEmojiId)} <b>${name}</b>\n\n${description}\n\n━━━━━━━━━━━━━━\n💵 Price: <b>$${(product.priceCents / 100).toFixed(2)}</b> per unit\n📦 Stock: <b>${product.stock}</b> available\n\nTap <b>Buy now</b> to order while stock lasts.`;
 }
 
-export async function notifyProductAvailability(product: { id: number; name: string; description: string; priceCents: number; stock: number }, reason: "new_product" | "new_stock", referenceSuffix: string) {
+export async function notifyProductAvailability(product: { id: number; name: string; description: string; priceCents: number; stock: number; customEmojiId?: string | number }, reason: "new_product" | "new_stock", referenceSuffix: string) {
   const db = await getDb();
   if (!db || product.stock <= 0) return { sent: 0, skipped: 0, failed: 0 };
   const text = formatProductAvailabilityAnnouncement(product, reason);
@@ -994,12 +999,12 @@ export function productEmoji(productName: string) {
   return "🎁";
 }
 
-export function buildPurchaseAnnouncement(productId: string | number, productName: string, quantity: number, buyerName?: string, telegramUserId?: number, buyerUsername?: string) {
+export function buildPurchaseAnnouncement(productId: string | number, productName: string, quantity: number, buyerName?: string, telegramUserId?: number, buyerUsername?: string, customEmojiId?: string | number) {
   const maskedName = maskPurchaseName(buyerName, telegramUserId);
   const fallbackName = maskPurchaseName(buyerUsername || (telegramUserId ? String(telegramUserId) : undefined), telegramUserId);
   const botUrl = `https://t.me/${PUBLIC_BOT_USERNAME}?start=product_${productId}`;
   const safeProductName = productName.replace(/[<>]/g, "");
-  const announcementBody = (name: string) => `🛍️ <b>ToolsMania</b>\n\n👤 <b>${name}</b> just bought <b>${quantity}×</b> ${productEmoji(productName)} <b>${safeProductName}</b>!`;
+  const announcementBody = (name: string) => `🛍️ <b>ToolsMania</b>\n\n👤 <b>${name}</b> just bought <b>${quantity}×</b> ${formatCustomEmoji(customEmojiId, productEmoji(productName))} <b>${safeProductName}</b>!`;
   return {
     text: announcementBody(maskedName),
     fallbackText: fallbackName !== maskedName ? announcementBody(fallbackName) : undefined,
@@ -1465,7 +1470,7 @@ async function showProduct(chatId: number, productId: number, messageId?: number
   const delivery = item.deliveryMode === "manual" ? "🕐 Manual delivery" : "⚡ Automatic digital delivery";
   const warrantyText = normalizeWarrantyText(item.warrantyDays);
   const warranty = warrantyText ? `\n🛡️ Warranty: <b>${warrantyText.replace(/[<&>]/g, "")}</b>` : "";
-  const productText = `✨ <b>${safeName}</b>\n\n${safeDescription}${deliveryFormat}\n\n━━━━━━━━━━━━━━\n💵 <b>$${(item.priceCents / 100).toFixed(2)}</b> per unit\n📦 <b>${item.stock}</b> available\n🛒 Sold: <b>${soldCount}</b>\n${delivery}${warranty}${bulk}\n\nChoose an action below:`;
+  const productText = `${formatCustomEmoji(item.customEmojiId)} <b>${safeName}</b>\n\n${safeDescription}${deliveryFormat}\n\n━━━━━━━━━━━━━━\n💵 <b>$${(item.priceCents / 100).toFixed(2)}</b> per unit\n📦 <b>${item.stock}</b> available\n🛒 Sold: <b>${soldCount}</b>\n${delivery}${warranty}${bulk}\n\nChoose an action below:`;
   const productKeyboard = buildProductKeyboard(item.id);
   if (hasProductImage(item.imageUrl)) {
     try {
@@ -1997,7 +2002,7 @@ async function verifyAndFulfillTelegramStarsPurchase(chatId: number, userId: num
   }
   scheduleDriveSync("completed_order");
   const buyer = (await db.select().from(botUsers).where(eq(botUsers.telegramUserId, userId)).limit(1))[0];
-  const announcement = buildPurchaseAnnouncement(outcome.product.id, outcome.product.name, outcome.quantity, buyer?.firstName ?? buyer?.username ?? "User", userId, buyer?.username ?? undefined);
+  const announcement = buildPurchaseAnnouncement(outcome.product.id, outcome.product.name, outcome.quantity, buyer?.firstName ?? buyer?.username ?? "User", userId, buyer?.username ?? undefined, outcome.product.customEmojiId);
   await sendCompletedOrderDelivery(chatId, outcome.orderId, `${outcome.quantity}× ${outcome.product.name}`, outcome.amountCents, { mode: outcome.deliveryMode, items: outcome.deliveredItems, warrantyDays: outcome.warrantyDays });
   await notifyAdmin("order_fulfilled", String(outcome.orderId), announcement.text, announcement.replyMarkup, announcement.fallbackText);
   return true;
@@ -2050,7 +2055,7 @@ async function verifyAndFulfillBinancePurchase(chatId: number, userId: number, i
   }
   scheduleDriveSync("completed_order");
   const buyer = (await db.select().from(botUsers).where(eq(botUsers.telegramUserId, userId)).limit(1))[0];
-  const announcement = buildPurchaseAnnouncement(outcome.product.id, outcome.product.name, outcome.quantity, buyer?.firstName ?? buyer?.username ?? "User", userId, buyer?.username ?? undefined);
+  const announcement = buildPurchaseAnnouncement(outcome.product.id, outcome.product.name, outcome.quantity, buyer?.firstName ?? buyer?.username ?? "User", userId, buyer?.username ?? undefined, outcome.product.customEmojiId);
   await sendCompletedOrderDelivery(chatId, outcome.orderId, `${outcome.quantity}× ${outcome.product.name}`, outcome.amountCents, { mode: outcome.deliveryMode, items: outcome.deliveredItems, warrantyDays: outcome.warrantyDays });
   await notifyAdmin("order_fulfilled", String(outcome.orderId), announcement.text, announcement.replyMarkup, announcement.fallbackText);
   return true;

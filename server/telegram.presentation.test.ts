@@ -8,6 +8,7 @@ import {
   formatReferralRewardNotification,
   formatQualifiedReferralNotification,
   productEmoji,
+  formatCustomEmoji,
   formatExtraDeviceMessage,
   formatHomeMessage,
   formatProfileMessage,
@@ -216,6 +217,12 @@ describe("Telegram presentation and notification helpers", () => {
     expect(message).toContain("$0.99");
     expect(message).toContain("📦 Stock: <b>4</b> available");
     expect(buildProductKeyboard(42).inline_keyboard.flat().some(button => button.text === "🛒 Buy now" && button.callback_data === "buyqty:42:0")).toBe(true);
+  });
+  it("renders a saved custom emoji ID in product messages", () => {
+    expect(formatCustomEmoji("5368324170671202286")).toBe('<tg-emoji emoji-id="5368324170671202286">✨</tg-emoji>');
+    expect(formatCustomEmoji("not-an-id")).toBe("✨");
+    const message = formatProductAvailabilityAnnouncement({ name: "Gemini", description: "Activation link", priceCents: 99, stock: 4, customEmojiId: "5368324170671202286" }, "new_stock");
+    expect(message).toContain('<tg-emoji emoji-id="5368324170671202286">✨</tg-emoji> <b>Gemini</b>');
   });
 
   it("extracts payment-intent IDs from both SQLite insert result shapes", () => {
