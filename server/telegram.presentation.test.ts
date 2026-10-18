@@ -224,6 +224,10 @@ describe("Telegram presentation and notification helpers", () => {
     const message = formatProductAvailabilityAnnouncement({ name: "Gemini", description: "Activation link", priceCents: 99, stock: 4, customEmojiId: "5368324170671202286" }, "new_stock");
     expect(message).toContain('<tg-emoji emoji-id="5368324170671202286">✨</tg-emoji> <b>Gemini</b>');
   });
+  it("adds Telegram custom emoji icons to product shop buttons", () => {
+    const rows = buildShopKeyboard([{ id: 42, name: "Gemini", priceCents: 99, stock: 4, customEmojiId: "5368324170671202286" }]).inline_keyboard;
+    expect(rows[0][0]).toMatchObject({ text: "Gemini · $0.99 (4)", icon_custom_emoji_id: "5368324170671202286" });
+  });
 
   it("extracts payment-intent IDs from both SQLite insert result shapes", () => {
     expect(extractInsertedRowId([{ insertId: 17 }])).toBe(17);

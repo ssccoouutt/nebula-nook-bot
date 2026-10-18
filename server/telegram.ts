@@ -1062,7 +1062,7 @@ async function answerCallback(id: string, text?: string) {
   await telegramCall("answerCallbackQuery", { callback_query_id: id, text, show_alert: false });
 }
 
-type TelegramButton = { text: string; callback_data?: string; url?: string; web_app?: { url: string }; copy_text?: { text: string }; style?: "danger" | "success" | "primary" };
+type TelegramButton = { text: string; callback_data?: string; url?: string; web_app?: { url: string }; copy_text?: { text: string }; style?: "danger" | "success" | "primary"; icon_custom_emoji_id?: string };
 
 function keyboard(rows: Array<Array<TelegramButton>>) {
   return { inline_keyboard: rows };
@@ -1086,12 +1086,14 @@ export function buildMembershipKeyboard(channelUrl: string, groupUrl: string) {
   ]);
 }
 
-export function buildShopKeyboard(items: Array<{ id: number; name: string; priceCents: number; stock?: number }>, page = 0, pageCount = 1) {
+export function buildShopKeyboard(items: Array<{ id: number; name: string; priceCents: number; stock?: number; customEmojiId?: string | number }>, page = 0, pageCount = 1) {
   const rows: TelegramButton[][] = items.map((item) => {
     const stock = Number(item.stock ?? 0);
     const available = stock > 0;
-    const label = available ? `✨ ${item.name} · $${(item.priceCents / 100).toFixed(2)} (${stock})` : `⛔ ${item.name} · OUT OF STOCK (0)`;
-    return [{ text: label.slice(0, 64), callback_data: `product:${item.id}`, style: available ? "primary" : "danger" }];
+    const customEmojiId = String(item.customEmojiId ?? "").trim();
+    const hasCustomEmoji = /^\d{1,32}$/.test(customEmojiId);
+    const label = available ? `${hasCustomEmoji ? "" : "✨ "}${item.name} · $${(item.priceCents / 100).toFixed(2)} (${stock})` : `${hasCustomEmoji ? "" : "⛔ "}${item.name} · OUT OF STOCK (0)`;
+    return [{ text: label.slice(0, 64), callback_data: `product:${item.id}`, style: available ? "primary" : "danger", ...(hasCustomEmoji ? { icon_custom_emoji_id: customEmojiId } : {}) }];
   });
   rows.push([{ text: "🔄 Refresh", callback_data: "shop:0", style: "success" }, { text: "🏠 Back to home", callback_data: "home", style: "success" }]);
   return keyboard(rows);
