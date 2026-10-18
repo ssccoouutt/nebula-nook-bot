@@ -1092,7 +1092,7 @@ export function buildShopKeyboard(items: Array<{ id: number; name: string; price
     const available = stock > 0;
     const customEmojiId = String(item.customEmojiId ?? "").trim();
     const hasCustomEmoji = /^\d{1,32}$/.test(customEmojiId);
-    const label = available ? `${hasCustomEmoji ? "" : "✨ "}${item.name} · $${(item.priceCents / 100).toFixed(2)} (${stock})` : `${hasCustomEmoji ? "" : "⛔ "}${item.name} · OUT OF STOCK (0)`;
+    const label = `${hasCustomEmoji ? "" : "✨ "}${item.name} · $${(item.priceCents / 100).toFixed(2)} (${stock})`;
     return [{ text: label.slice(0, 64), callback_data: `product:${item.id}`, style: available ? "primary" : "danger", ...(hasCustomEmoji ? { icon_custom_emoji_id: customEmojiId } : {}) }];
   });
   rows.push([{ text: "🔄 Refresh", callback_data: "shop:0", style: "success" }, { text: "🏠 Back to home", callback_data: "home", style: "success" }]);
@@ -1429,6 +1429,10 @@ export function isPurchasableProduct(product: { active: number | boolean; stock:
   return Boolean(product && (product.active === 1 || product.active === true) && !(product.hidden === 1 || product.hidden === true) && product.stock > 0);
 }
 
+export function isViewableProduct(product: { active: number | boolean; hidden?: number | boolean } | undefined) {
+  return Boolean(product && (product.active === 1 || product.active === true) && !(product.hidden === 1 || product.hidden === true));
+}
+
 export function isShopEligibleProduct(product: { active: number | boolean; shopEligible?: number | boolean; hidden?: number | boolean } | undefined) {
   return Boolean(product && (product.active === 1 || product.active === true) && !(product.hidden === 1 || product.hidden === true) && (product.shopEligible === undefined || product.shopEligible === 1 || product.shopEligible === true));
 }
@@ -1460,7 +1464,7 @@ async function showProduct(chatId: number, productId: number, messageId?: number
   const db = await getDb();
   if (!db) throw new Error("Database is unavailable");
   const item = (await db.select().from(products).where(eq(products.id, productId)).limit(1))[0];
-  if (!isPurchasableProduct(item)) return respond(chatId, "⚠️ This product is currently unavailable.\n\nThis may be an old product button. Open the current Shop to see items that are in stock.", buildUnavailableProductKeyboard(), messageId);
+  if (!isViewableProduct(item)) return respond(chatId, "⚠️ This product is currently unavailable.\n\nThis may be an old product button. Open the current Shop to see items that are in stock.", buildUnavailableProductKeyboard(), messageId);
   const soldRows = await db.select({ total: sql<number>`coalesce(sum(${orders.quantity}), 0)` }).from(orders).where(and(eq(orders.productId, productId), or(eq(orders.status, "fulfilled"), eq(orders.status, "paid"))));
   const soldCount = Number(soldRows[0]?.total ?? 0);
   const bulkText = formatBulkPricingForUsers(item.bulkPricing, item.stock);

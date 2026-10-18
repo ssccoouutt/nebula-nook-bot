@@ -519,7 +519,9 @@ describe("Telegram presentation and notification helpers", () => {
 
     const compactShop = buildShopKeyboard([{ id: 1, name: "Sample", priceCents: 100, stock: 3 }, { id: 2, name: "Sold out", priceCents: 100, stock: 0 }], 0, 1).inline_keyboard;
     expect(compactShop[0][0]).toMatchObject({ callback_data: "product:1", style: "primary", text: "✨ Sample · $1.00 (3)" });
-    expect(compactShop[1][0]).toMatchObject({ callback_data: "product:2", style: "danger", text: "⛔ Sold out · OUT OF STOCK (0)" });
+    expect(compactShop[1][0]).toMatchObject({ callback_data: "product:2", style: "danger", text: "✨ Sold out · $1.00 (0)" });
+    const customOutOfStock = buildShopKeyboard([{ id: 3, name: "Nord", priceCents: 250, stock: 0, customEmojiId: "5368324170671202286" }]).inline_keyboard;
+    expect(customOutOfStock[0][0]).toMatchObject({ callback_data: "product:3", style: "danger", text: "Nord · $2.50 (0)", icon_custom_emoji_id: "5368324170671202286" });
     expect(compactShop.at(-1)).toEqual(expect.arrayContaining([
       expect.objectContaining({ text: "🔄 Refresh", callback_data: "shop:0", style: "success" }),
       expect.objectContaining({ text: "🏠 Back to home", callback_data: "home", style: "success" }),
