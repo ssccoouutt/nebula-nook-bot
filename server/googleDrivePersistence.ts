@@ -10,7 +10,7 @@ import { buildReadableExports } from "./googleDriveExports";
 const require = createRequire(import.meta.url);
 const { DatabaseSync } = require("node:sqlite") as typeof import("node:sqlite");
 
-const ROOT_FOLDER_NAME = "Nebula Nook Bot";
+const DEFAULT_ROOT_FOLDER_NAME = "Nebula Nook Bot";
 const SNAPSHOTS_FOLDER_NAME = "snapshots";
 const METADATA_FOLDER_NAME = "metadata";
 const EXPORTS_FOLDER_NAME = "exports";
@@ -34,6 +34,10 @@ let syncInFlight: Promise<void> | null = null;
 let syncRequested = false;
 let folderIds: { root: string; snapshots: string; metadata: string; exports: string } | null = null;
 let customEmojiIds = new Map<string, string>();
+
+function rootFolderName() {
+  return process.env.GOOGLE_DRIVE_FOLDER_NAME?.trim() || process.env.DRIVE_FOLDER_NAME?.trim() || DEFAULT_ROOT_FOLDER_NAME;
+}
 
 export async function withRetry<T>(operation: () => Promise<T>, label: string, attempts = 3): Promise<T> {
   let lastError: unknown;
@@ -112,7 +116,7 @@ async function findOrCreateFolder(drive: ReturnType<typeof google.drive>, name: 
 async function ensureFolders() {
   const drive = await driveClient();
   if (!drive) return null;
-  const root = await findOrCreateFolder(drive, ROOT_FOLDER_NAME);
+  const root = await findOrCreateFolder(drive, rootFolderName());
   const snapshots = await findOrCreateFolder(drive, SNAPSHOTS_FOLDER_NAME, root);
   const metadata = await findOrCreateFolder(drive, METADATA_FOLDER_NAME, root);
   const exports = await findOrCreateFolder(drive, EXPORTS_FOLDER_NAME, root);
@@ -465,5 +469,5 @@ export async function flushDriveSync() {
 }
 
 export function drivePersistenceStatus() {
-  return { configured: configured(), folderName: ROOT_FOLDER_NAME, initialized };
+  return { configured: configured(), folderName: rootFolderName(), initialized };
 }
