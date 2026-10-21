@@ -4,7 +4,7 @@ import { getDb } from "./db";
 import { binancePayDeposits, botSettings, botUsers, broadcasts, freeClaims, notificationDeliveries, orders, paymentIntents, priceAlerts, products, referrals, supportTickets, telegramStarsWalletPayments, walletLedger } from "../drizzle/schema";
 import { findBinancePayTransaction } from "./binancePay";
 import { hasAccess, referralCodeForTelegramId } from "../shared/botLogic";
-import { flushDriveSync, scheduleDriveSync } from "./googleDrivePersistence";
+import { flushDriveSync, getConfiguredCustomEmojiEntries, getConfiguredCustomEmojiId, premiumCustomEmojisEnabled, scheduleDriveSync } from "./googleDrivePersistence";
 import { encryptedConfigDiagnostics } from "./configFile";
 import { formatBulkPricingForUsers, parseBulkPricing, resolveBulkUnitPriceCents } from "../shared/pricing";
 
@@ -271,8 +271,35 @@ async function telegramCall<T>(method: string, body: Record<string, unknown>): P
 export function normalizeTelegramMessageText(text: string) {
   return text.replace(/\\r\\n/g, "\n").replace(/\\n/g, "\n");
 }
+
+function applyConfiguredCustomEmojis(text: string) {
+  if (!premiumCustomEmojisEnabled()) return text;
+  const entries = getConfiguredCustomEmojiEntries().sort((a, b) => b[0].length - a[0].length);
+  if (!entries.length) return text;
+  return text.split(/(<tg-emoji\b[^>]*>[\s\S]*?<\/tg-emoji>)/g).map((part, index) => {
+    if (index % 2 === 1) return part;
+    return entries.reduce((value, [emoji, id]) => value.replaceAll(emoji, `<tg-emoji emoji-id="${id}">${emoji}</tg-emoji>`), part);
+  }).join("");
+}
+
+function applyConfiguredCustomEmojiButtons(replyMarkup: unknown) {
+  if (!premiumCustomEmojisEnabled() || !replyMarkup || typeof replyMarkup !== "object") return replyMarkup;
+  const markup = replyMarkup as { inline_keyboard?: Array<Array<Record<string, unknown>>> };
+  if (!Array.isArray(markup.inline_keyboard)) return replyMarkup;
+  return {
+    ...markup,
+    inline_keyboard: markup.inline_keyboard.map(row => row.map(button => {
+      const buttonText = typeof button.text === "string" ? button.text : "";
+      if (!buttonText || button.icon_custom_emoji_id) return button;
+      const match = getConfiguredCustomEmojiEntries().map(([emoji]) => emoji).sort((a, b) => b.length - a.length).find(emoji => buttonText.startsWith(emoji) && getConfiguredCustomEmojiId(emoji));
+      if (!match) return button;
+      return { ...button, text: buttonText.slice(match.length).trimStart(), icon_custom_emoji_id: getConfiguredCustomEmojiId(match) };
+    })),
+  };
+}
+
 async function sendMessage(chatId: number, text: string, replyMarkup?: unknown) {
-  return telegramCall("sendMessage", { chat_id: chatId, text: normalizeTelegramMessageText(text), parse_mode: "HTML", reply_markup: replyMarkup });
+  return telegramCall("sendMessage", { chat_id: chatId, text: applyConfiguredCustomEmojis(normalizeTelegramMessageText(text)), parse_mode: "HTML", reply_markup: applyConfiguredCustomEmojiButtons(replyMarkup) });
 }
 
 const TELEGRAM_MESSAGE_LIMIT = 4096;
@@ -293,7 +320,7 @@ async function sendDocument(chatId: number, filename: string, content: string, c
   form.append("chat_id", String(chatId));
   form.append("document", new Blob([content], { type: "text/plain; charset=utf-8" }), filename);
   if (caption) {
-    form.append("caption", normalizeTelegramMessageText(caption).slice(0, 1024));
+    form.append("caption", applyConfiguredCustomEmojis(normalizeTelegramMessageText(caption)).slice(0, 1024));
     form.append("parse_mode", "HTML");
   }
   const response = await fetch(`${TELEGRAM_API}${token}/sendDocument`, { method: "POST", body: form });
@@ -315,11 +342,11 @@ async function sendStarsInvoice(chatId: number, title: string, description: stri
 }
 
 async function editMessage(chatId: number, messageId: number, text: string, replyMarkup?: unknown) {
-  return telegramCall("editMessageText", { chat_id: chatId, message_id: messageId, text: normalizeTelegramMessageText(text), parse_mode: "HTML", reply_markup: replyMarkup });
+  return telegramCall("editMessageText", { chat_id: chatId, message_id: messageId, text: applyConfiguredCustomEmojis(normalizeTelegramMessageText(text)), parse_mode: "HTML", reply_markup: applyConfiguredCustomEmojiButtons(replyMarkup) });
 }
 
 async function sendPhoto(chatId: number, photo: string, caption: string, replyMarkup?: unknown) {
-  return telegramCall("sendPhoto", { chat_id: chatId, photo, caption, parse_mode: "HTML", reply_markup: replyMarkup });
+  return telegramCall("sendPhoto", { chat_id: chatId, photo, caption: applyConfiguredCustomEmojis(caption), parse_mode: "HTML", reply_markup: applyConfiguredCustomEmojiButtons(replyMarkup) });
 }
 
 async function sendPhotoUpload(chatId: number, imageUrl: string, caption: string, replyMarkup?: unknown) {
@@ -338,9 +365,9 @@ async function sendPhotoUpload(chatId: number, imageUrl: string, caption: string
     const form = new FormData();
     form.append("chat_id", String(chatId));
     form.append("photo", new Blob([bytes], { type: contentType }), `product.${extension}`);
-    form.append("caption", caption);
+    form.append("caption", applyConfiguredCustomEmojis(caption));
     form.append("parse_mode", "HTML");
-    if (replyMarkup !== undefined) form.append("reply_markup", JSON.stringify(replyMarkup));
+    if (replyMarkup !== undefined) form.append("reply_markup", JSON.stringify(applyConfiguredCustomEmojiButtons(replyMarkup)));
     const token = process.env.TELEGRAM_BOT_TOKEN;
     if (!token) throw new Error("TELEGRAM_BOT_TOKEN is not configured");
     const telegramResponse = await fetch(`${TELEGRAM_API}${token}/sendPhoto`, { method: "POST", body: form });
@@ -422,8 +449,10 @@ export async function sendTelegramMessage(chatId: number, text: string) {
 }
 
 export function formatCustomEmoji(customEmojiId?: string | number, fallback = "✨") {
+  if (!premiumCustomEmojisEnabled()) return fallback;
   const id = String(customEmojiId ?? "").trim();
-  return /^\d{1,32}$/.test(id) ? `<tg-emoji emoji-id="${id}">${fallback}</tg-emoji>` : fallback;
+  const configuredId = /^\d{1,32}$/.test(id) ? id : getConfiguredCustomEmojiId(fallback);
+  return configuredId ? `<tg-emoji emoji-id="${configuredId}">${fallback}</tg-emoji>` : fallback;
 }
 
 export function formatProductAvailabilityAnnouncement(product: { name: string; description: string; priceCents: number; stock: number; customEmojiId?: string | number }, reason: "new_product" | "new_stock") {
@@ -1091,7 +1120,7 @@ export function buildShopKeyboard(items: Array<{ id: number; name: string; price
     const stock = Number(item.stock ?? 0);
     const available = stock > 0;
     const customEmojiId = String(item.customEmojiId ?? "").trim();
-    const hasCustomEmoji = /^\d{1,32}$/.test(customEmojiId);
+    const hasCustomEmoji = premiumCustomEmojisEnabled() && /^\d{1,32}$/.test(customEmojiId);
     const label = `${hasCustomEmoji ? "" : "✨ "}${item.name} · $${(item.priceCents / 100).toFixed(2)} (${stock})`;
     return [{ text: label.slice(0, 64), callback_data: `product:${item.id}`, style: available ? "primary" : "danger", ...(hasCustomEmoji ? { icon_custom_emoji_id: customEmojiId } : {}) }];
   });

@@ -14,6 +14,7 @@ const ROOT_FOLDER_NAME = "Nebula Nook Bot";
 const SNAPSHOTS_FOLDER_NAME = "snapshots";
 const METADATA_FOLDER_NAME = "metadata";
 const EXPORTS_FOLDER_NAME = "exports";
+const EMOJI_FILE_NAME = "emojis.txt";
 const LATEST_SNAPSHOT_NAME = "latest.sqlite";
 const MANIFEST_NAME = "latest.json";
 export const DRIVE_SYNC_DEBOUNCE_MS = 5_000;
@@ -32,6 +33,7 @@ let syncTimer: NodeJS.Timeout | null = null;
 let syncInFlight: Promise<void> | null = null;
 let syncRequested = false;
 let folderIds: { root: string; snapshots: string; metadata: string; exports: string } | null = null;
+let customEmojiIds = new Map<string, string>();
 
 export async function withRetry<T>(operation: () => Promise<T>, label: string, attempts = 3): Promise<T> {
   let lastError: unknown;
@@ -139,6 +141,42 @@ async function downloadSnapshot(drive: ReturnType<typeof google.drive>, fileId: 
 async function downloadText(drive: ReturnType<typeof google.drive>, fileId: string) {
   const response = await withRetry(() => drive.files.get({ fileId, alt: "media" }, { responseType: "text" }), "Drive export download");
   return String(response.data ?? "");
+}
+
+function parseEmojiConfig(content: string) {
+  const next = new Map<string, string>();
+  for (const rawLine of content.split(/\r?\n/)) {
+    const separator = rawLine.indexOf("=");
+    if (separator <= 0) continue;
+    const id = rawLine.slice(0, separator).trim();
+    const emoji = rawLine.slice(separator + 1).trim();
+    if (/^\d{1,32}$/.test(id) && emoji) next.set(emoji, id);
+  }
+  customEmojiIds = next;
+}
+
+async function ensureEmojiFile(setup: { drive: ReturnType<typeof google.drive>; ids: { root: string } }) {
+  const file = await findFile(setup.drive, EMOJI_FILE_NAME, setup.ids.root);
+  if (file?.id) {
+    parseEmojiConfig(await downloadText(setup.drive, file.id));
+    return file.id;
+  }
+  await uploadTextOrUpdate(setup.drive, EMOJI_FILE_NAME, setup.ids.root, "", "text/plain");
+  customEmojiIds = new Map();
+  return null;
+}
+
+export function getConfiguredCustomEmojiId(emoji: string) {
+  return customEmojiIds.get(emoji);
+}
+
+export function getConfiguredCustomEmojiEntries() {
+  return Array.from(customEmojiIds.entries());
+}
+
+export function premiumCustomEmojisEnabled() {
+  const value = (process.env.BOT_PREMIUM ?? process.env.PREMIUM_STATUS ?? process.env.TELEGRAM_PREMIUM ?? "true").trim().toLowerCase();
+  return !["false", "0", "no", "off"].includes(value);
 }
 
 export function databaseHasUserData(databasePath: string) {
@@ -349,6 +387,7 @@ async function syncNow() {
   syncInFlight = (async () => {
     const setup = await ensureFolders();
     if (!setup) return;
+    await ensureEmojiFile(setup);
     const databasePath = localDatabasePath();
     try {
       const info = await stat(databasePath);
@@ -392,7 +431,9 @@ async function syncNow() {
 export async function initializeDrivePersistence() {
   if (!configured() || initialized) return;
   if (!initPromise) {
-    initPromise = restoreLatestSnapshot().then(() => {
+    initPromise = restoreLatestSnapshot().then(async () => {
+      const setup = await ensureFolders();
+      if (setup) await ensureEmojiFile(setup);
       initialized = true;
     }).catch(error => {
       console.error("[Drive] Startup restore failed; refusing to start with potentially divergent local data:", error instanceof Error ? error.message : error);
