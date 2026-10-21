@@ -18,6 +18,7 @@ const EMOJI_FILE_NAME = "emojis.txt";
 const LATEST_SNAPSHOT_NAME = "latest.sqlite";
 const MANIFEST_NAME = "latest.json";
 export const DRIVE_SYNC_DEBOUNCE_MS = 5_000;
+export const EMOJI_REFRESH_INTERVAL_MS = 30_000;
 const READABLE_EXPORTS: Array<[string, string]> = [
   ["users", "users.json"], ["botUsers", "bot_users.json"], ["products", "products.json"],
   ["orders", "orders.json"], ["walletLedger", "wallet_ledger.json"], ["binancePayDeposits", "deposits.json"],
@@ -34,6 +35,7 @@ let syncInFlight: Promise<void> | null = null;
 let syncRequested = false;
 let folderIds: { root: string; snapshots: string; metadata: string; exports: string } | null = null;
 let customEmojiIds = new Map<string, string>();
+let emojiRefreshTimer: NodeJS.Timeout | null = null;
 
 function rootFolderName() {
   return process.env.GOOGLE_DRIVE_FOLDER_NAME?.trim() || process.env.DRIVE_FOLDER_NAME?.trim() || DEFAULT_ROOT_FOLDER_NAME;
@@ -170,6 +172,14 @@ async function ensureEmojiFile(setup: { drive: ReturnType<typeof google.drive>; 
   return null;
 }
 
+async function refreshEmojiFile() {
+  if (!configured()) return false;
+  const setup = await ensureFolders();
+  if (!setup) return false;
+  await ensureEmojiFile(setup);
+  return true;
+}
+
 export function getConfiguredCustomEmojiId(emoji: string) {
   return customEmojiIds.get(emoji);
 }
@@ -181,6 +191,17 @@ export function getConfiguredCustomEmojiEntries() {
 export function premiumCustomEmojisEnabled() {
   const value = (process.env.BOT_PREMIUM ?? process.env.PREMIUM_STATUS ?? process.env.TELEGRAM_PREMIUM ?? "true").trim().toLowerCase();
   return !["false", "0", "no", "off"].includes(value);
+}
+
+export async function saveCustomEmojiMapping(customEmojiId: string, emoji: string) {
+  if (!/^\d{1,32}$/.test(customEmojiId) || !emoji.trim()) return false;
+  const setup = await ensureFolders();
+  if (!setup) return false;
+  await ensureEmojiFile(setup);
+  customEmojiIds.set(emoji.trim(), customEmojiId);
+  const content = Array.from(customEmojiIds.entries()).map(([normalEmoji, id]) => `${id}=${normalEmoji}`).join("\n") + "\n";
+  await uploadTextOrUpdate(setup.drive, EMOJI_FILE_NAME, setup.ids.root, content, "text/plain");
+  return true;
 }
 
 export function databaseHasUserData(databasePath: string) {
@@ -437,7 +458,15 @@ export async function initializeDrivePersistence() {
   if (!initPromise) {
     initPromise = restoreLatestSnapshot().then(async () => {
       const setup = await ensureFolders();
-      if (setup) await ensureEmojiFile(setup);
+      if (setup) {
+        await ensureEmojiFile(setup);
+        if (!emojiRefreshTimer) {
+          emojiRefreshTimer = setInterval(() => {
+            void refreshEmojiFile().catch(error => console.error("[Drive] Emoji file refresh failed:", error instanceof Error ? error.message : error));
+          }, EMOJI_REFRESH_INTERVAL_MS);
+          emojiRefreshTimer.unref?.();
+        }
+      }
       initialized = true;
     }).catch(error => {
       console.error("[Drive] Startup restore failed; refusing to start with potentially divergent local data:", error instanceof Error ? error.message : error);

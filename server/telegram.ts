@@ -4,14 +4,15 @@ import { getDb } from "./db";
 import { binancePayDeposits, botSettings, botUsers, broadcasts, freeClaims, notificationDeliveries, orders, paymentIntents, priceAlerts, products, referrals, supportTickets, telegramStarsWalletPayments, walletLedger } from "../drizzle/schema";
 import { findBinancePayTransaction } from "./binancePay";
 import { hasAccess, referralCodeForTelegramId } from "../shared/botLogic";
-import { flushDriveSync, getConfiguredCustomEmojiEntries, getConfiguredCustomEmojiId, premiumCustomEmojisEnabled, scheduleDriveSync } from "./googleDrivePersistence";
+import { flushDriveSync, getConfiguredCustomEmojiEntries, getConfiguredCustomEmojiId, premiumCustomEmojisEnabled, saveCustomEmojiMapping, scheduleDriveSync } from "./googleDrivePersistence";
 import { encryptedConfigDiagnostics } from "./configFile";
 import { formatBulkPricingForUsers, parseBulkPricing, resolveBulkUnitPriceCents } from "../shared/pricing";
 
 type TelegramUser = { id: number; username?: string; first_name?: string; last_name?: string };
 type TelegramChat = { id: number; type: string };
+type TelegramMessageEntity = { type: string; offset: number; length: number; custom_emoji_id?: string };
 type TelegramSuccessfulPayment = { currency: string; total_amount: number; invoice_payload: string; telegram_payment_charge_id: string; provider_payment_charge_id?: string };
-type TelegramMessage = { message_id: number; from?: TelegramUser; chat: TelegramChat; text?: string; caption?: string; photo?: Array<{ file_id: string }>; reply_markup?: unknown; reply_to_message?: TelegramMessage; successful_payment?: TelegramSuccessfulPayment };
+type TelegramMessage = { message_id: number; from?: TelegramUser; chat: TelegramChat; text?: string; entities?: TelegramMessageEntity[]; caption?: string; photo?: Array<{ file_id: string }>; reply_markup?: unknown; reply_to_message?: TelegramMessage; successful_payment?: TelegramSuccessfulPayment };
 type TelegramCallbackQuery = { id: string; from: TelegramUser; message?: TelegramMessage; data?: string };
 type TelegramPreCheckoutQuery = { id: string; from: TelegramUser; currency: string; total_amount: number; invoice_payload: string };
 type TelegramUpdate = { update_id: number; message?: TelegramMessage; callback_query?: TelegramCallbackQuery; pre_checkout_query?: TelegramPreCheckoutQuery; channel_post?: TelegramMessage };
@@ -729,7 +730,7 @@ export function isAuthorizedAdminMessage(message: Pick<TelegramMessage, "chat" |
 }
 
 export function formatAdminHomeMessage() {
-  return "🔐 <b>ToolsMania Admin Control Center</b>\n\nThis private menu is visible only to the configured administrator.\n\nUse <code>/reply &lt;ticket-id&gt; &lt;message&gt;</code> to answer a support ticket. Use the admin controls below to view bot statistics.";
+  return "🔐 <b>ToolsMania Admin Control Center</b>\n\nThis private menu is visible only to the configured administrator.\n\nUse <code>/reply &lt;ticket-id&gt; &lt;message&gt;</code> to answer a support ticket.\n\nTo map a custom emoji, send it followed by an equals sign and a normal emoji, for example: <code>[custom emoji]=😂</code>. The mapping is saved to <code>emojis.txt</code>.\n\nUse the admin controls below to view bot statistics.";
 }
 
 export function parseAdminReplyCommand(text?: string) {
@@ -932,6 +933,15 @@ async function deleteAdminUser(chatId: number, text: string) {
 async function handleAdminCommand(message: TelegramMessage) {
   if (!message.text || !isAuthorizedAdminMessage(message)) return false;
   const text = message.text.trim();
+  if (!text.startsWith("/")) {
+    const mapping = parseAdminCustomEmojiMapping(message);
+    if (!mapping) return false;
+    const saved = await saveCustomEmojiMapping(mapping.customEmojiId, mapping.normalEmoji);
+    await sendMessage(message.chat.id, saved
+      ? `✅ Custom emoji saved: <code>${mapping.customEmojiId}</code> = ${mapping.normalEmoji}`
+      : "⚠️ Custom emoji could not be saved. Check that Google Drive is configured.", buildAdminKeyboard());
+    return true;
+  }
   const command = text.split(/\s+/)[0]?.toLowerCase().replace(/@[^\s]+$/, "");
   if (command === "/tickets") { await showAdminTickets(message.chat.id); return true; }
   if (command === "/close") {
@@ -971,6 +981,16 @@ async function handleAdminReply(message: TelegramMessage) {
 export function normalizeWarrantyText(value: string | number | null | undefined): string {
   if (typeof value === "number") return value > 0 ? `${value} days` : "";
   return typeof value === "string" ? value.trim() : "";
+}
+
+export function parseAdminCustomEmojiMapping(message: Pick<TelegramMessage, "text" | "entities">) {
+  const text = message.text?.trim() ?? "";
+  const separator = text.indexOf("=");
+  const entity = message.entities?.find(item => item.type === "custom_emoji" && item.custom_emoji_id);
+  if (separator <= 0 || !entity?.custom_emoji_id) return null;
+  const normalEmoji = text.slice(separator + 1).trim();
+  if (!normalEmoji || normalEmoji.includes("=")) return null;
+  return { customEmojiId: entity.custom_emoji_id, normalEmoji };
 }
 
 export function formatPurchaseConfirmation(orderId: string | number, productName: string, amountCents: number, delivery?: { mode: "automatic" | "manual"; items?: string[]; warrantyDays?: string | number }) {

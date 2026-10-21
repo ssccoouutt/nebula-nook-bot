@@ -35,6 +35,7 @@ import {
   formatAdminTelegramId,
   formatAdminTicketClosedMessage,
   formatAdminTicketRecord,
+  parseAdminCustomEmojiMapping,
   isAuthorizedAdminMessage,
   buildMembershipKeyboard,
   buildShopKeyboard,
@@ -571,6 +572,14 @@ describe("Telegram presentation and notification helpers", () => {
     expect(parseAdminCloseTicketCommand("/close@Toolsmania_bot #84")).toBe(84);
     expect(parseAdminCloseTicketCommand("/close nope")).toBeNull();
     expect(formatAdminTicketClosedMessage(46)).toContain("Google Drive synchronization is queued in the background");
+  });
+
+  it("parses an admin custom emoji mapping from Telegram entities", () => {
+    expect(parseAdminCustomEmojiMapping({
+      text: "🙂=✅",
+      entities: [{ type: "custom_emoji", offset: 0, length: 2, custom_emoji_id: "646948485" }],
+    })).toEqual({ customEmojiId: "646948485", normalEmoji: "✅" });
+    expect(parseAdminCustomEmojiMapping({ text: "🙂=✅", entities: [] })).toBeNull();
   });
 
   it("renders the canonical support ticket ID independently from the joined bot-user ID", () => {
