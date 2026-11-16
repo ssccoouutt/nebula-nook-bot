@@ -23,7 +23,7 @@ function productValues(input: { name: string; description: string; deliveryForma
   if (customEmojiId && !/^\d{1,32}$/.test(customEmojiId)) throw new TRPCError({ code: "BAD_REQUEST", message: "Custom emoji ID must contain only digits" });
   return { name: input.name.trim(), description: input.description.trim(), deliveryFormat: input.deliveryFormat.trim(), customEmojiId, priceCents, stock: items.length, inventoryText: items.join("\n"), deliveryMode: input.deliveryMode, warrantyDays: input.warrantyDays.trim(), imageUrl: input.imageUrl.trim(), freeEligible: input.freeEligible ? 1 : 0, freeWindowMs: input.freeWindowMs, shopEligible: input.shopEligible ? 1 : 0, referralEligible: input.referralEligible ? 1 : 0, referralPriceCredits: Math.max(1, Math.floor(input.referralPriceCredits)), bulkPricing: (() => { try { return normalizeSharedBulkPricing(input.bulkPricing ?? ""); } catch (error) { throw new TRPCError({ code: "BAD_REQUEST", message: error instanceof Error ? error.message : "Invalid bulk pricing" }); } })(), ...(input.hidden === undefined ? {} : { hidden: input.hidden ? 1 : 0 }), ...(input.active === undefined ? {} : { active: input.active ? 1 : 0 }) };
 }
-import { buildFulfillmentNotifications, configureTelegramWebhook, notifyAdmin, notifyProductAvailability, notifyProductPriceDrop, sendTelegramMessage, validTelegramJoinUrl } from "./telegram";
+import { buildFulfillmentNotifications, configureTelegramWebhook, notifyAdmin, notifyProductAvailability, notifyProductBulkPricingChange, notifyProductPriceDrop, sendTelegramMessage, validTelegramJoinUrl } from "./telegram";
 import { normalizeBroadcastRecipients } from "./broadcast";
 
 export function dashboardLastActivity(updatedAtMs: number, relatedLastActivityMs: number) {
@@ -126,6 +126,7 @@ export const appRouter = router({
       if (productId > 0 && values.stock > 0) {
         scheduleDriveSync("new_stock");
         if (input.notifyUsers) await notifyProductAvailability({ id: productId, ...values }, "new_product", `created:${Date.now()}`);
+        if (input.notifyUsers && values.bulkPricing) await notifyProductBulkPricingChange({ id: productId, ...values }, `bulk:created:${values.bulkPricing}`);
       }
       return { success: true };
     }),
@@ -137,6 +138,9 @@ export const appRouter = router({
       const nextActive = values.active ?? existing?.active;
       if (existing && nextActive === 1 && values.stock > 0 && values.priceCents < existing.priceCents) {
         await notifyProductPriceDrop({ id: input.id, name: values.name, priceCents: values.priceCents, previousPriceCents: existing.priceCents, stock: values.stock, customEmojiId: values.customEmojiId }, `price:${existing.priceCents}:${values.priceCents}`);
+      }
+      if (existing && input.notifyUsers && nextActive === 1 && values.stock > 0 && values.bulkPricing !== existing.bulkPricing && values.bulkPricing) {
+        await notifyProductBulkPricingChange({ id: input.id, name: values.name, priceCents: values.priceCents, stock: values.stock, bulkPricing: values.bulkPricing, customEmojiId: values.customEmojiId }, `bulk:${existing.bulkPricing}:${values.bulkPricing}`);
       }
       if (existing && values.active === 1 && values.stock > existing.stock) {
         scheduleDriveSync("new_stock");

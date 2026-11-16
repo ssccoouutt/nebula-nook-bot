@@ -1,7 +1,7 @@
 import type { Request, Response } from "express";
 import { and, desc, eq, gt, inArray, isNull, or, sql } from "drizzle-orm";
 import { getDb } from "./db";
-import { binancePayDeposits, botSettings, botUsers, broadcasts, freeClaims, notificationDeliveries, orders, paymentIntents, priceAlerts, products, referrals, supportTickets, telegramStarsWalletPayments, walletLedger } from "../drizzle/schema";
+import { binancePayDeposits, botSettings, botUsers, broadcasts, freeClaims, notificationDeliveries, orders, paymentIntents, priceAlerts, products, referrals, supportTicketMessages, supportTickets, telegramStarsWalletPayments, walletLedger } from "../drizzle/schema";
 import { findBinancePayTransaction } from "./binancePay";
 import { hasAccess, referralCodeForTelegramId } from "../shared/botLogic";
 import { flushDriveSync, getConfiguredCustomEmojiEntries, getConfiguredCustomEmojiId, premiumCustomEmojisEnabled, saveCustomEmojiMapping, scheduleDriveSync } from "./googleDrivePersistence";
@@ -12,7 +12,7 @@ type TelegramUser = { id: number; username?: string; first_name?: string; last_n
 type TelegramChat = { id: number; type: string };
 type TelegramMessageEntity = { type: string; offset: number; length: number; custom_emoji_id?: string };
 type TelegramSuccessfulPayment = { currency: string; total_amount: number; invoice_payload: string; telegram_payment_charge_id: string; provider_payment_charge_id?: string };
-type TelegramMessage = { message_id: number; from?: TelegramUser; chat: TelegramChat; text?: string; entities?: TelegramMessageEntity[]; caption?: string; photo?: Array<{ file_id: string }>; reply_markup?: unknown; reply_to_message?: TelegramMessage; successful_payment?: TelegramSuccessfulPayment };
+type TelegramMessage = { message_id: number; from?: TelegramUser; chat: TelegramChat; text?: string; entities?: TelegramMessageEntity[]; caption?: string; photo?: Array<{ file_id: string }>; video?: { file_id: string }; reply_markup?: unknown; reply_to_message?: TelegramMessage; successful_payment?: TelegramSuccessfulPayment };
 type TelegramCallbackQuery = { id: string; from: TelegramUser; message?: TelegramMessage; data?: string };
 type TelegramPreCheckoutQuery = { id: string; from: TelegramUser; currency: string; total_amount: number; invoice_payload: string };
 type TelegramUpdate = { update_id: number; message?: TelegramMessage; callback_query?: TelegramCallbackQuery; pre_checkout_query?: TelegramPreCheckoutQuery; channel_post?: TelegramMessage };
@@ -302,6 +302,11 @@ function applyConfiguredCustomEmojiButtons(replyMarkup: unknown) {
 async function sendMessage(chatId: number, text: string, replyMarkup?: unknown) {
   return telegramCall("sendMessage", { chat_id: chatId, text: applyConfiguredCustomEmojis(normalizeTelegramMessageText(text)), parse_mode: "HTML", reply_markup: applyConfiguredCustomEmojiButtons(replyMarkup) });
 }
+async function sendSupportMedia(chatId: number, mediaType: "photo" | "video", fileId: string, caption?: string) {
+  const body: Record<string, unknown> = { chat_id: chatId, [mediaType]: fileId };
+  if (caption?.trim()) { body.caption = applyConfiguredCustomEmojis(normalizeTelegramMessageText(caption)).slice(0, 1024); body.parse_mode = "HTML"; }
+  return telegramCall(mediaType === "photo" ? "sendPhoto" : "sendVideo", body);
+}
 
 const TELEGRAM_MESSAGE_LIMIT = 4096;
 
@@ -500,6 +505,36 @@ export async function notifyProductPriceDrop(product: { id: number; name: string
   return { sent, skipped, failed };
 }
 
+export function formatBulkPricingAnnouncement(product: { name: string; priceCents: number; stock: number; bulkPricing: string; customEmojiId?: string | number }) {
+  const name = product.name.replace(/[<&>]/g, "");
+  const tiers = formatBulkPricingForUsers(product.bulkPricing, product.stock).replace(/^• /gm, "🔄 ");
+  return `🔥 <b>BULK DISCOUNT</b>\n\n${formatCustomEmoji(product.customEmojiId)} <b>${name}</b>\n\n💰 Base price    <b>$${(product.priceCents / 100).toFixed(2)}</b>\n${tiers || "Bulk pricing is now available — buy more and save more."}\n\n💥 <b>Buy more, save more!</b>\n\n<i>The more you buy, the more you save — stock up now.</i>`;
+}
+
+export async function notifyProductBulkPricingChange(product: { id: number; name: string; priceCents: number; stock: number; bulkPricing: string; customEmojiId?: string | number }, referenceSuffix: string) {
+  const db = await getDb();
+  if (!db || !product.bulkPricing.trim() || product.stock <= 0) return { sent: 0, skipped: 0, failed: 0 };
+  const text = formatBulkPricingAnnouncement(product);
+  const replyMarkup = buildProductKeyboard(product.id);
+  const users = await db.select().from(botUsers);
+  let sent = 0; let skipped = 0; let failed = 0;
+  for (const user of users) {
+    const referenceId = `${product.id}:${referenceSuffix}:${user.id}`;
+    const existing = await db.select({ status: notificationDeliveries.status }).from(notificationDeliveries).where(and(eq(notificationDeliveries.eventType, "bulk_pricing"), eq(notificationDeliveries.referenceId, referenceId))).limit(1);
+    if (existing[0]?.status === "sent") { skipped += 1; continue; }
+    await db.insert(notificationDeliveries).values({ botUserId: user.id, eventType: "bulk_pricing", referenceId, status: "queued" }).onConflictDoUpdate({ target: [notificationDeliveries.eventType, notificationDeliveries.referenceId], set: { status: "queued", error: null } });
+    try {
+      await sendMessage(user.telegramUserId, text, replyMarkup);
+      await db.update(notificationDeliveries).set({ status: "sent", sentAt: new Date(), error: null }).where(and(eq(notificationDeliveries.eventType, "bulk_pricing"), eq(notificationDeliveries.referenceId, referenceId)));
+      sent += 1;
+    } catch (error) {
+      failed += 1;
+      await db.update(notificationDeliveries).set({ status: "failed", error: error instanceof Error ? error.message : "bulk-pricing notification failed" }).where(and(eq(notificationDeliveries.eventType, "bulk_pricing"), eq(notificationDeliveries.referenceId, referenceId)));
+    }
+  }
+  return { sent, skipped, failed };
+}
+
 export async function notifyProductAvailability(product: { id: number; name: string; description: string; priceCents: number; stock: number; customEmojiId?: string | number }, reason: "new_product" | "new_stock", referenceSuffix: string) {
   const db = await getDb();
   if (!db || product.stock <= 0) return { sent: 0, skipped: 0, failed: 0 };
@@ -677,7 +712,30 @@ async function deliverSupportTicket(ticketId: string, user: TelegramUser, body: 
   await sendMessage(adminChatId, `<b>New support ticket #${ticketId}</b>\nFrom: ${user.first_name ?? "User"}${user.username ? ` (@${user.username})` : ""}\nTelegram ID: <code>${user.id}</code>\n\n${body}\n\nReply with:\n<code>/reply ${ticketId} your response</code>`);
 }
 
-async function submitSupportTicket(user: TelegramUser, body: string, draft: SupportDraft = { step: "description", category: "other", expiresAt: Date.now() }) {
+type SupportMedia = { type: "photo" | "video"; fileId: string };
+function supportMediaFromMessage(message: TelegramMessage): SupportMedia | undefined {
+  if (message.photo?.length) return { type: "photo", fileId: message.photo[message.photo.length - 1].file_id };
+  if (message.video?.file_id) return { type: "video", fileId: message.video.file_id };
+  return undefined;
+}
+async function recordSupportMessage(ticketId: number, senderType: "user" | "admin", message: string, media?: SupportMedia) {
+  const db = await getDb();
+  if (!db) throw new Error("Database is unavailable");
+  await db.insert(supportTicketMessages).values({ supportTicketId: ticketId, senderType, message, mediaType: media?.type ?? null, mediaFileId: media?.fileId ?? null });
+}
+async function findOpenSupportTicket(botUserId: number) {
+  const db = await getDb();
+  if (!db) return undefined;
+  return (await db.select().from(supportTickets).where(and(eq(supportTickets.botUserId, botUserId), inArray(supportTickets.status, ["open", "answered"]))).orderBy(desc(supportTickets.updatedAt)).limit(1))[0];
+}
+async function forwardSupportFollowup(ticketId: number, user: TelegramUser, body: string, media?: SupportMedia) {
+  const adminChatId = configuredAdminChatId();
+  if (adminChatId === null) throw new Error("Support administrator is unavailable");
+  const safeBody = body.replace(/[<&>]/g, "").trim();
+  await sendMessage(adminChatId, `<b>Support ticket #${ticketId} — new customer message</b>\nFrom: ${user.first_name ?? "User"}${user.username ? ` (@${user.username})` : ""}\nTelegram ID: <code>${user.id}</code>${safeBody ? `\n\n${safeBody}` : ""}\n\nReply with:\n<code>/reply ${ticketId} your response</code>`);
+  if (media) await sendSupportMedia(adminChatId, media.type, media.fileId, `📎 Ticket #${ticketId} attachment${safeBody ? ` — ${safeBody.slice(0, 700)}` : ""}`);
+}
+async function submitSupportTicket(user: TelegramUser, body: string, draft: SupportDraft = { step: "description", category: "other", expiresAt: Date.now() }, media?: SupportMedia) {
   const db = await getDb();
   if (!db) throw new Error("Database is unavailable");
   const botUser = (await db.select().from(botUsers).where(eq(botUsers.telegramUserId, user.id)).limit(1))[0];
@@ -694,7 +752,12 @@ async function submitSupportTicket(user: TelegramUser, body: string, draft: Supp
     .returning({ id: supportTickets.id }))[0];
   if (!insertedTicket?.id) throw new Error("Failed to create support ticket ID");
   const ticketId = String(insertedTicket.id);
+  await recordSupportMessage(Number(ticketId), "user", body, media);
   await deliverSupportTicket(ticketId, user, `${body}\n\n🏷️ Category: ${draft.category ?? "other"}${draft.orderId ? `\n📦 Related order: #${draft.orderId}` : ""}${draft.paymentMethod ? `\n💳 Payment method: ${draft.paymentMethod}` : ""}${paymentAmountCents ? `\n💰 Amount sent: $${(paymentAmountCents / 100).toFixed(2)}` : ""}${transactionHash ? `\n🧾 Transaction hash: ${transactionHash}` : ""}`);
+  if (media) {
+    const adminChatId = configuredAdminChatId();
+    if (adminChatId !== null) await sendSupportMedia(adminChatId, media.type, media.fileId, `📎 Ticket #${ticketId} attachment`);
+  }
   scheduleDriveSync("support_ticket");
   return ticketId;
 }
@@ -846,7 +909,7 @@ async function showAdminTickets(chatId: number) {
     createdAt: supportTickets.createdAt,
     username: botUsers.username,
     telegramUserId: botUsers.telegramUserId,
-  }).from(supportTickets).leftJoin(botUsers, eq(supportTickets.botUserId, botUsers.id)).where(eq(supportTickets.status, "open")).orderBy(desc(supportTickets.createdAt)).limit(1000);
+  }).from(supportTickets).leftJoin(botUsers, eq(supportTickets.botUserId, botUsers.id)).where(inArray(supportTickets.status, ["open", "answered"])).orderBy(desc(supportTickets.updatedAt)).limit(1000);
   if (!rows.length) return sendMessage(chatId, "✅ <b>Open tickets</b>\n\nThere are no open support tickets.", buildAdminKeyboard());
   const text = rows.map((row) => formatAdminTicketRecord(row)).join("\n\n━━━━━━━━━━━━━━\n\n");
   return sendMessage(chatId, `<b>🆘 Open support tickets</b>\n\n${text}`, buildAdminTicketKeyboard(rows.map((row) => row.ticketId)));
@@ -861,7 +924,7 @@ async function closeAdminTicket(chatId: number, ticketId: number) {
   const updatedAt = new Date();
   const changed = await db.update(supportTickets)
     .set({ status: "closed", updatedAt })
-    .where(and(eq(supportTickets.id, ticketId), eq(supportTickets.status, "open")));
+    .where(and(eq(supportTickets.id, ticketId), inArray(supportTickets.status, ["open", "answered"])));
   const changedCount = Number((changed as { changes?: unknown }).changes ?? 0);
   if (changedCount > 0) {
     scheduleDriveSync("support_ticket");
@@ -1009,6 +1072,7 @@ async function handleAdminReply(message: TelegramMessage) {
   const user = (await db.select().from(botUsers).where(eq(botUsers.id, ticket.botUserId)).limit(1))[0];
   if (!user) return sendMessage(adminChatId, `⚠️ The user for support ticket #${ticketId} was not found.`).then(() => true);
   await sendMessage(user.telegramUserId, `💬 <b>Support reply for ticket #${ticketId}</b>\n\n${response}`);
+  await recordSupportMessage(ticketId, "admin", response);
   await db.update(supportTickets).set({ status: "answered", adminReply: response, repliedAt: new Date(), updatedAt: new Date() }).where(eq(supportTickets.id, ticketId));
   scheduleDriveSync("support_ticket");
   await sendMessage(adminChatId, `✅ Reply sent to the user for ticket #${ticketId}.`);
@@ -2177,8 +2241,8 @@ export async function handleMessage(message: TelegramMessage) {
   }
   if (await handleAdminReply(message)) return;
   const user = message.from;
-  if (!user || !message.text) return;
-  const messageText = message.text;
+  if (!user || (!message.text && !message.caption && !message.photo?.length && !message.video)) return;
+  const messageText = message.text ?? message.caption ?? "";
   const isCommandMessage = messageText.trim().startsWith("/");
   const pendingTopup = pendingBinancePayTopups.get(user.id);
   const pendingStarsTopup = pendingTelegramStarsWalletTopups.get(user.id);
@@ -2249,7 +2313,9 @@ export async function handleMessage(message: TelegramMessage) {
     return respond(message.chat.id, `✅ <b>Wallet credited</b>\n\n💰 Added: <b>$${(credited.amountCents / 100).toFixed(2)} ${credited.asset}</b>\n🧾 Transaction: <code>${credited.transactionId}</code>\n\nYour new balance is available in Wallet.`, buildWalletKeyboard());
   }
   const pendingSupport = pendingSupportMessages.get(user.id);
-  if (pendingSupport && pendingSupport.expiresAt > Date.now() && !message.text.trim().startsWith("/")) {
+  const supportBody = (message.text ?? message.caption ?? "").trim();
+  const supportMedia = supportMediaFromMessage(message);
+  if (pendingSupport && pendingSupport.expiresAt > Date.now() && !supportBody.startsWith("/") && (supportBody || supportMedia)) {
     if (pendingSupport.step !== "description") {
       if (pendingSupport.step === "order") return showSupportOrderPicker(message.chat.id, user.id, 0);
       if (pendingSupport.step === "payment_method") return respond(message.chat.id, "Please choose a payment method using the buttons above.", supportPaymentKeyboard());
@@ -2257,7 +2323,7 @@ export async function handleMessage(message: TelegramMessage) {
     }
     pendingSupportMessages.delete(user.id);
     try {
-      const ticketId = await submitSupportTicket(user, message.text.trim(), pendingSupport);
+      const ticketId = await submitSupportTicket(user, supportBody || `📎 ${supportMedia?.type === "video" ? "Video" : "Photo"} attachment`, pendingSupport, supportMedia);
       return sendMessage(message.chat.id, formatSupportSubmitted(ticketId), supportCategoryKeyboard());
     } catch (error) {
       recordTelegramFailure("support_ticket", error, { userId: user.id, chatId: message.chat.id });
@@ -2265,6 +2331,23 @@ export async function handleMessage(message: TelegramMessage) {
     }
   }
   if (pendingSupport && pendingSupport.expiresAt <= Date.now()) pendingSupportMessages.delete(user.id);
+  if (!supportBody.startsWith("/") && (supportBody || supportMedia)) {
+    const db = await getDb();
+    const account = db ? (await db.select().from(botUsers).where(eq(botUsers.telegramUserId, user.id)).limit(1))[0] : undefined;
+    const openTicket = account ? await findOpenSupportTicket(account.id) : undefined;
+    if (openTicket) {
+      const body = supportBody || `📎 ${supportMedia?.type === "video" ? "Video" : "Photo"} attachment`;
+      try {
+        await recordSupportMessage(openTicket.id, "user", body, supportMedia);
+        await db!.update(supportTickets).set({ status: "open", updatedAt: new Date() }).where(eq(supportTickets.id, openTicket.id));
+        await forwardSupportFollowup(openTicket.id, user, body, supportMedia);
+        return sendMessage(message.chat.id, `📨 Your message was added to support ticket #${openTicket.id}. An administrator will reply here.`, supportCategoryKeyboard());
+      } catch (error) {
+        recordTelegramFailure("support_followup", error, { userId: user.id, ticketId: openTicket.id, chatId: message.chat.id });
+        return sendMessage(message.chat.id, "⚠️ Your support message could not be delivered. Please try again.");
+      }
+    }
+  }
   const pending = pendingCustomQuantities.get(user.id);
   if (pending && pending.expiresAt > Date.now()) {
     const db = await getDb();
@@ -2274,13 +2357,13 @@ export async function handleMessage(message: TelegramMessage) {
       pendingCustomQuantities.delete(user.id);
       return respond(message.chat.id, "⚠️ This product is currently unavailable.", undefined, message.reply_to_message?.message_id);
     }
-    const reply = resolveCustomQuantityReply(message.text, product.name, product.stock);
+    const reply = resolveCustomQuantityReply(messageText, product.name, product.stock);
     if (reply.kind === "retry") return respond(message.chat.id, reply.text, buildCustomQuantityKeyboard(product.id), message.reply_to_message?.message_id);
     pendingCustomQuantities.delete(user.id);
     return showPurchaseReview(message.chat.id, user.id, pending.productId, reply.quantity, message.reply_to_message?.message_id);
   }
   if (pending && pending.expiresAt <= Date.now()) pendingCustomQuantities.delete(user.id);
-  const [command, ...rest] = message.text.trim().split(/\s+/);
+  const [command, ...rest] = (message.text ?? "").trim().split(/\s+/);
   const referral = rest.find((part) => part.startsWith("ref_"))?.slice(4);
   const productDeepLink = rest.find((part) => part.startsWith("product_"))?.slice(8);
   const referralsDeepLink = rest.includes("referrals");

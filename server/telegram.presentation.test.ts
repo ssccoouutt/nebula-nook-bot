@@ -17,6 +17,7 @@ import {
   formatDetailedOrder,
   formatPurchaseConfirmation,
   formatPriceDropAnnouncement,
+  formatBulkPricingAnnouncement,
   formatOrderDeliveryFile,
   normalizeWarrantyText,
   formatShopSummary,
@@ -227,6 +228,13 @@ describe("Telegram presentation and notification helpers", () => {
     expect(message).toContain("<b>$0.25</b>");
     expect(message).toContain("Save 50%");
     expect(message).toContain("163 available");
+  });
+  it("renders bulk-pricing tiers with the base price and buy-more message", () => {
+    const message = formatBulkPricingAnnouncement({ name: "LinkedIn Career 3M", priceCents: 25, stock: 100, bulkPricing: "50+:0.20" });
+    expect(message).toContain("🔥 <b>BULK DISCOUNT</b>");
+    expect(message).toContain("$0.25");
+    expect(message).toContain("50+ codes → $0.20 each");
+    expect(message).toContain("Buy more, save more!");
   });
   it("renders a saved custom emoji ID in product messages", () => {
     expect(formatCustomEmoji("5368324170671202286")).toBe('<tg-emoji emoji-id="5368324170671202286">✨</tg-emoji>');
