@@ -16,6 +16,7 @@ import {
   formatOrderStatus,
   formatDetailedOrder,
   formatPurchaseConfirmation,
+  formatPriceDropAnnouncement,
   formatOrderDeliveryFile,
   normalizeWarrantyText,
   formatShopSummary,
@@ -218,6 +219,14 @@ describe("Telegram presentation and notification helpers", () => {
     expect(message).toContain("$0.99");
     expect(message).toContain("📦 Stock: <b>4</b> available");
     expect(buildProductKeyboard(42).inline_keyboard.flat().some(button => button.text === "🛒 Buy now" && button.callback_data === "buyqty:42:0")).toBe(true);
+  });
+  it("renders a price-drop notification with old price, savings, stock, and product emoji", () => {
+    const message = formatPriceDropAnnouncement({ name: "Crunchyroll 1 Month", previousPriceCents: 50, priceCents: 25, stock: 163 });
+    expect(message).toContain("🔥 <b>PRICE DROP</b>");
+    expect(message).toContain("<s>$0.50</s>");
+    expect(message).toContain("<b>$0.25</b>");
+    expect(message).toContain("Save 50%");
+    expect(message).toContain("163 available");
   });
   it("renders a saved custom emoji ID in product messages", () => {
     expect(formatCustomEmoji("5368324170671202286")).toBe('<tg-emoji emoji-id="5368324170671202286">✨</tg-emoji>');

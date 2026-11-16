@@ -463,6 +463,43 @@ export function formatProductAvailabilityAnnouncement(product: { name: string; d
   return `${title}\n\n${formatCustomEmoji(product.customEmojiId)} <b>${name}</b>\n\n${description}\n\n━━━━━━━━━━━━━━\n💵 Price: <b>$${(product.priceCents / 100).toFixed(2)}</b> per unit\n📦 Stock: <b>${product.stock}</b> available\n\nTap <b>Buy now</b> to order while stock lasts.`;
 }
 
+export function formatPriceDropAnnouncement(product: { name: string; priceCents: number; previousPriceCents: number; stock: number; customEmojiId?: string | number }) {
+  const name = product.name.replace(/[<&>]/g, "");
+  const previousPrice = `$${(product.previousPriceCents / 100).toFixed(2)}`;
+  const currentPrice = `$${(product.priceCents / 100).toFixed(2)}`;
+  const savingsPercent = product.previousPriceCents > 0 ? Math.max(0, Math.round((1 - product.priceCents / product.previousPriceCents) * 100)) : 0;
+  return `🔥 <b>PRICE DROP</b>\n\n${formatCustomEmoji(product.customEmojiId)} <b>${name}</b>\n\n📉 <b>Price Drop</b>\n<s>${previousPrice}</s>  ➜  <b>${currentPrice}</b>   🔻 <b>Save ${savingsPercent}%</b>\n\n📦 <b>In Stock</b>  ${product.stock} available\n\n<i>Deals like this don’t last — lock in your new price before it’s gone.</i>`;
+}
+
+export async function notifyProductPriceDrop(product: { id: number; name: string; priceCents: number; previousPriceCents: number; stock: number; customEmojiId?: string | number }, referenceSuffix: string) {
+  const db = await getDb();
+  if (!db || product.previousPriceCents <= product.priceCents || product.stock <= 0) return { sent: 0, skipped: 0, failed: 0 };
+  const text = formatPriceDropAnnouncement(product);
+  const replyMarkup = buildProductKeyboard(product.id);
+  const users = await db.select().from(botUsers);
+  let sent = 0;
+  let skipped = 0;
+  let failed = 0;
+  for (const user of users) {
+    const referenceId = `${product.id}:${referenceSuffix}:${user.id}`;
+    const existing = await db.select({ status: notificationDeliveries.status }).from(notificationDeliveries).where(and(eq(notificationDeliveries.eventType, "price_drop"), eq(notificationDeliveries.referenceId, referenceId))).limit(1);
+    if (existing[0]?.status === "sent") {
+      skipped += 1;
+      continue;
+    }
+    await db.insert(notificationDeliveries).values({ botUserId: user.id, eventType: "price_drop", referenceId, status: "queued" }).onConflictDoUpdate({ target: [notificationDeliveries.eventType, notificationDeliveries.referenceId], set: { status: "queued", error: null } });
+    try {
+      await sendMessage(user.telegramUserId, text, replyMarkup);
+      await db.update(notificationDeliveries).set({ status: "sent", sentAt: new Date(), error: null }).where(and(eq(notificationDeliveries.eventType, "price_drop"), eq(notificationDeliveries.referenceId, referenceId)));
+      sent += 1;
+    } catch (error) {
+      failed += 1;
+      await db.update(notificationDeliveries).set({ status: "failed", error: error instanceof Error ? error.message : "price-drop notification failed" }).where(and(eq(notificationDeliveries.eventType, "price_drop"), eq(notificationDeliveries.referenceId, referenceId)));
+    }
+  }
+  return { sent, skipped, failed };
+}
+
 export async function notifyProductAvailability(product: { id: number; name: string; description: string; priceCents: number; stock: number; customEmojiId?: string | number }, reason: "new_product" | "new_stock", referenceSuffix: string) {
   const db = await getDb();
   if (!db || product.stock <= 0) return { sent: 0, skipped: 0, failed: 0 };
