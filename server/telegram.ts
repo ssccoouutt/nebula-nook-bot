@@ -726,7 +726,7 @@ async function recordSupportMessage(ticketId: number, senderType: "user" | "admi
 async function findOpenSupportTicket(botUserId: number) {
   const db = await getDb();
   if (!db) return undefined;
-  return (await db.select().from(supportTickets).where(and(eq(supportTickets.botUserId, botUserId), inArray(supportTickets.status, ["open", "answered"]))).orderBy(desc(supportTickets.updatedAt)).limit(1))[0];
+  return (await db.select().from(supportTickets).where(and(eq(supportTickets.botUserId, botUserId), inArray(supportTickets.status, ["open", "answered"]))).limit(1))[0];
 }
 async function forwardSupportFollowup(ticketId: number, user: TelegramUser, body: string, media?: SupportMedia) {
   const adminChatId = configuredAdminChatId();
@@ -1236,13 +1236,14 @@ export function buildMembershipKeyboard(channelUrl: string, groupUrl: string) {
   ]);
 }
 
-export function buildShopKeyboard(items: Array<{ id: number; name: string; priceCents: number; stock?: number; customEmojiId?: string | number }>, page = 0, pageCount = 1) {
+export function buildShopKeyboard(items: Array<{ id: number; name: string; priceCents: number; stock?: number; preOrderEnabled?: number | boolean; customEmojiId?: string | number }>, page = 0, pageCount = 1) {
   const rows: TelegramButton[][] = items.map((item) => {
     const stock = Number(item.stock ?? 0);
-    const available = stock > 0;
+    const preOrder = Boolean(item.preOrderEnabled) && stock <= 0;
+    const available = stock > 0 || preOrder;
     const customEmojiId = String(item.customEmojiId ?? "").trim();
     const hasCustomEmoji = premiumCustomEmojisEnabled() && /^\d{1,32}$/.test(customEmojiId);
-    const label = `${hasCustomEmoji ? "" : "✨ "}${item.name} · $${(item.priceCents / 100).toFixed(2)} (${stock})`;
+    const label = `${hasCustomEmoji ? "" : "✨ "}${item.name} · $${(item.priceCents / 100).toFixed(2)} (${preOrder ? "PRE-ORDER" : stock})`;
     return [{ text: label.slice(0, 64), callback_data: `product:${item.id}`, style: available ? "primary" : "danger", ...(hasCustomEmoji ? { icon_custom_emoji_id: customEmojiId } : {}) }];
   });
   rows.push([{ text: "🔄 Refresh", callback_data: "shop:0", style: "success" }, { text: "🏠 Back to home", callback_data: "home", style: "success" }]);
@@ -1262,9 +1263,9 @@ export function buildWalletDepositAmountKeyboard() {
   return keyboard([[{ text: "✖️ Cancel", callback_data: "walletcancel" }]]);
 }
 
-export function buildProductKeyboard(productId: number) {
+export function buildProductKeyboard(productId: number, preOrderEnabled = false, outOfStock = false) {
   return keyboard([
-    [{ text: "🛒 Buy now", callback_data: `buyqty:${productId}:0` }],
+    [{ text: outOfStock && preOrderEnabled ? "📝 Pre-order now" : "🛒 Buy now", callback_data: outOfStock && preOrderEnabled ? `preorder:${productId}` : `buyqty:${productId}:0` }],
     [{ text: "🔔 Set price alert", callback_data: `pricealert:${productId}` }],
     [{ text: "↩️ Back to shop", callback_data: "shop", style: "primary" }, { text: "🏠 Home", callback_data: "home" }],
   ]);
@@ -1626,8 +1627,9 @@ async function showProduct(chatId: number, productId: number, messageId?: number
   const delivery = item.deliveryMode === "manual" ? "🕐 Manual delivery" : "⚡ Automatic digital delivery";
   const warrantyText = normalizeWarrantyText(item.warrantyDays);
   const warranty = warrantyText ? `\n🛡️ Warranty: <b>${warrantyText.replace(/[<&>]/g, "")}</b>` : "";
-  const productText = `${formatCustomEmoji(item.customEmojiId)} <b>${safeName}</b>\n\n${safeDescription}${deliveryFormat}\n\n━━━━━━━━━━━━━━\n💵 <b>$${(item.priceCents / 100).toFixed(2)}</b> per unit\n📦 <b>${item.stock}</b> available\n🛒 Sold: <b>${soldCount}</b>\n${delivery}${warranty}${bulk}\n\nChoose an action below:`;
-  const productKeyboard = buildProductKeyboard(item.id);
+  const preorder = item.stock <= 0 && Boolean(item.preOrderEnabled);
+  const productText = `${formatCustomEmoji(item.customEmojiId)} <b>${safeName}</b>\n\n${safeDescription}${deliveryFormat}\n\n━━━━━━━━━━━━━━\n💵 <b>$${(item.priceCents / 100).toFixed(2)}</b> per unit\n${preorder ? "📝 <b>Pre-order available</b> — you will be charged and delivered automatically when stock arrives" : `📦 <b>${item.stock}</b> available`}\n🛒 Sold: <b>${soldCount}</b>\n${delivery}${warranty}${bulk}\n\nChoose an action below:`;
+  const productKeyboard = buildProductKeyboard(item.id, Boolean(item.preOrderEnabled), item.stock <= 0);
   if (hasProductImage(item.imageUrl)) {
     try {
       if (isHttpProductImageUrl(item.imageUrl)) {
@@ -1641,6 +1643,45 @@ async function showProduct(chatId: number, productId: number, messageId?: number
     }
   }
   await respond(chatId, productText, productKeyboard, messageId);
+}
+
+async function queuePreOrder(chatId: number, userId: number, productId: number, messageId?: number) {
+  const db = await getDb();
+  if (!db) throw new Error("Database is unavailable");
+  const user = (await db.select().from(botUsers).where(eq(botUsers.telegramUserId, userId)).limit(1))[0];
+  const product = (await db.select().from(products).where(eq(products.id, productId)).limit(1))[0];
+  if (!user || !product || !isViewableProduct(product) || !product.preOrderEnabled || product.stock > 0) return respond(chatId, "⚠️ Pre-order is not available for this product right now.", buildUnavailableProductKeyboard(), messageId);
+  const existing = (await db.select().from(orders).where(and(eq(orders.botUserId, user.id), eq(orders.productId, product.id), eq(orders.kind, "preorder"), eq(orders.status, "pending"))).limit(1))[0];
+  if (existing) return respond(chatId, `ℹ️ You already have a pending pre-order for <b>${product.name.replace(/[<&>]/g, "")}</b>. You will be notified when it is delivered.`, buildProductKeyboard(product.id, true, true), messageId);
+  const amountCents = resolveBulkUnitPriceCents(product.priceCents, product.bulkPricing, 1);
+  await db.insert(orders).values({ botUserId: user.id, productId: product.id, kind: "preorder", amountCents, status: "pending", quantity: 1, paymentMethod: "Wallet" });
+  return respond(chatId, `✅ <b>Pre-order placed</b>\n\n📦 ${product.name.replace(/[<&>]/g, "")}\n💰 Price at fulfillment: <b>$${(amountCents / 100).toFixed(2)}</b>\n\nKeep at least this amount in your Wallet. When stock is added, the bot will automatically charge your wallet, deliver the product, and notify you.`, buildProductKeyboard(product.id, true, true), messageId);
+}
+
+export async function fulfillPendingPreOrders(productId: number) {
+  const db = await getDb();
+  if (!db) return { fulfilled: 0, waiting: 0 };
+  let fulfilled = 0;
+  let waiting = 0;
+  const pending = await db.select().from(orders).where(and(eq(orders.productId, productId), eq(orders.kind, "preorder"), eq(orders.status, "pending"))).orderBy(orders.createdAt);
+  for (const order of pending) {
+    const product = (await db.select().from(products).where(eq(products.id, productId)).limit(1))[0];
+    const user = (await db.select().from(botUsers).where(eq(botUsers.id, order.botUserId)).limit(1))[0];
+    if (!product || !user || product.active !== 1 || !product.preOrderEnabled || product.stock < order.quantity) { waiting += 1; break; }
+    if (user.balanceCents < order.amountCents) { waiting += 1; continue; }
+    const digital = product.inventoryText?.trim() ? consumeDigitalInventory(product.inventoryText, order.quantity) : { ok: true as const, items: [] as string[], remaining: [] as string[] };
+    if (!digital.ok) { waiting += 1; break; }
+    await db.update(botUsers).set({ balanceCents: sql`${botUsers.balanceCents} - ${order.amountCents}` }).where(eq(botUsers.id, user.id));
+    await db.insert(walletLedger).values({ botUserId: user.id, amountCents: -order.amountCents, kind: "preorder_purchase", referenceId: String(order.id), note: `Automatic pre-order fulfillment: ${product.name}` });
+    await db.update(products).set({ stock: sql`${products.stock} - ${order.quantity}`, inventoryText: String(product.inventoryText ?? "").trim() ? digital.remaining.join("\n") : product.inventoryText }).where(eq(products.id, product.id));
+    await db.update(orders).set({ status: "fulfilled", deliveredItem: digital.items.length ? digital.items.join("\n") : null, purchaseWarranty: normalizeWarrantyText(product.warrantyDays) || null, updatedAt: new Date() }).where(and(eq(orders.id, order.id), eq(orders.status, "pending")));
+    await sendCompletedOrderDelivery(user.telegramUserId, order.id, product.name, order.amountCents, { mode: "automatic", items: digital.items, warrantyDays: product.warrantyDays });
+    const announcement = buildPurchaseAnnouncement(product.id, product.name, order.quantity, user.firstName ?? user.username ?? "User", user.telegramUserId, user.username ?? undefined, product.customEmojiId);
+    await notifyAdmin("order_fulfilled", String(order.id), announcement.text, announcement.replyMarkup, announcement.fallbackText);
+    fulfilled += 1;
+  }
+  if (fulfilled) scheduleDriveSync("completed_order");
+  return { fulfilled, waiting };
 }
 
 async function showWallet(chatId: number, userId: number, messageId?: number) {
@@ -1854,7 +1895,7 @@ export type TelegramCallbackAction =
   | { kind: "support_order" | "support_payment" | "ticket_detail"; id: number }
   | { kind: "support_page" | "tickets_page"; page: number }
   | { kind: "admin_close_ticket"; id: number }
-  | { kind: "shop" | "product" | "reward" | "buy" | "customqty" | "pricealert"; id: number }
+  | { kind: "shop" | "product" | "reward" | "buy" | "customqty" | "pricealert" | "preorder"; id: number }
   | { kind: "walletamount"; amountCents: number }
   | { kind: "orders_page"; page: number }
   | { kind: "order_detail"; id: number; page: number }
@@ -1891,11 +1932,11 @@ export function parseTelegramCallbackAction(data?: string): TelegramCallbackActi
   if (quantityMatch) return { kind: quantityMatch[1] as "buyqty" | "buyconfirm" | "paywallet" | "paybinance" | "paybep20" | "paystars", id: Number(quantityMatch[2]), quantity: Number(quantityMatch[3]) };
   const cancelMatch = value.match(/^buycancel:([0-9]+)$/);
   if (cancelMatch) return { kind: "buycancel", id: Number(cancelMatch[1]) };
-  const match = value.match(/^(shop|product|reward|buy|customqty|pricealert)(?::(\d+))?$/);
+  const match = value.match(/^(shop|product|reward|buy|customqty|pricealert|preorder)(?::(\d+))?$/);
   if (!match) return null;
   if (match[1] === "shop" && match[2] === undefined) return { kind: "shop", id: 0 };
   if (!match[2]) return null;
-  return { kind: match[1] as "shop" | "product" | "reward" | "buy", id: Number(match[2]) };
+  return { kind: match[1] as "shop" | "product" | "reward" | "buy" | "preorder", id: Number(match[2]) };
 }
 
 export function resolvePurchaseCallbackRoute(action: TelegramCallbackAction) {
@@ -1977,6 +2018,7 @@ export async function handleCallback(query: TelegramCallbackQuery, options: { sk
   if (action.kind === "orders_page") return showOrders(chatId, userId, messageId, action.page);
   if (action.kind === "order_detail") return showOrderDetails(chatId, userId, action.id, action.page, messageId);
   if (action.kind === "order_buy_again") return buyAgainFromOrder(chatId, userId, action.id, messageId);
+  if (action.kind === "preorder") return queuePreOrder(chatId, userId, action.id, messageId);
   if (action.kind === "profile") return showProfile(chatId, userId, messageId);
   if (action.kind === "referrals") return showReferrals(chatId, userId, messageId);
   if (action.kind === "botinfo") return showBotInfo(chatId, messageId);
@@ -2038,7 +2080,7 @@ export async function handleCallback(query: TelegramCallbackQuery, options: { sk
     } else {
       await db.insert(priceAlerts).values({ botUserId: user.id, productId: product.id, active: 1 });
     }
-    return respond(chatId, formatPriceAlertMessage(product.name, active), buildProductKeyboard(product.id), messageId);
+    return respond(chatId, formatPriceAlertMessage(product.name, active), buildProductKeyboard(product.id, Boolean(product.preOrderEnabled), product.stock <= 0), messageId);
   }
 }
 

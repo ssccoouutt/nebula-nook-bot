@@ -246,6 +246,11 @@ describe("Telegram presentation and notification helpers", () => {
     const rows = buildShopKeyboard([{ id: 42, name: "Gemini", priceCents: 99, stock: 4, customEmojiId: "5368324170671202286" }]).inline_keyboard;
     expect(rows[0][0]).toMatchObject({ text: "Gemini · $0.99 (4)", icon_custom_emoji_id: "5368324170671202286" });
   });
+  it("renders zero-stock pre-order products as blue PRE-ORDER buttons", () => {
+    const rows = buildShopKeyboard([{ id: 43, name: "LinkedIn Career 3M", priceCents: 25, stock: 0, preOrderEnabled: true }]).inline_keyboard;
+    expect(rows[0][0]).toMatchObject({ text: "✨ LinkedIn Career 3M · $0.25 (PRE-ORDER)", callback_data: "product:43", style: "primary" });
+    expect(parseTelegramCallbackAction("preorder:43")).toEqual({ kind: "preorder", id: 43 });
+  });
 
   it("extracts payment-intent IDs from both SQLite insert result shapes", () => {
     expect(extractInsertedRowId([{ insertId: 17 }])).toBe(17);
