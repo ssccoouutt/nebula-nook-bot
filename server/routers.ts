@@ -11,8 +11,11 @@ import { scheduleDriveSync } from "./googleDrivePersistence";
 import { orderHistorySearchText, resolveOrderHistorySnapshot } from "./orderHistory";
 import { normalizeBulkPricing as normalizeSharedBulkPricing } from "../shared/pricing";
 
+function normalizeInventoryText(value: string) {
+  return value.replace(/\\+r?n/g, "\n").replace(/\r\n/g, "\n");
+}
 function inventoryLines(value: string) {
-  return value.replaceAll("\\n", "\n").split(/\r?\n/).map(line => line.trim()).filter(Boolean);
+  return normalizeInventoryText(value).split(/\r?\n/).map(line => line.trim()).filter(Boolean);
 }
 
 function productValues(input: { name: string; description: string; deliveryFormat: string; customEmojiId: string; priceUsd: number; inventoryText: string; deliveryMode: "automatic" | "manual"; warrantyDays: string; imageUrl: string; freeEligible: boolean; freeWindowMs: number | null; shopEligible: boolean; referralEligible: boolean; referralPriceCredits: number; bulkPricing?: string; preOrderEnabled?: boolean; hidden?: boolean; active?: boolean }) {
@@ -117,7 +120,7 @@ export const appRouter = router({
         monthly: aggregate(allRows, (date) => date.toISOString().slice(0, 7)),
       };
     }),
-    products: adminProcedure.input(z.object({ sort: z.enum(["alphabetical", "mostSold"]).default("alphabetical") }).optional()).query(async ({ input }) => { const db = await database(); const [rows, soldRows] = await Promise.all([db.select().from(products), db.select({ productId: orders.productId, total: sql<number>`coalesce(sum(${orders.quantity}), 0)` }).from(orders).where(or(eq(orders.status, "fulfilled"), eq(orders.status, "paid"))).groupBy(orders.productId)]); const soldByProduct = new Map(soldRows.map((row) => [row.productId, Number(row.total ?? 0)])); const enriched = rows.map((row) => ({ ...row, soldCount: soldByProduct.get(row.id) ?? 0 })); return enriched.sort((a, b) => input?.sort === "mostSold" ? b.soldCount - a.soldCount || a.name.localeCompare(b.name) : a.name.localeCompare(b.name)); }),
+    products: adminProcedure.input(z.object({ sort: z.enum(["alphabetical", "mostSold"]).default("alphabetical") }).optional()).query(async ({ input }) => { const db = await database(); const [rows, soldRows] = await Promise.all([db.select().from(products), db.select({ productId: orders.productId, total: sql<number>`coalesce(sum(${orders.quantity}), 0)` }).from(orders).where(or(eq(orders.status, "fulfilled"), eq(orders.status, "paid"))).groupBy(orders.productId)]); const soldByProduct = new Map(soldRows.map((row) => [row.productId, Number(row.total ?? 0)])); const enriched = rows.map((row) => ({ ...row, inventoryText: normalizeInventoryText(row.inventoryText), soldCount: soldByProduct.get(row.id) ?? 0 })); return enriched.sort((a, b) => input?.sort === "mostSold" ? b.soldCount - a.soldCount || a.name.localeCompare(b.name) : a.name.localeCompare(b.name)); }),
     createProduct: adminProcedure.input(z.object({ name: z.string().min(1).max(255), description: z.string().min(1), deliveryFormat: z.string().default(""), customEmojiId: z.string().max(32).default(""), priceUsd: z.number().nonnegative(), inventoryText: z.string().default(""), deliveryMode: z.enum(["automatic", "manual"]).default("automatic"), warrantyDays: z.string().max(255).default(""), imageUrl: z.string().url().or(z.literal("")).default(""), freeEligible: z.boolean(), shopEligible: z.boolean().default(true), freeWindowMs: z.number().int().positive().nullable(), referralEligible: z.boolean().default(false), referralPriceCredits: z.number().int().positive().default(1), bulkPricing: z.string().max(4000).default(""), preOrderEnabled: z.boolean().default(false), hidden: z.boolean().default(false), notifyUsers: z.boolean().default(true) })).mutation(async ({ input }) => {
       const db = await database();
       const values = productValues(input);

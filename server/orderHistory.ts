@@ -7,9 +7,13 @@ export type OrderHistorySnapshotInput = {
   legacyPaymentMethod: string;
 };
 
+export function normalizeEscapedNewlines(value: string | null | undefined) {
+  return String(value ?? "").replace(/\\+r?n/g, "\n").replace(/\r\n/g, "\n");
+}
+
 export function resolveOrderHistorySnapshot(input: OrderHistorySnapshotInput) {
   return {
-    deliveredItem: input.deliveredItem ?? "",
+    deliveredItem: normalizeEscapedNewlines(input.deliveredItem),
     warranty: input.purchaseWarranty ?? input.legacyWarranty ?? "",
     quantity: input.quantity ?? 1,
     paymentMethod: input.paymentMethod ?? input.legacyPaymentMethod,

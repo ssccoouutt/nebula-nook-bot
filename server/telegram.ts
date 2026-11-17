@@ -7,6 +7,7 @@ import { hasAccess, referralCodeForTelegramId } from "../shared/botLogic";
 import { flushDriveSync, getConfiguredCustomEmojiEntries, getConfiguredCustomEmojiId, premiumCustomEmojisEnabled, saveCustomEmojiMapping, scheduleDriveSync } from "./googleDrivePersistence";
 import { encryptedConfigDiagnostics } from "./configFile";
 import { formatBulkPricingForUsers, parseBulkPricing, resolveBulkUnitPriceCents } from "../shared/pricing";
+import { normalizeEscapedNewlines } from "./orderHistory";
 
 type TelegramUser = { id: number; username?: string; first_name?: string; last_name?: string };
 type TelegramChat = { id: number; type: string };
@@ -1106,7 +1107,7 @@ export function formatPurchaseConfirmation(orderId: string | number, productName
 }
 
 export function consumeDigitalInventory(inventoryText: string | null | undefined, quantity: number) {
-  const items = String(inventoryText ?? "").replaceAll("\\n", "\n").split(/\r?\n/).map(item => item.trim()).filter(Boolean);
+  const items = normalizeEscapedNewlines(inventoryText).split(/\r?\n/).map(item => item.trim()).filter(Boolean);
   const count = Math.max(1, Math.floor(quantity));
   if (items.length < count) return { ok: false as const, items: [] as string[], remaining: items };
   return { ok: true as const, items: items.slice(0, count), remaining: items.slice(count) };
@@ -1128,7 +1129,8 @@ export function formatDetailedOrder(order: { id: string | number; kind: string; 
   const purchasedAt = new Date(order.createdAt).toISOString().replace("T", " ").slice(0, 16) + " UTC";
   const product = order.productName.replace(/[<&>]/g, "");
   const quantity = Number(order.quantity ?? 1);
-  const delivered = order.deliveredItem?.trim() ? `\n📦 <b>Delivery details</b>\n<pre>${order.deliveredItem.trim().replace(/[<&>]/g, "")}</pre>` : "\n📦 <b>Delivery details:</b> No stock text was stored for this order.";
+  const deliveredItem = normalizeEscapedNewlines(order.deliveredItem).trim();
+  const delivered = deliveredItem ? `\n📦 <b>Delivery details</b>\n<pre>${deliveredItem.replace(/[<&>]/g, "")}</pre>` : "\n📦 <b>Delivery details:</b> No stock text was stored for this order.";
   const payment = (order.paymentMethod ?? (order.amountCents > 0 ? "Payment method unavailable" : "Free / credits")).replace(/[<&>]/g, "");
   const warranty = order.purchaseWarranty?.trim() ? `\n🛡️ Warranty: <b>${order.purchaseWarranty.trim().replace(/[<&>]/g, "")}</b>` : "";
   return `${icon} <b>Order #${order.id}</b>\n🛍️ Product: <b>${product}</b>\n🔢 Quantity: <b>${quantity}</b>\n💵 Total paid: <b>$${(order.amountCents / 100).toFixed(2)}</b>\n💳 Payment: <b>${payment}</b>\n🗓️ Purchased: <b>${purchasedAt}</b>\n📌 Status: <b>${order.status}</b>${warranty}${delivered}`;

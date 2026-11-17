@@ -24,6 +24,14 @@ describe("order history snapshots", () => {
     })).toEqual({ deliveredItem: "", warranty: "no warranty", quantity: 1, paymentMethod: "USDT BEP20" });
   });
 
+  it("converts literal escaped newlines to real line breaks", () => {
+    expect(resolveOrderHistorySnapshot({
+      deliveredItem: "account-one@example.test ; PrimeX\\naccount-two@example.test ; PrimeX",
+      legacyWarranty: "",
+      legacyPaymentMethod: "Wallet",
+    }).deliveredItem).toBe("account-one@example.test ; PrimeX\naccount-two@example.test ; PrimeX");
+  });
+
   it("includes delivered stock and historical warranty in search text", () => {
     expect(orderHistorySearchText({ userName: "R", username: "buyer", telegramUserId: 42, productName: "Gemini", deliveredItem: "activation-link", warranty: "30 Minutes", paymentMethod: "Wallet", id: 7, kind: "purchase" })).toContain("activation-link");
     expect(orderHistorySearchText({ userName: "R", username: "buyer", telegramUserId: 42, productName: "Gemini", deliveredItem: "activation-link", warranty: "30 Minutes", paymentMethod: "Wallet", id: 7, kind: "purchase" })).toContain("30 minutes");
